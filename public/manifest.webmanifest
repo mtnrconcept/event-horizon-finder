@@ -1,0 +1,13 @@
+{
+  "name": "EVENTA",
+  "short_name": "EVENTA",
+  "description": "Découvre les événements autour de toi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14162a",
+  "theme_color": "#1a1830",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "64x64", "type": "image/x-icon" }
+  ]
+}
