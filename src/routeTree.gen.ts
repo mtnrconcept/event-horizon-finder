@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as MapRouteImport } from './routes/map'
@@ -16,7 +17,16 @@ import { Route as FavoritesRouteImport } from './routes/favorites'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AgendaRouteImport } from './routes/agenda'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OrganizerIndexRouteImport } from './routes/organizer/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as OrganizerNewRouteImport } from './routes/organizer/new'
+import { Route as EventSlugRouteImport } from './routes/event.$slug'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
@@ -52,6 +62,26 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrganizerIndexRoute = OrganizerIndexRouteImport.update({
+  id: '/organizer/',
+  path: '/organizer/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrganizerNewRoute = OrganizerNewRouteImport.update({
+  id: '/organizer/new',
+  path: '/organizer/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventSlugRoute = EventSlugRouteImport.update({
+  id: '/event/$slug',
+  path: '/event/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +91,11 @@ export interface FileRoutesByFullPath {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/event/$slug': typeof EventSlugRoute
+  '/organizer/new': typeof OrganizerNewRoute
+  '/admin/': typeof AdminIndexRoute
+  '/organizer/': typeof OrganizerIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +105,11 @@ export interface FileRoutesByTo {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/event/$slug': typeof EventSlugRoute
+  '/organizer/new': typeof OrganizerNewRoute
+  '/admin': typeof AdminIndexRoute
+  '/organizer': typeof OrganizerIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +120,11 @@ export interface FileRoutesById {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/event/$slug': typeof EventSlugRoute
+  '/organizer/new': typeof OrganizerNewRoute
+  '/admin/': typeof AdminIndexRoute
+  '/organizer/': typeof OrganizerIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +136,11 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/reset-password'
+    | '/sitemap.xml'
+    | '/event/$slug'
+    | '/organizer/new'
+    | '/admin/'
+    | '/organizer/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +150,11 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/reset-password'
+    | '/sitemap.xml'
+    | '/event/$slug'
+    | '/organizer/new'
+    | '/admin'
+    | '/organizer'
   id:
     | '__root__'
     | '/'
@@ -109,6 +164,11 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/reset-password'
+    | '/sitemap.xml'
+    | '/event/$slug'
+    | '/organizer/new'
+    | '/admin/'
+    | '/organizer/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,10 +179,22 @@ export interface RootRouteChildren {
   MapRoute: typeof MapRoute
   ProfileRoute: typeof ProfileRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  EventSlugRoute: typeof EventSlugRoute
+  OrganizerNewRoute: typeof OrganizerNewRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+  OrganizerIndexRoute: typeof OrganizerIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reset-password': {
       id: '/reset-password'
       path: '/reset-password'
@@ -172,6 +244,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/organizer/': {
+      id: '/organizer/'
+      path: '/organizer'
+      fullPath: '/organizer/'
+      preLoaderRoute: typeof OrganizerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizer/new': {
+      id: '/organizer/new'
+      path: '/organizer/new'
+      fullPath: '/organizer/new'
+      preLoaderRoute: typeof OrganizerNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/event/$slug': {
+      id: '/event/$slug'
+      path: '/event/$slug'
+      fullPath: '/event/$slug'
+      preLoaderRoute: typeof EventSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -183,6 +283,11 @@ const rootRouteChildren: RootRouteChildren = {
   MapRoute: MapRoute,
   ProfileRoute: ProfileRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
+  EventSlugRoute: EventSlugRoute,
+  OrganizerNewRoute: OrganizerNewRoute,
+  AdminIndexRoute: AdminIndexRoute,
+  OrganizerIndexRoute: OrganizerIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
