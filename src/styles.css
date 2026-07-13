@@ -148,18 +148,18 @@
 
 @utility live-dot {
   position: relative;
-}
-@utility live-dot::before {
-  content: "";
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-  background: var(--color-live);
-  box-shadow: 0 0 0 0 var(--color-live);
-  animation: pulse-live 1.6s infinite;
-  margin-right: 0.4rem;
-  vertical-align: middle;
+  &::before {
+    content: "";
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: var(--color-live);
+    box-shadow: 0 0 0 0 var(--color-live);
+    animation: pulse-live 1.6s infinite;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+  }
 }
 @keyframes pulse-live {
   0% { box-shadow: 0 0 0 0 oklch(0.72 0.20 145 / 0.7); }
@@ -170,7 +170,7 @@
 /* Hide scrollbars on horizontal chip rows */
 @utility no-scrollbar {
   scrollbar-width: none;
-}
-@utility no-scrollbar::-webkit-scrollbar {
-  display: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
