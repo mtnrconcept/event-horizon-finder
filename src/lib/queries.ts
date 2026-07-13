@@ -85,19 +85,21 @@ export interface DiscoveredEvent {
 }
 
 export async function discoverEvents(p: DiscoverParams): Promise<DiscoveredEvent[]> {
-  const { data, error } = await supabase.rpc("discover_events", {
-    _lat: p.lat ?? null,
-    _lon: p.lon ?? null,
+  const args: Record<string, unknown> = {
     _radius_km: p.radiusKm ?? 25,
     _from: (p.from ?? new Date()).toISOString(),
     _to: (p.to ?? new Date(Date.now() + 30 * 24 * 3600 * 1000)).toISOString(),
-    _category_slugs: p.categorySlugs && p.categorySlugs.length ? p.categorySlugs : null,
-    _city_id: p.cityId ?? null,
     _free_only: p.freeOnly ?? false,
-    _query: p.query && p.query.trim() ? p.query.trim() : null,
     _limit: p.limit ?? 40,
     _offset: p.offset ?? 0,
-  });
+  };
+  if (p.lat != null) args._lat = p.lat;
+  if (p.lon != null) args._lon = p.lon;
+  if (p.categorySlugs && p.categorySlugs.length) args._category_slugs = p.categorySlugs;
+  if (p.cityId) args._city_id = p.cityId;
+  if (p.query && p.query.trim()) args._query = p.query.trim();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await supabase.rpc("discover_events", args as any);
   if (error) throw error;
   return (data ?? []) as DiscoveredEvent[];
 }
