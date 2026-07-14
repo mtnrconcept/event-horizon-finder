@@ -4,6 +4,8 @@ import { fetchEventBySlug } from "@/lib/queries";
 import { getEventArtworkUrl } from "@/lib/event-artwork";
 import { supabase } from "@/integrations/supabase/client";
 import { EventArtworkImage } from "@/components/event-artwork-image";
+import { TargetedCampaigns } from "@/components/targeted-campaigns";
+import { trackClientEvent } from "@/lib/client-analytics";
 import { Badge } from "@/components/ui/badge";
 import {
   Calendar,
@@ -83,6 +85,7 @@ function EventDetail() {
       await supabase.from("favorites").insert({ user_id: uid, event_id: e.id });
       setFav(true);
       toast.success("Ajouté aux favoris");
+      void trackClientEvent("event_favorite", { entityType: "event", entityId: e.id });
     }
   };
 
@@ -95,6 +98,7 @@ function EventDetail() {
         { onConflict: "user_id,occurrence_id" },
       );
     toast.success("Ajouté à ton agenda");
+    void trackClientEvent("event_agenda_add", { entityType: "event", entityId: e.id });
   };
 
   const share = async () => {
@@ -186,6 +190,10 @@ function EventDetail() {
         {e.short_description && (
           <p className="mt-2 text-lg text-muted-foreground">{e.short_description}</p>
         )}
+
+        <div className="mt-6">
+          <TargetedCampaigns placement="event" />
+        </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           {occ && (

@@ -1,6 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { MUSIC_GENRES } from "@/lib/event-filters";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/organizer/new")({
@@ -8,114 +10,405 @@ export const Route = createFileRoute("/organizer/new")({
   component: NewEvent,
 });
 
+const INITIAL_FORM = {
+  title: "",
+  short_description: "",
+  description: "",
+  organizer_id: "",
+  venue_id: "",
+  category_id: "",
+  city_id: "",
+  starts_at: "",
+  ends_at: "",
+  timezone: "Europe/Zurich",
+  is_free: false,
+  official_url: "",
+  cover_image_url: "",
+  age_restriction: "",
+  capacity: "",
+  price_min: "",
+  price_max: "",
+  ticket_url: "",
+  genres: [] as string[],
+};
+
 function NewEvent() {
   const navigate = useNavigate();
-  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
-  const [venues, setVenues] = useState<{ id: string; name: string }[]>([]);
-  const [cats, setCats] = useState<{ id: string; name_fr: string }[]>([]);
-  const [form, setForm] = useState({
-    title: "", short_description: "", description: "",
-    organizer_id: "", venue_id: "", category_id: "",
-    starts_at: "", ends_at: "", timezone: "Europe/Paris",
-    is_free: false, official_url: "",
-  });
+  const [orgs, setOrgs] = useState<Array<{ id: string; name: string }>>([]);
+  const [venues, setVenues] = useState<Array<{ id: string; name: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; name_fr: string }>>([]);
+  const [cities, setCities] = useState<Array<{ id: string; name: string; timezone: string }>>([]);
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { (async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { navigate({ to: "/auth" }); return; }
-    const [{ data: mems }, { data: v }, { data: c }] = await Promise.all([
-      supabase.from("organizer_members").select("organizer:organizers(id,name)").eq("user_id", user.id),
-      supabase.from("venues").select("id,name").order("name").limit(500),
-      supabase.from("event_categories").select("id,name_fr").order("sort_order"),
-    ]);
-    setOrgs((mems ?? []).map((m) => m.organizer!).filter(Boolean) as { id: string; name: string }[]);
-    setVenues((v ?? []) as { id: string; name: string }[]);
-    setCats((c ?? []) as { id: string; name_fr: string }[]);
-  })(); }, [navigate]);
+  useEffect(() => {
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
+        navigate({ to: "/auth", search: { redirect: "/organizer/new" } });
+        return;
+      }
+      const [memberships, venueRows, categoryRows, cityRows] = await Promise.all([
+        supabase
+          .from("organizer_members")
+          .select("organizer:organizers(id,name)")
+          .eq("user_id", data.user.id),
+        supabase.from("venues").select("id,name").order("name").limit(500),
+        supabase.from("event_categories").select("id,name_fr").order("sort_order"),
+        supabase.from("cities").select("id,name,timezone").order("name").limit(500),
+      ]);
+      const nextOrganizations = (memberships.data ?? [])
+        .map((membership) => membership.organizer)
+        .filter(Boolean) as Array<{ id: string; name: string }>;
+      setOrgs(nextOrganizations);
+      setVenues((venueRows.data ?? []) as Array<{ id: string; name: string }>);
+      setCategories((categoryRows.data ?? []) as Array<{ id: string; name_fr: string }>);
+      setCities((cityRows.data ?? []) as Array<{ id: string; name: string; timezone: string }>);
+      setForm((current) => ({
+        ...current,
+        organizer_id: current.organizer_id || nextOrganizations[0]?.id || "",
+      }));
+    })();
+  }, [navigate]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser(); if (!user) return;
-    const slug = form.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Math.random().toString(36).slice(2, 6);
-    const { data: ev, error } = await supabase.from("events").insert({
-      slug, title: form.title, short_description: form.short_description || null, description: form.description || null,
-      organizer_id: form.organizer_id || null, venue_id: form.venue_id || null, category_id: form.category_id || null,
-      status: "pending_review", publication_status: "pending", is_free: form.is_free, official_url: form.official_url || null,
-      created_by: user.id,
-    }).select().single();
-    if (error) return toast.error(error.message);
-    if (form.starts_at) {
-      await supabase.from("event_occurrences").insert({
-        event_id: ev.id, starts_at: new Date(form.starts_at).toISOString(),
-        ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null, timezone: form.timezone,
-      });
-    }
-    toast.success("Événement créé (en attente de vérification)");
-    navigate({ to: "/organizer" });
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const toggleGenre = (genre: string) => {
+    set(
+      "genres",
+      form.genres.includes(genre)
+        ? form.genres.filter((item) => item !== genre)
+        : [...form.genres, genre],
+    );
   };
 
-  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!form.organizer_id || saving) {
+      if (!form.organizer_id) toast.error("Choisis une organisation.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) throw new Error("Session expirée");
+      const slugRoot =
+        form.title
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "event";
+      const slug = `${slugRoot}-${crypto.randomUUID().slice(0, 6)}`;
+      const { data: createdEvent, error: eventError } = await supabase
+        .from("events")
+        .insert({
+          slug,
+          title: form.title.trim(),
+          short_description: form.short_description.trim() || null,
+          description: form.description.trim() || null,
+          organizer_id: form.organizer_id,
+          venue_id: form.venue_id || null,
+          category_id: form.category_id || null,
+          city_id: form.city_id || null,
+          status: "pending_review",
+          publication_status: "pending",
+          is_free: form.is_free,
+          official_url: form.official_url.trim() || null,
+          cover_image_url: form.cover_image_url.trim() || null,
+          age_restriction: form.age_restriction.trim() || null,
+          genres: form.genres,
+          created_by: authData.user.id,
+        })
+        .select("id")
+        .single();
+      if (eventError) throw eventError;
+
+      const { error: occurrenceError } = await supabase.from("event_occurrences").insert({
+        event_id: createdEvent.id,
+        starts_at: new Date(form.starts_at).toISOString(),
+        ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null,
+        timezone: form.timezone,
+        capacity: form.capacity ? Number(form.capacity) : null,
+      });
+      if (occurrenceError) {
+        await supabase.from("events").delete().eq("id", createdEvent.id);
+        throw occurrenceError;
+      }
+
+      if (form.is_free || form.price_min || form.price_max || form.ticket_url) {
+        const { error: ticketError } = await supabase.from("ticket_offers").insert({
+          event_id: createdEvent.id,
+          name: form.is_free ? "Entrée gratuite" : "Billet standard",
+          is_free: form.is_free,
+          price_min: form.is_free ? 0 : form.price_min ? Number(form.price_min) : null,
+          price_max: form.is_free ? 0 : form.price_max ? Number(form.price_max) : null,
+          currency: "CHF",
+          ticket_url: form.ticket_url.trim() || null,
+          status: form.is_free ? "free" : "available",
+        });
+        if (ticketError) {
+          toast.warning(`Événement créé, mais billetterie incomplète : ${ticketError.message}`);
+        }
+      }
+      toast.success("Événement envoyé pour vérification");
+      navigate({ to: "/organizer" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de créer l'événement");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pt-8 md:px-6">
-      <h1 className="mb-6 text-3xl font-bold">Nouvel événement</h1>
-      <form onSubmit={submit} className="glass space-y-4 rounded-2xl p-6">
-        <div>
-          <label className="text-xs font-medium">Titre *</label>
-          <input required value={form.title} onChange={(e) => set("title", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-xs font-medium">Organisation</label>
-            <select value={form.organizer_id} onChange={(e) => set("organizer_id", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm">
-              <option value="">—</option>
-              {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+    <div className="mx-auto max-w-3xl px-4 py-8 md:px-6">
+      <Link
+        to="/organizer"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ChevronLeft className="h-4 w-4" /> Dashboard organisateur
+      </Link>
+      <p className="text-xs font-semibold uppercase text-primary">Programmation</p>
+      <h1 className="mb-6 text-3xl font-black">Créer un événement</h1>
+      <form onSubmit={submit} className="glass space-y-5 rounded-[2rem] p-5 md:p-7">
+        <FormField label="Titre *">
+          <input
+            required
+            maxLength={180}
+            value={form.title}
+            onChange={(event) => set("title", event.target.value)}
+            className="field-control"
+          />
+        </FormField>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField label="Organisation *">
+            <select
+              required
+              value={form.organizer_id}
+              onChange={(event) => set("organizer_id", event.target.value)}
+              className="field-control"
+            >
+              <option value="">Sélectionner</option>
+              {orgs.map((organizer) => (
+                <option key={organizer.id} value={organizer.id}>
+                  {organizer.name}
+                </option>
+              ))}
             </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium">Catégorie</label>
-            <select value={form.category_id} onChange={(e) => set("category_id", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm">
-              <option value="">—</option>
-              {cats.map((c) => <option key={c.id} value={c.id}>{c.name_fr}</option>)}
+          </FormField>
+          <FormField label="Catégorie">
+            <select
+              value={form.category_id}
+              onChange={(event) => set("category_id", event.target.value)}
+              className="field-control"
+            >
+              <option value="">Non précisée</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name_fr}
+                </option>
+              ))}
             </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium">Lieu</label>
-            <select value={form.venue_id} onChange={(e) => set("venue_id", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm">
-              <option value="">—</option>
-              {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </FormField>
+          <FormField label="Lieu existant">
+            <select
+              value={form.venue_id}
+              onChange={(event) => set("venue_id", event.target.value)}
+              className="field-control"
+            >
+              <option value="">À confirmer</option>
+              {venues.map((venue) => (
+                <option key={venue.id} value={venue.id}>
+                  {venue.name}
+                </option>
+              ))}
             </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium">Fuseau (IANA)</label>
-            <input value={form.timezone} onChange={(e) => set("timezone", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs font-medium">Début *</label>
-            <input type="datetime-local" required value={form.starts_at} onChange={(e) => set("starts_at", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs font-medium">Fin</label>
-            <input type="datetime-local" value={form.ends_at} onChange={(e) => set("ends_at", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-          </div>
+          </FormField>
+          <FormField label="Ville">
+            <select
+              value={form.city_id}
+              onChange={(event) => {
+                const city = cities.find((item) => item.id === event.target.value);
+                set("city_id", event.target.value);
+                if (city) set("timezone", city.timezone);
+              }}
+              className="field-control"
+            >
+              <option value="">Non précisée</option>
+              {cities.map((city) => (
+                <option key={city.id} value={city.id}>
+                  {city.name}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Début *">
+            <input
+              type="datetime-local"
+              required
+              value={form.starts_at}
+              onChange={(event) => set("starts_at", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
+          <FormField label="Fin">
+            <input
+              type="datetime-local"
+              value={form.ends_at}
+              onChange={(event) => set("ends_at", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
+          <FormField label="Fuseau horaire">
+            <input
+              required
+              value={form.timezone}
+              onChange={(event) => set("timezone", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
+          <FormField label="Capacité">
+            <input
+              type="number"
+              min={1}
+              value={form.capacity}
+              onChange={(event) => set("capacity", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
         </div>
+
+        <FormField label="Description courte">
+          <input
+            maxLength={240}
+            value={form.short_description}
+            onChange={(event) => set("short_description", event.target.value)}
+            className="field-control"
+          />
+        </FormField>
+        <FormField label="Description complète">
+          <textarea
+            value={form.description}
+            onChange={(event) => set("description", event.target.value)}
+            rows={5}
+            className="field-control resize-none"
+          />
+        </FormField>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField label="Image de couverture (URL https)">
+            <input
+              type="url"
+              value={form.cover_image_url}
+              onChange={(event) => set("cover_image_url", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
+          <FormField label="Lien officiel">
+            <input
+              type="url"
+              value={form.official_url}
+              onChange={(event) => set("official_url", event.target.value)}
+              className="field-control"
+            />
+          </FormField>
+          <FormField label="Restriction d'âge">
+            <input
+              value={form.age_restriction}
+              onChange={(event) => set("age_restriction", event.target.value)}
+              placeholder="18+"
+              className="field-control"
+            />
+          </FormField>
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={form.is_free}
+              onChange={(event) => set("is_free", event.target.checked)}
+              className="h-4 w-4 accent-[var(--color-primary)]"
+            />{" "}
+            Événement gratuit
+          </label>
+          {!form.is_free && (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FormField label="Prix dès CHF">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.price_min}
+                  onChange={(event) => set("price_min", event.target.value)}
+                  className="field-control"
+                />
+              </FormField>
+              <FormField label="Prix maximum CHF">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.price_max}
+                  onChange={(event) => set("price_max", event.target.value)}
+                  className="field-control"
+                />
+              </FormField>
+              <div className="md:col-span-2">
+                <FormField label="Lien de billetterie">
+                  <input
+                    type="url"
+                    value={form.ticket_url}
+                    onChange={(event) => set("ticket_url", event.target.value)}
+                    className="field-control"
+                  />
+                </FormField>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div>
-          <label className="text-xs font-medium">Description courte</label>
-          <input value={form.short_description} onChange={(e) => set("short_description", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
+          <p className="text-xs font-medium">Styles musicaux</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {MUSIC_GENRES.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={form.genres.includes(value)}
+                onClick={() => toggleGenre(value)}
+                className="rounded-full border px-2.5 py-1 text-xs"
+                style={
+                  form.genres.includes(value)
+                    ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
+                    : undefined
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div>
-          <label className="text-xs font-medium">Description complète</label>
-          <textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={5} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label className="text-xs font-medium">Lien officiel</label>
-          <input type="url" value={form.official_url} onChange={(e) => set("official_url", e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.is_free} onChange={(e) => set("is_free", e.target.checked)} /> Événement gratuit
-        </label>
-        <button type="submit" className="btn-glow w-full rounded-full bg-primary py-2.5 text-sm font-medium text-primary-foreground">Créer (en attente de vérification)</button>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="btn-glow w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {saving ? "Création…" : "Créer et envoyer pour vérification"}
+        </button>
       </form>
     </div>
+  );
+}
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block text-xs font-medium">
+      <span className="mb-1.5 block">{label}</span>
+      {children}
+    </label>
   );
 }

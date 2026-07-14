@@ -22,6 +22,7 @@ import { Route as OrganizerIndexRouteImport } from './routes/organizer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as OrganizerNewRouteImport } from './routes/organizer/new'
+import { Route as OrganizerAdsRouteImport } from './routes/organizer/ads'
 import { Route as EventSlugRouteImport } from './routes/event.$slug'
 
 const SocialRoute = SocialRouteImport.update({
@@ -89,6 +90,11 @@ const OrganizerNewRoute = OrganizerNewRouteImport.update({
   path: '/organizer/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrganizerAdsRoute = OrganizerAdsRouteImport.update({
+  id: '/organizer/ads',
+  path: '/organizer/ads',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EventSlugRoute = EventSlugRouteImport.update({
   id: '/event/$slug',
   path: '/event/$slug',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
+  '/organizer/ads': typeof OrganizerAdsRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
+  '/organizer/ads': typeof OrganizerAdsRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
   '/admin': typeof AdminIndexRoute
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
+  '/organizer/ads': typeof OrganizerAdsRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/event/$slug'
+    | '/organizer/ads'
     | '/organizer/new'
     | '/post/$id'
     | '/admin/'
@@ -173,6 +183,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/event/$slug'
+    | '/organizer/ads'
     | '/organizer/new'
     | '/post/$id'
     | '/admin'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/event/$slug'
+    | '/organizer/ads'
     | '/organizer/new'
     | '/post/$id'
     | '/admin/'
@@ -206,6 +218,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SocialRoute: typeof SocialRoute
   EventSlugRoute: typeof EventSlugRoute
+  OrganizerAdsRoute: typeof OrganizerAdsRoute
   OrganizerNewRoute: typeof OrganizerNewRoute
   PostIdRoute: typeof PostIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -305,6 +318,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrganizerNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/organizer/ads': {
+      id: '/organizer/ads'
+      path: '/organizer/ads'
+      fullPath: '/organizer/ads'
+      preLoaderRoute: typeof OrganizerAdsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/event/$slug': {
       id: '/event/$slug'
       path: '/event/$slug'
@@ -326,6 +346,7 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SocialRoute: SocialRoute,
   EventSlugRoute: EventSlugRoute,
+  OrganizerAdsRoute: OrganizerAdsRoute,
   OrganizerNewRoute: OrganizerNewRoute,
   PostIdRoute: PostIdRoute,
   AdminIndexRoute: AdminIndexRoute,

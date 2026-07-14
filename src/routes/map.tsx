@@ -22,6 +22,7 @@ import { EventFilterPanel } from "@/components/event-filter-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { trackClientEvent } from "@/lib/client-analytics";
 import {
   Building2,
   CalendarDays,
@@ -81,6 +82,9 @@ const MAP_RANGES: { value: QuickRange; label: string }[] = [
 function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const markerRegistryRef = useRef(
+    new Map<string, { marker: maplibregl.Marker; signature: string }>(),
+  );
   const [cities, setCities] = useState<City[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cityId, setCityId] = useState<string | null>(null);
@@ -130,6 +134,7 @@ function MapPage() {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const markerRegistry = markerRegistryRef.current;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: MAPBOX_STYLE ?? OSM_STYLE,
@@ -156,6 +161,7 @@ function MapPage() {
     mapRef.current = map;
     return () => {
       window.clearTimeout(fallbackTimer);
+      markerRegistry.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -168,7 +174,7 @@ function MapPage() {
       center: [selectedCity.longitude, selectedCity.latitude],
       zoom: selectedCity.slug === "geneve" ? 12 : 11,
     });
-  }, [selectedCity]);
+  }, [mapReady, selectedCity]);
 
   useEffect(() => {
     let current = true;
@@ -209,72 +215,132 @@ function MapPage() {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    const markers: maplibregl.Marker[] = [];
-    const bounds = new maplibregl.LngLatBounds();
+    if (!map || !mapReady) return;
+    const registry = markerRegistryRef.current;
+    const desiredMarkerIds = new Set<string>();
+
+    const removeStaleMarkers = () => {
+      registry.forEach((entry, id) => {
+        if (desiredMarkerIds.has(id)) return;
+        entry.marker.remove();
+        registry.delete(id);
+      });
+    };
+
+    const replaceMarker = (
+      id: string,
+      signature: string,
+      longitude: number,
+      latitude: number,
+      createButton: () => HTMLButtonElement,
+    ) => {
+      desiredMarkerIds.add(id);
+      const existing = registry.get(id);
+      if (existing?.signature === signature) return;
+      existing?.marker.remove();
+
+      // MapLibre owns the host transform; visual hover/rotation lives on the
+      // child button so it can never override the marker's geographic position.
+      const host = document.createElement("div");
+      host.className = "eventa-map-marker-host";
+      const button = createButton();
+      const stopMapGesture = (event: Event) => event.stopPropagation();
+      button.addEventListener("pointerdown", stopMapGesture);
+      button.addEventListener("mousedown", stopMapGesture);
+      button.addEventListener("touchstart", stopMapGesture, { passive: true });
+      host.append(button);
+      const marker = new maplibregl.Marker({ element: host, anchor: "center" })
+        .setLngLat([longitude, latitude])
+        .addTo(map);
+      registry.set(id, { marker, signature });
+    };
 
     if (showEvents) {
       events.forEach((event) => {
         if (event.latitude == null || event.longitude == null) return;
-        const markerButton = document.createElement("button");
-        markerButton.type = "button";
-        markerButton.className =
-          "flex h-10 min-w-10 items-center justify-center rounded-full border-2 border-white px-2 text-[10px] font-black text-white shadow-xl transition-transform hover:scale-110";
-        markerButton.style.background = event.is_free
-          ? "oklch(0.72 0.18 35)"
-          : "oklch(0.68 0.22 295)";
-        markerButton.style.borderStyle = event.location_precision === "city" ? "dashed" : "solid";
-        markerButton.style.opacity = event.location_precision === "city" ? "0.86" : "1";
-        markerButton.textContent = event.is_free
-          ? "0"
-          : event.price_from != null
-            ? `${Math.round(event.price_from)}`
-            : "★";
-        markerButton.title = `${event.title}${event.location_precision === "city" ? " · position approximative" : ""}`;
-        markerButton.setAttribute("aria-label", markerButton.title);
-        markerButton.onclick = () => {
-          setSelectedVenue(null);
-          setSelectedEvent(event);
-        };
-        markers.push(
-          new maplibregl.Marker({ element: markerButton })
-            .setLngLat([event.longitude, event.latitude])
-            .addTo(map),
-        );
-        bounds.extend([event.longitude, event.latitude]);
+        const id = `event:${event.occurrence_id}`;
+        const signature = [
+          event.longitude,
+          event.latitude,
+          event.title,
+          event.is_free,
+          event.price_from,
+          event.location_precision,
+          cityId,
+        ].join("|");
+        replaceMarker(id, signature, event.longitude, event.latitude, () => {
+          const markerButton = document.createElement("button");
+          markerButton.type = "button";
+          markerButton.className = "eventa-map-event-marker";
+          markerButton.style.background = event.is_free
+            ? "oklch(0.72 0.18 35)"
+            : "oklch(0.68 0.22 295)";
+          markerButton.style.borderStyle = event.location_precision === "city" ? "dashed" : "solid";
+          markerButton.style.opacity = event.location_precision === "city" ? "0.86" : "1";
+          markerButton.textContent = event.is_free
+            ? "0"
+            : event.price_from != null
+              ? `${Math.round(event.price_from)}`
+              : "★";
+          markerButton.title = `${event.title}${event.location_precision === "city" ? " · position approximative" : ""}`;
+          markerButton.setAttribute("aria-label", markerButton.title);
+          markerButton.addEventListener("click", (clickEvent) => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            setSelectedVenue(null);
+            setSelectedEvent(event);
+            void trackClientEvent("map_pin_click", {
+              entityType: "event_occurrence",
+              entityId: event.occurrence_id,
+              cityId,
+              metadata: { precision: event.location_precision },
+            });
+          });
+          return markerButton;
+        });
       });
     }
 
     if (showVenues) {
       visibleVenues.forEach((venue) => {
-        const markerButton = document.createElement("button");
-        markerButton.type = "button";
-        markerButton.className =
-          "flex h-9 w-9 rotate-45 items-center justify-center rounded-lg border-2 border-white bg-slate-900 text-white shadow-xl transition-transform hover:scale-110";
-        markerButton.style.borderStyle = venue.location_precision === "city" ? "dashed" : "solid";
-        markerButton.style.opacity = venue.location_precision === "city" ? "0.8" : "1";
-        const label = document.createElement("span");
-        label.className = "-rotate-45 text-[10px] font-black";
-        label.textContent = "L";
-        markerButton.append(label);
-        markerButton.title = `${venue.name}${venue.location_precision === "city" ? " · position approximative" : ""}`;
-        markerButton.setAttribute("aria-label", markerButton.title);
-        markerButton.onclick = () => {
-          setSelectedEvent(null);
-          setSelectedVenue(venue);
-        };
-        markers.push(
-          new maplibregl.Marker({ element: markerButton })
-            .setLngLat([venue.longitude, venue.latitude])
-            .addTo(map),
-        );
-        bounds.extend([venue.longitude, venue.latitude]);
+        const id = `venue:${venue.id}`;
+        const signature = [
+          venue.longitude,
+          venue.latitude,
+          venue.name,
+          venue.location_precision,
+          cityId,
+        ].join("|");
+        replaceMarker(id, signature, venue.longitude, venue.latitude, () => {
+          const markerButton = document.createElement("button");
+          markerButton.type = "button";
+          markerButton.className = "eventa-map-venue-marker";
+          markerButton.style.borderStyle = venue.location_precision === "city" ? "dashed" : "solid";
+          markerButton.style.opacity = venue.location_precision === "city" ? "0.8" : "1";
+          const label = document.createElement("span");
+          label.textContent = "L";
+          markerButton.append(label);
+          markerButton.title = `${venue.name}${venue.location_precision === "city" ? " · position approximative" : ""}`;
+          markerButton.setAttribute("aria-label", markerButton.title);
+          markerButton.addEventListener("click", (clickEvent) => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            setSelectedEvent(null);
+            setSelectedVenue(venue);
+            void trackClientEvent("map_pin_click", {
+              entityType: "venue",
+              entityId: venue.id,
+              cityId,
+              metadata: { precision: venue.location_precision },
+            });
+          });
+          return markerButton;
+        });
       });
     }
 
-    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 90, maxZoom: 13, duration: 700 });
-    return () => markers.forEach((marker) => marker.remove());
-  }, [events, visibleVenues, showEvents, showVenues]);
+    removeStaleMarkers();
+  }, [cityId, events, mapReady, visibleVenues, showEvents, showVenues]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
