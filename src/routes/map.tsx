@@ -97,6 +97,9 @@ function MapPage() {
     setLoading(true);
     discoverMapEvents({
       cityId,
+      lat: selectedCity?.latitude,
+      lon: selectedCity?.longitude,
+      radiusKm: selectedCity ? 35 : 25,
       limit: 500,
       from: new Date(),
       to: new Date(Date.now() + 75 * 24 * 3600 * 1000),
@@ -104,7 +107,7 @@ function MapPage() {
       .then(setEvents)
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
-  }, [cityId]);
+  }, [cityId, selectedCity]);
 
   useEffect(() => {
     const m = mapRef.current;
