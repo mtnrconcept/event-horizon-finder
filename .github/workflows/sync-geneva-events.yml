@@ -35,6 +35,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js for precision tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the deterministic event normalizer
+        run: node --test supabase/functions/_shared/event-precision.test.ts
+
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is required" >&2; exit 1; }

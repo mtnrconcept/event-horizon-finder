@@ -66,6 +66,94 @@ class GenevaScraperTests(unittest.TestCase):
         events = SCRAPER.extract_json_ld_events(html, "https://festival.example/programme", "festivals")
         self.assertEqual(len(events), 1)
 
+    def test_uses_source_timezone_for_naive_dates_and_preserves_all_day_interval(self):
+        html = """
+        <script type="application/ld+json"><!--
+        {
+          "@type": "MusicEvent",
+          "name": "Brooklyn Summer Session",
+          "startDate": "2027-07-10",
+          "endDate": "2027-07-11",
+          "location": {"name": "Example Hall"},
+          "url": "/events/summer-session"
+        }
+        --></script>
+        """
+        events = SCRAPER.extract_json_ld_events(
+            html,
+            "https://newyork.example/calendar",
+            timezone_name="America/New_York",
+            city_name="New York",
+            city_latitude=40.7128,
+            city_longitude=-74.006,
+            country_code="US",
+        )
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.starts_at, "2027-07-10T00:00:00-04:00")
+        self.assertEqual(event.ends_at, "2027-07-12T00:00:00-04:00")
+        self.assertTrue(event.all_day)
+        self.assertEqual(event.time_precision, "date")
+
+    def test_extracts_price_range_and_discards_distant_coordinates(self):
+        html = """
+        <script type="application/ld+json">
+        {
+          "@type": "Event",
+          "name": "Geneva Electronic Festival",
+          "description": "Une annonce officielle suffisamment détaillée pour cette soirée électronique.",
+          "startDate": "2027-08-01T20:00:00+02:00",
+          "location": {
+            "name": "Scène du Lac",
+            "geo": {"latitude": 40.7128, "longitude": -74.006}
+          },
+          "organizer": {"name": "Association du Lac", "url": "/association"},
+          "offers": [
+            {"price": "45.00", "priceCurrency": "CHF", "url": "/tickets/standard"},
+            {"price": "90.00", "priceCurrency": "CHF"}
+          ],
+          "url": "https://invented.invalid/events/electronic-festival"
+        }
+        </script>
+        """
+        event = SCRAPER.extract_json_ld_events(
+            html, "https://festival.example/agenda", "festivals"
+        )[0]
+        self.assertEqual(event.price_min, 45)
+        self.assertEqual(event.price_max, 90)
+        self.assertEqual(event.currency, "CHF")
+        self.assertEqual(event.ticket_url, "https://festival.example/tickets/standard")
+        self.assertEqual(event.organizer_name, "Association du Lac")
+        self.assertEqual(event.organizer_url, "https://festival.example/association")
+        self.assertEqual(event.source_url, "https://festival.example/agenda")
+        self.assertIsNone(event.latitude)
+        self.assertIsNone(event.longitude)
+        self.assertIn("coordinates_outside_source_area", event.warnings)
+        self.assertIn("off_domain_source_url", event.warnings)
+
+    def test_dedupe_keeps_distinct_sessions(self):
+        common = {
+            "title": "Summer House Party",
+            "source_url": "https://club.example/events/summer-house",
+            "venue_name": "Lake Club",
+            "quality_score": 75,
+        }
+        first = SCRAPER.Event(starts_at="2027-08-10T20:00:00+02:00", **common)
+        duplicate = SCRAPER.Event(
+            starts_at="2027-08-10T20:05:00+02:00",
+            description="Description plus complète de la soirée officielle.",
+            quality_score=82,
+            **{key: value for key, value in common.items() if key != "quality_score"},
+        )
+        second_session = SCRAPER.Event(
+            starts_at="2027-08-10T22:00:00+02:00",
+            external_identifier="session-2",
+            **common,
+        )
+        events = SCRAPER._dedupe([first, duplicate, second_session])
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].quality_score, 82)
+
     def test_discovers_only_same_domain_event_links(self):
         html = """
         <a href="/agenda/concert-a">A</a>
