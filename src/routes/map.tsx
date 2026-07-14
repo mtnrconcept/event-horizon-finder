@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { discoverEvents, fetchCities, type DiscoveredEvent } from "@/lib/queries";
+import { discoverMapEvents, fetchCities, type DiscoveredEvent } from "@/lib/queries";
 import { EventCard } from "@/components/event-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,13 @@ export const Route = createFileRoute("/map")({
 
 const GENEVA_CENTER: [number, number] = [6.1432, 46.2044];
 
-/** MapLibre adapter — swap OSM tiles for MapTiler/Stadia by changing STYLE. */
+const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
+
+const MAPBOX_STYLE = MAPBOX_ACCESS_TOKEN
+  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${MAPBOX_ACCESS_TOKEN}`
+  : null;
+
+/** Free fallback when no Mapbox public token is configured. */
 const OSM_STYLE = {
   version: 8 as const,
   sources: {
@@ -37,8 +43,6 @@ type City = {
   latitude: number | null;
   longitude: number | null;
 };
-type OccurrencePoint = { id: string; latitude: number | null; longitude: number | null };
-
 function MapPage() {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -68,7 +72,7 @@ function MapPage() {
     if (!ref.current || mapRef.current) return;
     const m = new maplibregl.Map({
       container: ref.current,
-      style: OSM_STYLE as never,
+      style: (MAPBOX_STYLE ?? OSM_STYLE) as never,
       center: GENEVA_CENTER,
       zoom: 12,
     });
@@ -91,9 +95,9 @@ function MapPage() {
 
   useEffect(() => {
     setLoading(true);
-    discoverEvents({
+    discoverMapEvents({
       cityId,
-      limit: 250,
+      limit: 500,
       from: new Date(),
       to: new Date(Date.now() + 75 * 24 * 3600 * 1000),
     })
@@ -109,20 +113,11 @@ function MapPage() {
     const markers: maplibregl.Marker[] = [];
 
     (async () => {
-      const { supabase } = await import("@/integrations/supabase/client");
-      const ids = events.map((e) => e.occurrence_id);
-      if (!ids.length) return;
-      const { data } = await supabase
-        .from("event_occurrences")
-        .select("id,latitude,longitude")
-        .in("id", ids);
       if (cancelled) return;
 
-      const byId = new Map(((data as OccurrencePoint[] | null) ?? []).map((row) => [row.id, row]));
       const bounds = new maplibregl.LngLatBounds();
       events.forEach((ev) => {
-        const row = byId.get(ev.occurrence_id);
-        if (!row?.latitude || !row?.longitude) return;
+        if (!ev.latitude || !ev.longitude) return;
         const el = document.createElement("button");
         el.className =
           "flex h-10 w-10 items-center justify-center rounded-full border-2 border-white text-xs font-black text-white shadow-xl transition-transform hover:scale-110";
@@ -130,10 +125,10 @@ function MapPage() {
         el.textContent = ev.is_free ? "0" : "CHF";
         el.onclick = () => setSelected(ev);
         const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([row.longitude, row.latitude])
+          .setLngLat([ev.longitude, ev.latitude])
           .addTo(m);
         markers.push(marker);
-        bounds.extend([row.longitude, row.latitude]);
+        bounds.extend([ev.longitude, ev.latitude]);
       });
       if (!bounds.isEmpty()) m.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 700 });
     })();
@@ -154,13 +149,13 @@ function MapPage() {
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
-              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte live
+              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte Mapbox
             </Badge>
             <h1 className="text-xl font-black">Événements à {selectedCity?.name ?? "Genève"}</h1>
             <p className="text-xs text-muted-foreground">
               {loading
                 ? "Chargement des points…"
-                : `${events.length} sorties géolocalisées · ${freeCount} gratuites`}
+                : `${events.length} événements scrappés géolocalisés · ${freeCount} gratuits`}
             </p>
           </div>
           <Button
