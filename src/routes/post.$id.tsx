@@ -4,6 +4,7 @@ import { SocialPostCard } from "@/components/social/social-post-card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCurrentSocialUser, useSocialPost } from "@/hooks/use-social-feed";
+import { getEventArtworkUrl } from "@/lib/event-artwork";
 import { fetchSocialPost } from "@/lib/social-queries";
 
 export const Route = createFileRoute("/post/$id")({
@@ -23,7 +24,9 @@ export const Route = createFileRoute("/post/$id")({
     }
     const image =
       loaderData.media.find((item) => item.kind === "image")?.public_url ??
-      loaderData.event?.cover_image_url;
+      (loaderData.event
+        ? getEventArtworkUrl(loaderData.event.id, loaderData.event.cover_image_url)
+        : null);
     const description =
       loaderData.body?.slice(0, 180) ??
       loaderData.event?.short_description ??
