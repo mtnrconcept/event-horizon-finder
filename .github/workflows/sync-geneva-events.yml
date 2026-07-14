@@ -5,17 +5,50 @@ on:
   schedule:
     - cron: "17 4 * * *"
 
+concurrency:
+  group: sync-geneva-events
+  cancel-in-progress: false
+
 jobs:
-  sync:
+  deploy-and-sync:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      GENEVA_SCRAPER_SECRET: ${{ secrets.GENEVA_SCRAPER_SECRET }}
     steps:
-      - name: Trigger Geneva scraper Edge Function
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          GENEVA_SCRAPER_SECRET: ${{ secrets.GENEVA_SCRAPER_SECRET }}
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
         run: |
-          test -n "$SUPABASE_URL"
-          test -n "$GENEVA_SCRAPER_SECRET"
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is required" >&2; exit 1; }
+          test -n "$SUPABASE_DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD is required" >&2; exit 1; }
+          test -n "$SUPABASE_PROJECT_ID" || { echo "SUPABASE_PROJECT_ID is required" >&2; exit 1; }
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is required" >&2; exit 1; }
+          test -n "$GENEVA_SCRAPER_SECRET" || { echo "GENEVA_SCRAPER_SECRET is required" >&2; exit 1; }
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Push database migrations
+        run: supabase db push
+
+      - name: Deploy Supabase Edge Functions
+        run: |
+          supabase functions deploy firecrawl-scrape-event-url
+          supabase functions deploy firecrawl-webhook --no-verify-jwt
+          supabase functions deploy scrape-geneva-events --no-verify-jwt
+
+      - name: Trigger Geneva scraper Edge Function
+        run: |
           curl --fail-with-body \
             --request POST \
             --header "Content-Type: application/json" \
