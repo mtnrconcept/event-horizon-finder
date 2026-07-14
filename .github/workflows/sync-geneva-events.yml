@@ -1,4 +1,4 @@
-name: Sync regional events
+name: Continuous worldwide event sync
 
 on:
   workflow_dispatch:
@@ -16,10 +16,10 @@ on:
       - "scripts/**"
       - "supabase/**"
   schedule:
-    - cron: "17 4 * * *"
+    - cron: "*/15 * * * *"
 
 concurrency:
-  group: sync-geneva-events
+  group: sync-world-events
   cancel-in-progress: false
 
 jobs:
@@ -85,5 +85,6 @@ jobs:
       - name: Test the Geneva Python collector
         run: python3 -m unittest tests/test_scrape_geneva_events.py
 
-      - name: Scrape all due regional event sources in resilient batches
-        run: python3 scripts/scrape_geneva_events.py --batch-size 3 --max-batches 100
+      - name: Scrape all due worldwide event sources in resilient batches
+        timeout-minutes: 330
+        run: python3 scripts/scrape_geneva_events.py --batch-size 4 --max-batches 80
