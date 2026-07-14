@@ -145,7 +145,9 @@ function MapPage() {
 
   return (
     <div className="relative h-[calc(100vh-4rem)] w-full md:h-[calc(100vh-4rem)]">
-      <div ref={ref} className="absolute inset-0" />
+      <div className="absolute inset-0">
+        <div ref={ref} className="h-full w-full" />
+      </div>
 
       <div className="glass absolute left-3 right-3 top-3 z-10 rounded-3xl p-3 shadow-[var(--shadow-card)] md:left-6 md:right-auto md:w-[26rem]">
         <div className="mb-3 flex items-start justify-between gap-3">
