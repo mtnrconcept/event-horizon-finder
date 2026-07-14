@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SocialRouteImport } from './routes/social'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProfileRouteImport } from './routes/profile'
@@ -19,9 +20,15 @@ import { Route as AgendaRouteImport } from './routes/agenda'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrganizerIndexRouteImport } from './routes/organizer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as OrganizerNewRouteImport } from './routes/organizer/new'
 import { Route as EventSlugRouteImport } from './routes/event.$slug'
 
+const SocialRoute = SocialRouteImport.update({
+  id: '/social',
+  path: '/social',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
@@ -72,6 +79,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PostIdRoute = PostIdRouteImport.update({
+  id: '/post/$id',
+  path: '/post/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrganizerNewRoute = OrganizerNewRouteImport.update({
   id: '/organizer/new',
   path: '/organizer/new',
@@ -92,8 +104,10 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/new': typeof OrganizerNewRoute
+  '/post/$id': typeof PostIdRoute
   '/admin/': typeof AdminIndexRoute
   '/organizer/': typeof OrganizerIndexRoute
 }
@@ -106,8 +120,10 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/new': typeof OrganizerNewRoute
+  '/post/$id': typeof PostIdRoute
   '/admin': typeof AdminIndexRoute
   '/organizer': typeof OrganizerIndexRoute
 }
@@ -121,8 +137,10 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/social': typeof SocialRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/new': typeof OrganizerNewRoute
+  '/post/$id': typeof PostIdRoute
   '/admin/': typeof AdminIndexRoute
   '/organizer/': typeof OrganizerIndexRoute
 }
@@ -137,8 +155,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reset-password'
     | '/sitemap.xml'
+    | '/social'
     | '/event/$slug'
     | '/organizer/new'
+    | '/post/$id'
     | '/admin/'
     | '/organizer/'
   fileRoutesByTo: FileRoutesByTo
@@ -151,8 +171,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reset-password'
     | '/sitemap.xml'
+    | '/social'
     | '/event/$slug'
     | '/organizer/new'
+    | '/post/$id'
     | '/admin'
     | '/organizer'
   id:
@@ -165,8 +187,10 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reset-password'
     | '/sitemap.xml'
+    | '/social'
     | '/event/$slug'
     | '/organizer/new'
+    | '/post/$id'
     | '/admin/'
     | '/organizer/'
   fileRoutesById: FileRoutesById
@@ -180,14 +204,23 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  SocialRoute: typeof SocialRoute
   EventSlugRoute: typeof EventSlugRoute
   OrganizerNewRoute: typeof OrganizerNewRoute
+  PostIdRoute: typeof PostIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   OrganizerIndexRoute: typeof OrganizerIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/social': {
+      id: '/social'
+      path: '/social'
+      fullPath: '/social'
+      preLoaderRoute: typeof SocialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sitemap.xml': {
       id: '/sitemap.xml'
       path: '/sitemap.xml'
@@ -258,6 +291,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/post/$id': {
+      id: '/post/$id'
+      path: '/post/$id'
+      fullPath: '/post/$id'
+      preLoaderRoute: typeof PostIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/organizer/new': {
       id: '/organizer/new'
       path: '/organizer/new'
@@ -284,8 +324,10 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  SocialRoute: SocialRoute,
   EventSlugRoute: EventSlugRoute,
   OrganizerNewRoute: OrganizerNewRoute,
+  PostIdRoute: PostIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   OrganizerIndexRoute: OrganizerIndexRoute,
 }

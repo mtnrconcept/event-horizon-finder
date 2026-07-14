@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { User, LogOut, Shield, Settings } from "lucide-react";
+import { Heart, LogOut, Settings, Shield, User } from "lucide-react";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({ meta: [{ title: "Mon profil — EVENTA" }] }),
@@ -66,6 +66,9 @@ function Profile() {
         </div>
       </div>
       <div className="glass mb-4 space-y-2 rounded-2xl p-4">
+        <Link to="/favorites" className="flex items-center gap-3 rounded-lg p-3 hover:bg-accent">
+          <Heart className="h-5 w-5" /> Mes favoris
+        </Link>
         <Link to="/organizer" className="flex items-center gap-3 rounded-lg p-3 hover:bg-accent">
           <Settings className="h-5 w-5" /> Portail organisateur
         </Link>

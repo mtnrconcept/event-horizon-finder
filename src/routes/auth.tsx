@@ -3,17 +3,51 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+type AuthSearch = {
+  redirect?: string;
+};
+
+const redirectBase = "https://eventa.local";
+
+function safeInternalRedirect(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
+    return undefined;
+  }
+
+  try {
+    const base = new URL(redirectBase);
+    const target = new URL(value, base);
+    if (target.origin !== base.origin || target.pathname === "/auth") return undefined;
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>): AuthSearch => ({
+    redirect: safeInternalRedirect(search.redirect),
+  }),
   head: () => ({ meta: [{ title: "Connexion — EVENTA" }] }),
   component: Auth,
 });
 
 function Auth() {
   const navigate = useNavigate();
+  const { redirect } = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const destination = redirect ?? "/";
+
+  const returnToDestination = () => {
+    if (destination === "/") {
+      navigate({ to: "/" });
+      return;
+    }
+    window.location.assign(destination);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
@@ -21,15 +55,15 @@ function Auth() {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email, password,
-          options: { emailRedirectTo: `${window.location.origin}/` },
+          options: { emailRedirectTo: new URL(destination, window.location.origin).toString() },
         });
         if (error) throw error;
         toast.success("Compte créé. Vérifie ton e-mail si demandé.");
-        navigate({ to: "/" });
+        returnToDestination();
       } else if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        navigate({ to: "/" });
+        returnToDestination();
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
         if (error) throw error;

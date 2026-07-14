@@ -1,9 +1,18 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Compass, Map as MapIcon, Calendar, Heart, User } from "lucide-react";
+import { Calendar, Compass, Heart, Map as MapIcon, Rss, User } from "lucide-react";
 
-const items = [
+const mobileItems = [
   { to: "/", label: "Découvrir", icon: Compass },
   { to: "/map", label: "Carte", icon: MapIcon },
+  { to: "/agenda", label: "Agenda", icon: Calendar },
+  { to: "/social", label: "Fil", icon: Rss },
+  { to: "/profile", label: "Profil", icon: User },
+] as const;
+
+const desktopItems = [
+  { to: "/", label: "Découvrir", icon: Compass },
+  { to: "/map", label: "Carte", icon: MapIcon },
+  { to: "/social", label: "Fil", icon: Rss },
   { to: "/agenda", label: "Agenda", icon: Calendar },
   { to: "/favorites", label: "Favoris", icon: Heart },
   { to: "/profile", label: "Profil", icon: User },
@@ -16,7 +25,7 @@ export function MobileNav() {
       aria-label="Navigation principale"
       className="glass fixed bottom-0 left-0 right-0 z-40 flex items-stretch justify-around border-t px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 md:hidden"
     >
-      {items.map(({ to, label, icon: Icon }) => {
+      {mobileItems.map(({ to, label, icon: Icon }) => {
         const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
         return (
           <Link
@@ -43,7 +52,7 @@ export function DesktopHeader() {
           <span className="text-gradient">EVENTA</span>
         </Link>
         <nav className="flex items-center gap-1">
-          {items.map(({ to, label, icon: Icon }) => {
+          {desktopItems.map(({ to, label, icon: Icon }) => {
             const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
             return (
               <Link
