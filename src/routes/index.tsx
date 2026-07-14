@@ -5,7 +5,6 @@ import {
   CircleAlert,
   Crosshair,
   Flame,
-  LayoutGrid,
   Map as MapIcon,
   MapPin,
   RotateCcw,
@@ -25,8 +24,14 @@ import {
   type QuickRange,
 } from "@/lib/queries";
 import { EventCard, EventCardSkeleton } from "@/components/event-card";
+import { EventFilterPanel } from "@/components/event-filter-panel";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  countAdvancedFilters,
+  DEFAULT_ADVANCED_FILTERS,
+  toDiscoveryFilters,
+} from "@/lib/event-filters";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -71,7 +76,7 @@ function Discover() {
   const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
-  const [freeOnly, setFreeOnly] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [sort, setSort] = useState<SortMode>("soon");
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
@@ -79,6 +84,7 @@ function Discover() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const deferredQuery = useDeferredValue(query.trim());
+  const advancedCount = countAdvancedFilters(advancedFilters);
 
   useEffect(() => {
     fetchCities().then((c) => {
@@ -107,11 +113,11 @@ function Discover() {
       radiusKm: coords ? 25 : 500,
       cityId,
       categorySlugs: cats.size ? [...cats] : null,
-      freeOnly,
       query: deferredQuery,
       from,
       to,
-      limit: 120,
+      limit: 300,
+      ...toDiscoveryFilters(advancedFilters),
     })
       .then((data) => {
         if (current) setEvents(data);
@@ -127,7 +133,7 @@ function Discover() {
     return () => {
       current = false;
     };
-  }, [cityId, cats, freeOnly, deferredQuery, from, to, coords, reloadKey]);
+  }, [cityId, cats, advancedFilters, deferredQuery, from, to, coords, reloadKey]);
 
   const sortedEvents = useMemo(() => {
     const list = [...(events ?? [])];
@@ -172,7 +178,7 @@ function Discover() {
   const resetFilters = () => {
     setCats(new Set());
     setQuery("");
-    setFreeOnly(false);
+    setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
     setCoords(null);
     setRange("year");
     setSort("soon");
@@ -281,10 +287,16 @@ function Discover() {
             </button>
           ))}
           <button
-            onClick={() => setFreeOnly((v) => !v)}
+            onClick={() =>
+              setAdvancedFilters((current) => ({
+                ...current,
+                priceMode: current.priceMode === "free" ? "all" : "free",
+              }))
+            }
+            aria-pressed={advancedFilters.priceMode === "free"}
             className="shrink-0 rounded-2xl border px-4 py-2 text-sm font-semibold"
             style={
-              freeOnly
+              advancedFilters.priceMode === "free"
                 ? {
                     background: "var(--color-secondary)",
                     color: "var(--color-secondary-foreground)",
@@ -339,6 +351,20 @@ function Discover() {
           </button>
         ))}
       </div>
+
+      <details className="glass mb-5 rounded-3xl border" open={advancedCount > 0}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
+          <span className="inline-flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-primary" /> Prix, musique, jauge et accès
+          </span>
+          <Badge variant={advancedCount ? "default" : "outline"}>
+            {advancedCount ? `${advancedCount} actifs` : "Tous"}
+          </Badge>
+        </summary>
+        <div className="border-t p-3">
+          <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+        </div>
+      </details>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
