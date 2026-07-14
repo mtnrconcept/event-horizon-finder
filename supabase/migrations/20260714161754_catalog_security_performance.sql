@@ -18,7 +18,15 @@ ALTER FUNCTION public.sync_location_from_latlon() SET search_path = public;
 
 -- Trigger-only functions do not need direct PostgREST execution privileges.
 REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated;
+DO $$
+BEGIN
+  -- This helper is installed by a production-only database hook on older projects,
+  -- so it may legitimately be absent from a fresh Supabase preview branch.
+  IF to_regprocedure('public.rls_auto_enable()') IS NOT NULL THEN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated';
+  END IF;
+END;
+$$;
 
 -- Keep only the original event occurrence uniqueness index.
 DROP INDEX IF EXISTS public.event_occurrences_event_start_uidx;
