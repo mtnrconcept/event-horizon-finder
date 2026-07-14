@@ -46,7 +46,7 @@
   --font-sans: "Inter", system-ui, sans-serif;
 
   --shadow-glow: 0 0 40px oklch(0.62 0.24 295 / 0.35);
-  --shadow-card: 0 8px 32px oklch(0.10 0.03 265 / 0.5);
+  --shadow-card: 0 8px 32px oklch(0.1 0.03 265 / 0.5);
 }
 
 :root {
@@ -62,7 +62,7 @@
   --card: oklch(0.19 0.03 265 / 0.72);
   --card-foreground: oklch(0.97 0.005 260);
 
-  --popover: oklch(0.20 0.035 265);
+  --popover: oklch(0.2 0.035 265);
   --popover-foreground: oklch(0.97 0.005 260);
 
   /* Violet électrique */
@@ -83,11 +83,11 @@
   --destructive-foreground: oklch(0.97 0.005 260);
 
   --border: oklch(0.97 0.005 260 / 0.08);
-  --input: oklch(0.97 0.005 260 / 0.10);
+  --input: oklch(0.97 0.005 260 / 0.1);
   --ring: oklch(0.68 0.22 295 / 0.6);
 
   --glow: oklch(0.68 0.22 295);
-  --live: oklch(0.72 0.20 145);
+  --live: oklch(0.72 0.2 145);
   --demo: oklch(0.75 0.16 55);
 }
 
@@ -107,25 +107,37 @@
   --secondary-foreground: oklch(0.99 0.005 265);
   --muted: oklch(0.94 0.01 265);
   --muted-foreground: oklch(0.45 0.02 260);
-  --accent: oklch(0.90 0.05 295);
+  --accent: oklch(0.9 0.05 295);
   --accent-foreground: oklch(0.15 0.03 265);
   --border: oklch(0.15 0.03 265 / 0.1);
   --input: oklch(0.15 0.03 265 / 0.15);
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html, body { background: var(--color-background); color: var(--color-foreground); }
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
   body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     background-image:
-      radial-gradient(1200px circle at 10% -10%, oklch(0.30 0.10 295 / 0.35), transparent 50%),
-      radial-gradient(900px circle at 90% 10%, oklch(0.30 0.10 35 / 0.18), transparent 50%);
+      radial-gradient(1200px circle at 10% -10%, oklch(0.3 0.1 295 / 0.35), transparent 50%),
+      radial-gradient(900px circle at 90% 10%, oklch(0.3 0.1 35 / 0.18), transparent 50%);
     background-attachment: fixed;
     min-height: 100vh;
   }
-  h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
 }
 
 @utility glass {
@@ -146,6 +158,21 @@
   box-shadow: var(--shadow-glow);
 }
 
+@utility field-control {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
+  background: color-mix(in oklch, var(--color-surface) 72%, transparent);
+  padding: 0.7rem 0.85rem;
+  color: var(--color-foreground);
+  font-size: 0.875rem;
+  outline: none;
+  &:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 18%, transparent);
+  }
+}
+
 @utility live-dot {
   position: relative;
   &::before {
@@ -162,9 +189,73 @@
   }
 }
 @keyframes pulse-live {
-  0% { box-shadow: 0 0 0 0 oklch(0.72 0.20 145 / 0.7); }
-  70% { box-shadow: 0 0 0 10px oklch(0.72 0.20 145 / 0); }
-  100% { box-shadow: 0 0 0 0 oklch(0.72 0.20 145 / 0); }
+  0% {
+    box-shadow: 0 0 0 0 oklch(0.72 0.2 145 / 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px oklch(0.72 0.2 145 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.72 0.2 145 / 0);
+  }
+}
+
+.eventa-map-marker-host {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.eventa-map-marker-host:hover,
+.eventa-map-marker-host:focus-within {
+  z-index: 8;
+}
+
+.eventa-map-event-marker,
+.eventa-map-venue-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+  color: white;
+  box-shadow: 0 8px 22px oklch(0.08 0.03 265 / 0.72);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    scale 140ms ease,
+    filter 140ms ease;
+}
+
+.eventa-map-event-marker {
+  min-width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  padding-inline: 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 900;
+}
+
+.eventa-map-venue-marker {
+  width: 2.25rem;
+  height: 2.25rem;
+  rotate: 45deg;
+  border-radius: 0.55rem;
+  background: oklch(0.22 0.035 265);
+  font-size: 0.625rem;
+  font-weight: 900;
+}
+
+.eventa-map-venue-marker > span {
+  rotate: -45deg;
+}
+
+.eventa-map-event-marker:hover,
+.eventa-map-event-marker:focus-visible,
+.eventa-map-venue-marker:hover,
+.eventa-map-venue-marker:focus-visible {
+  scale: 1.12;
+  filter: brightness(1.1);
+  outline: 3px solid color-mix(in oklch, var(--color-primary) 45%, transparent);
+  outline-offset: 2px;
 }
 
 /* Hide scrollbars on horizontal chip rows */

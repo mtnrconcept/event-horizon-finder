@@ -27,6 +27,7 @@ import { EventCard, EventCardSkeleton } from "@/components/event-card";
 import { EventFilterPanel } from "@/components/event-filter-panel";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { TargetedCampaigns } from "@/components/targeted-campaigns";
 import {
   countAdvancedFilters,
   DEFAULT_ADVANCED_FILTERS,
@@ -220,6 +221,8 @@ function Discover() {
           </div>
         </div>
       </section>
+
+      <TargetedCampaigns placement="discover" />
 
       <div className="glass sticky top-16 z-30 mb-4 rounded-3xl p-3 shadow-[var(--shadow-card)] md:top-20">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">

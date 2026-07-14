@@ -8,6 +8,156 @@ export type Database = {
   };
   public: {
     Tables: {
+      ad_campaign_delivery_events: {
+        Row: {
+          campaign_id: string;
+          event_day: string;
+          event_type: string;
+          id: string;
+          occurred_at: string;
+          path: string;
+          placement: string;
+          session_id: string;
+          user_id: string;
+        };
+        Insert: {
+          campaign_id: string;
+          event_day?: string;
+          event_type: string;
+          id?: string;
+          occurred_at?: string;
+          path: string;
+          placement: string;
+          session_id: string;
+          user_id: string;
+        };
+        Update: {
+          campaign_id?: string;
+          event_day?: string;
+          event_type?: string;
+          id?: string;
+          occurred_at?: string;
+          path?: string;
+          placement?: string;
+          session_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ad_campaign_delivery_events_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "ad_campaigns";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ad_campaigns: {
+        Row: {
+          body: string | null;
+          created_at: string;
+          created_by: string;
+          cta_label: string;
+          cta_url: string | null;
+          currency: string;
+          daily_budget: number;
+          ends_at: string;
+          headline: string;
+          id: string;
+          image_url: string | null;
+          name: string;
+          objective: string;
+          organizer_id: string;
+          placements: string[];
+          promoted_event_id: string | null;
+          promoted_post_id: string | null;
+          starts_at: string;
+          status: string;
+          target_age_max: number | null;
+          target_age_min: number | null;
+          target_city_ids: string[];
+          target_music_genres: string[];
+          total_budget: number;
+          updated_at: string;
+        };
+        Insert: {
+          body?: string | null;
+          created_at?: string;
+          created_by: string;
+          cta_label?: string;
+          cta_url?: string | null;
+          currency?: string;
+          daily_budget?: number;
+          ends_at?: string;
+          headline: string;
+          id?: string;
+          image_url?: string | null;
+          name: string;
+          objective?: string;
+          organizer_id: string;
+          placements?: string[];
+          promoted_event_id?: string | null;
+          promoted_post_id?: string | null;
+          starts_at?: string;
+          status?: string;
+          target_age_max?: number | null;
+          target_age_min?: number | null;
+          target_city_ids?: string[];
+          target_music_genres?: string[];
+          total_budget?: number;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string | null;
+          created_at?: string;
+          created_by?: string;
+          cta_label?: string;
+          cta_url?: string | null;
+          currency?: string;
+          daily_budget?: number;
+          ends_at?: string;
+          headline?: string;
+          id?: string;
+          image_url?: string | null;
+          name?: string;
+          objective?: string;
+          organizer_id?: string;
+          placements?: string[];
+          promoted_event_id?: string | null;
+          promoted_post_id?: string | null;
+          starts_at?: string;
+          status?: string;
+          target_age_max?: number | null;
+          target_age_min?: number | null;
+          target_city_ids?: string[];
+          target_music_genres?: string[];
+          total_budget?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ad_campaigns_organizer_id_fkey";
+            columns: ["organizer_id"];
+            isOneToOne: false;
+            referencedRelation: "organizers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ad_campaigns_promoted_event_id_fkey";
+            columns: ["promoted_event_id"];
+            isOneToOne: false;
+            referencedRelation: "events";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ad_campaigns_promoted_post_id_fkey";
+            columns: ["promoted_post_id"];
+            isOneToOne: false;
+            referencedRelation: "social_posts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           action: string;
@@ -133,6 +283,56 @@ export type Database = {
             columns: ["region_id"];
             isOneToOne: false;
             referencedRelation: "regions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      client_journey_events: {
+        Row: {
+          city_id: string | null;
+          entity_id: string | null;
+          entity_type: string | null;
+          event_name: string;
+          id: string;
+          metadata: Json;
+          occurred_at: string;
+          path: string;
+          referrer_path: string | null;
+          session_id: string;
+          user_id: string;
+        };
+        Insert: {
+          city_id?: string | null;
+          entity_id?: string | null;
+          entity_type?: string | null;
+          event_name: string;
+          id?: string;
+          metadata?: Json;
+          occurred_at?: string;
+          path: string;
+          referrer_path?: string | null;
+          session_id: string;
+          user_id: string;
+        };
+        Update: {
+          city_id?: string | null;
+          entity_id?: string | null;
+          entity_type?: string | null;
+          event_name?: string;
+          id?: string;
+          metadata?: Json;
+          occurred_at?: string;
+          path?: string;
+          referrer_path?: string | null;
+          session_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "client_journey_events_city_id_fkey";
+            columns: ["city_id"];
+            isOneToOne: false;
+            referencedRelation: "cities";
             referencedColumns: ["id"];
           },
         ];
@@ -1087,33 +1287,59 @@ export type Database = {
       };
       profiles: {
         Row: {
+          account_type: string;
+          analytics_consent: boolean;
           avatar_url: string | null;
+          birth_year: number | null;
+          consent_updated_at: string | null;
           created_at: string;
           display_name: string | null;
           home_city_id: string | null;
           id: string;
           locale: string | null;
+          music_preferences: string[];
+          personalized_ads_consent: boolean;
           updated_at: string;
         };
         Insert: {
+          account_type?: string;
+          analytics_consent?: boolean;
           avatar_url?: string | null;
+          birth_year?: number | null;
+          consent_updated_at?: string | null;
           created_at?: string;
           display_name?: string | null;
           home_city_id?: string | null;
           id: string;
           locale?: string | null;
+          music_preferences?: string[];
+          personalized_ads_consent?: boolean;
           updated_at?: string;
         };
         Update: {
+          account_type?: string;
+          analytics_consent?: boolean;
           avatar_url?: string | null;
+          birth_year?: number | null;
+          consent_updated_at?: string | null;
           created_at?: string;
           display_name?: string | null;
           home_city_id?: string | null;
           id?: string;
           locale?: string | null;
+          music_preferences?: string[];
+          personalized_ads_consent?: boolean;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "profiles_home_city_id_fkey";
+            columns: ["home_city_id"];
+            isOneToOne: false;
+            referencedRelation: "cities";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       regions: {
         Row: {
@@ -1790,75 +2016,114 @@ export type Database = {
         Args: { _name: string; _slug: string };
         Returns: string;
       };
+      delete_my_client_journey: { Args: never; Returns: number };
       disablelongtransactions: { Args: never; Returns: string };
       discover_events: {
         Args: {
+          _accessible_only?: boolean;
+          _capacity_max?: number;
+          _capacity_min?: number;
+          _capacity_unknown?: boolean;
           _category_slugs?: string[];
           _city_id?: string;
           _free_only?: boolean;
           _from?: string;
+          _genres?: string[];
           _lat?: number;
           _limit?: number;
           _lon?: number;
           _offset?: number;
+          _price_max?: number;
+          _price_min?: number;
+          _priced_only?: boolean;
           _query?: string;
           _radius_km?: number;
+          _tickets_only?: boolean;
           _to?: string;
+          _venue_only?: boolean;
+          _verified_only?: boolean;
         };
         Returns: {
+          capacity: number;
           category_slug: string;
           city_name: string;
           cover_image_url: string;
           distance_km: number;
           ends_at: string;
           event_id: string;
+          genres: string[];
+          has_tickets: boolean;
           is_demo: boolean;
           is_free: boolean;
           is_verified: boolean;
+          location_precision: string;
           occurrence_id: string;
+          price_from: number;
+          price_to: number;
           short_description: string;
           slug: string;
           starts_at: string;
           status: Database["public"]["Enums"]["event_status"];
           timezone: string;
           title: string;
+          venue_id: string;
           venue_name: string;
+          wheelchair: boolean;
         }[];
       };
       discover_map_events: {
         Args: {
+          _accessible_only?: boolean;
+          _capacity_max?: number;
+          _capacity_min?: number;
+          _capacity_unknown?: boolean;
           _category_slugs?: string[];
           _city_id?: string;
           _free_only?: boolean;
           _from?: string;
+          _genres?: string[];
           _lat?: number;
           _limit?: number;
           _lon?: number;
           _offset?: number;
+          _price_max?: number;
+          _price_min?: number;
+          _priced_only?: boolean;
           _query?: string;
           _radius_km?: number;
+          _tickets_only?: boolean;
           _to?: string;
+          _venue_only?: boolean;
+          _verified_only?: boolean;
         };
         Returns: {
+          capacity: number;
           category_slug: string;
           city_name: string;
           cover_image_url: string;
           distance_km: number;
           ends_at: string;
           event_id: string;
+          genres: string[];
+          has_tickets: boolean;
           is_demo: boolean;
           is_free: boolean;
           is_verified: boolean;
           latitude: number;
+          location_precision: string;
           longitude: number;
           occurrence_id: string;
+          price_from: number;
+          price_to: number;
           short_description: string;
           slug: string;
           starts_at: string;
           status: Database["public"]["Enums"]["event_status"];
           timezone: string;
           title: string;
+          venue_id: string;
           venue_name: string;
+          wheelchair: boolean;
         }[];
       };
       dropgeometrycolumn:
@@ -1891,8 +2156,31 @@ export type Database = {
           }
         | { Args: { schema_name: string; table_name: string }; Returns: string }
         | { Args: { table_name: string }; Returns: string };
+      eligible_ad_campaigns: {
+        Args: { _limit?: number; _placement?: string };
+        Returns: {
+          body: string;
+          campaign_id: string;
+          cta_label: string;
+          cta_url: string;
+          headline: string;
+          image_url: string;
+          organizer_name: string;
+          promoted_event_slug: string;
+          promoted_post_id: string;
+        }[];
+      };
       enablelongtransactions: { Args: never; Returns: string };
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean };
+      estimate_ad_campaign_audience: {
+        Args: {
+          _age_max?: number;
+          _age_min?: number;
+          _city_ids?: string[];
+          _genres?: string[];
+        };
+        Returns: number;
+      };
       geometry: { Args: { "": string }; Returns: unknown };
       geometry_above: {
         Args: { geom1: unknown; geom2: unknown };
@@ -1991,6 +2279,16 @@ export type Database = {
         Returns: boolean;
       };
       geomfromewkt: { Args: { "": string }; Returns: unknown };
+      get_ad_campaign_performance: {
+        Args: { _organizer_id: string };
+        Returns: {
+          campaign_id: string;
+          click_count: number;
+          click_through_rate: number;
+          impression_count: number;
+          unique_reach: number;
+        }[];
+      };
       gettransactionid: { Args: never; Returns: unknown };
       has_role: {
         Args: {
@@ -1998,6 +2296,14 @@ export type Database = {
           _user_id: string;
         };
         Returns: boolean;
+      };
+      infer_event_genres: {
+        Args: {
+          _description?: string;
+          _short_description?: string;
+          _title: string;
+        };
+        Returns: string[];
       };
       is_organizer_member: {
         Args: { _org: string; _user: string };
@@ -2044,6 +2350,16 @@ export type Database = {
       };
       postgis_version: { Args: never; Returns: string };
       postgis_wagyu_version: { Args: never; Returns: string };
+      record_ad_campaign_delivery: {
+        Args: {
+          _campaign_id: string;
+          _event_type: string;
+          _path: string;
+          _placement: string;
+          _session_id: string;
+        };
+        Returns: boolean;
+      };
       show_limit: { Args: never; Returns: number };
       show_trgm: { Args: { "": string }; Returns: string[] };
       st_3dclosestpoint: {

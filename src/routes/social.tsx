@@ -7,6 +7,7 @@ import { SocialFeed } from "@/components/social/social-feed";
 import { SocialPostComposer } from "@/components/social/social-post-composer";
 import { useCurrentSocialUser } from "@/hooks/use-social-feed";
 import type { SocialFeedFilter } from "@/lib/social-queries";
+import { TargetedCampaigns } from "@/components/targeted-campaigns";
 
 export const Route = createFileRoute("/social")({
   head: () => ({
@@ -14,8 +15,7 @@ export const Route = createFileRoute("/social")({
       { title: "Communauté — EVENTA" },
       {
         name: "description",
-        content:
-          "Découvre les annonces des organisateurs et échange autour des événements.",
+        content: "Découvre les annonces des organisateurs et échange autour des événements.",
       },
       { property: "og:title", content: "Communauté EVENTA" },
       {
@@ -47,6 +47,8 @@ function SocialPage() {
           ta ville.
         </p>
       </section>
+
+      <TargetedCampaigns placement="social" />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,680px)_minmax(250px,1fr)]">
         <div className="min-w-0">
