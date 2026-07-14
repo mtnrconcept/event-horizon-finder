@@ -32,7 +32,8 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is required" >&2; exit 1; }
           test -n "$SUPABASE_DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD is required" >&2; exit 1; }
           test -n "$SUPABASE_PROJECT_ID" || { echo "SUPABASE_PROJECT_ID is required" >&2; exit 1; }
-          test -n "$GENEVA_SCRAPER_SECRET" || { echo "GENEVA_SCRAPER_SECRET is required" >&2; exit 1; }
+          normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
+          test -n "$normalized_geneva_secret" || { echo "GENEVA_SCRAPER_SECRET is required" >&2; exit 1; }
 
       - name: Resolve Supabase function URL
         run: |
@@ -56,6 +57,11 @@ jobs:
       - name: Push database migrations
         run: supabase db push
 
+      - name: Sync Geneva scraper Edge Function secrets
+        run: |
+          normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
+          supabase secrets set "GENEVA_SCRAPER_SECRET=$normalized_geneva_secret"
+
       - name: Deploy Supabase Edge Functions
         run: |
           supabase functions deploy firecrawl-scrape-event-url
@@ -64,9 +70,10 @@ jobs:
 
       - name: Trigger Geneva scraper Edge Function
         run: |
+          normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
           curl --fail-with-body \
             --request POST \
             --header "Content-Type: application/json" \
-            --header "x-geneva-scraper-secret: $GENEVA_SCRAPER_SECRET" \
+            --header "x-geneva-scraper-secret: $normalized_geneva_secret" \
             --data '{}' \
             "$SUPABASE_FUNCTION_URL/functions/v1/scrape-geneva-events"
