@@ -1,1 +1,10 @@
 project_id = "xtwxmdbobehovnghfkes"
+
+[functions.firecrawl-scrape-event-url]
+verify_jwt = true
+
+[functions.firecrawl-webhook]
+verify_jwt = false
+
+[functions.scrape-geneva-events]
+verify_jwt = false
