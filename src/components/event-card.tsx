@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { DiscoveredEvent } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
+import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
 
 function formatLocalTime(iso: string, tz: string) {
@@ -33,7 +34,6 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function EventCard({ ev }: { ev: DiscoveredEvent }) {
   const [fav, setFav] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
@@ -49,8 +49,6 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
       .maybeSingle()
       .then(({ data }) => setFav(!!data));
   }, [userId, ev.event_id]);
-
-  useEffect(() => setImageFailed(false), [ev.cover_image_url]);
 
   const toggleFav = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -77,31 +75,30 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
       className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]"
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-muted">
-        {ev.cover_image_url && !imageFailed ? (
-          <img
-            src={ev.cover_image_url}
-            alt={ev.title}
-            loading="lazy"
-            onError={() => setImageFailed(true)}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_75%_20%,oklch(0.72_0.18_35_/_0.38),transparent_30%),linear-gradient(135deg,oklch(0.3_0.12_295),oklch(0.16_0.04_265))] text-white">
-            <div className="text-center">
-              <Sparkles className="mx-auto mb-2 h-8 w-8 opacity-70" />
-              <p className="text-3xl font-black">
-                {new Intl.DateTimeFormat("fr-FR", { day: "2-digit" }).format(
-                  new Date(ev.starts_at),
-                )}
-              </p>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] opacity-75">
-                {new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(
-                  new Date(ev.starts_at),
-                )}
-              </p>
+        <EventArtworkImage
+          eventId={ev.event_id}
+          sourceUrl={ev.cover_image_url}
+          alt={ev.title}
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          fallback={
+            <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_75%_20%,oklch(0.72_0.18_35_/_0.38),transparent_30%),linear-gradient(135deg,oklch(0.3_0.12_295),oklch(0.16_0.04_265))] text-white">
+              <div className="text-center">
+                <Sparkles className="mx-auto mb-2 h-8 w-8 opacity-70" />
+                <p className="text-3xl font-black">
+                  {new Intl.DateTimeFormat("fr-FR", { day: "2-digit" }).format(
+                    new Date(ev.starts_at),
+                  )}
+                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] opacity-75">
+                  {new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(
+                    new Date(ev.starts_at),
+                  )}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          }
+        />
         <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
           <div className="flex flex-wrap gap-1.5">
             {ev.is_demo && (

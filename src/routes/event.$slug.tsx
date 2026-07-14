@@ -1,7 +1,9 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { fetchEventBySlug } from "@/lib/queries";
+import { getEventArtworkUrl } from "@/lib/event-artwork";
 import { supabase } from "@/integrations/supabase/client";
+import { EventArtworkImage } from "@/components/event-artwork-image";
 import { Badge } from "@/components/ui/badge";
 import {
   Calendar,
@@ -27,15 +29,14 @@ export const Route = createFileRoute("/event/$slug")({
         meta: [{ title: "Événement introuvable — EVENTA" }, { name: "robots", content: "noindex" }],
       };
     const e = loaderData;
+    const artworkUrl = getEventArtworkUrl(e.id, e.cover_image_url);
     return {
       meta: [
         { title: `${e.title} — EVENTA` },
         { name: "description", content: e.short_description ?? e.title },
         { property: "og:title", content: e.title },
         { property: "og:description", content: e.short_description ?? "" },
-        ...(e.cover_image_url
-          ? ([{ property: "og:image", content: e.cover_image_url }] as const)
-          : []),
+        ...(artworkUrl ? ([{ property: "og:image", content: artworkUrl }] as const) : []),
       ],
     };
   },
@@ -124,12 +125,18 @@ function EventDetail() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      {e.cover_image_url && (
-        <div className="relative aspect-[16/9] w-full overflow-hidden md:aspect-[21/9]">
-          <img src={e.cover_image_url} alt={e.title} className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
-        </div>
-      )}
+      <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted md:aspect-[21/9]">
+        <EventArtworkImage
+          eventId={e.id}
+          sourceUrl={e.cover_image_url}
+          alt={e.title}
+          className="h-full w-full object-cover"
+          fallback={
+            <div className="h-full w-full bg-[radial-gradient(circle_at_75%_20%,oklch(0.72_0.18_35_/_0.38),transparent_30%),linear-gradient(135deg,oklch(0.3_0.12_295),oklch(0.16_0.04_265))]" />
+          }
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
+      </div>
       <div className="px-4 pb-16 md:px-6">
         {cancelled && (
           <div

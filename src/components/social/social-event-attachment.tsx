@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { CalendarDays, MapPin, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { EventArtworkImage } from "@/components/event-artwork-image";
 import type { SocialEvent } from "@/lib/social-queries";
 
 function eventDate(event: SocialEvent) {
@@ -27,18 +28,18 @@ export function SocialEventAttachment({ event }: { event: SocialEvent }) {
       className="group mx-4 mb-4 flex overflow-hidden rounded-2xl border bg-surface/60 transition-colors hover:bg-accent/60"
     >
       <div className="h-28 w-28 shrink-0 overflow-hidden bg-muted sm:h-32 sm:w-40">
-        {event.cover_image_url ? (
-          <img
-            src={event.cover_image_url}
-            alt=""
-            loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <Sparkles className="h-7 w-7 text-muted-foreground" />
-          </div>
-        )}
+        <EventArtworkImage
+          eventId={event.id}
+          sourceUrl={event.cover_image_url}
+          alt=""
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          fallback={
+            <div className="flex h-full items-center justify-center">
+              <Sparkles className="h-7 w-7 text-muted-foreground" />
+            </div>
+          }
+        />
       </div>
       <div className="min-w-0 flex-1 p-3">
         <div className="mb-1 flex items-center gap-2">
