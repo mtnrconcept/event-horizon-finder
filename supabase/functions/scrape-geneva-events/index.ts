@@ -57,6 +57,7 @@ type DataSource = {
   sync_frequency: string | null;
   last_sync_at: string | null;
   next_sync_at: string | null;
+  updated_at: string | null;
   category_slug: string | null;
   metadata: Record<string, unknown> | null;
 };
@@ -137,11 +138,20 @@ function pageUrl(source: DataSource, page: number): string {
 
 function shouldSync(source: DataSource, force: boolean, runStartedAt: number | null): boolean {
   if (force) return true;
+  const lastSync = source.last_sync_at ? new Date(source.last_sync_at).getTime() : Number.NaN;
+  const updatedAt = source.updated_at ? new Date(source.updated_at).getTime() : Number.NaN;
+  // Keep the task list stable for cursor pagination. Both successful and failed
+  // sources are updated during the run and must remain in the same snapshot.
+  if (
+    runStartedAt &&
+    ((Number.isFinite(lastSync) && lastSync >= runStartedAt) ||
+      (Number.isFinite(updatedAt) && updatedAt >= runStartedAt))
+  ) {
+    return true;
+  }
   const nextSync = source.next_sync_at ? new Date(source.next_sync_at).getTime() : Number.NaN;
   if (Number.isFinite(nextSync) && nextSync > Date.now()) return false;
   if (!source.last_sync_at) return true;
-  const lastSync = new Date(source.last_sync_at).getTime();
-  if (runStartedAt && Number.isFinite(lastSync) && lastSync >= runStartedAt) return true;
   const elapsed = Date.now() - lastSync;
   if (!Number.isFinite(elapsed)) return true;
   const minimum = source.sync_frequency === "weekly" ? 6 * 24 * 3_600_000 : 18 * 3_600_000;
@@ -286,7 +296,7 @@ Deno.serve(async (req) => {
   let sourceQuery = admin
     .from("data_sources")
     .select(
-      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,category_slug,metadata",
+      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,updated_at,category_slug,metadata",
     )
     .eq("status", "active")
     .eq("is_authorized", true)
