@@ -1,5 +1,5 @@
-// Scheduled Geneva event scraper using Firecrawl.
-// Auth: accepts a configured job secret or an authenticated admin/moderator user.
+// Batched, allow-listed event ingestion for Geneva and French-speaking Switzerland.
+// Auth: a configured scheduler secret or an authenticated admin/moderator.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const cors = {
@@ -7,25 +7,28 @@ const cors = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-geneva-scraper-secret",
   "Content-Type": "application/json",
+  "Cache-Control": "no-store",
 };
 
-const GENEVA_SOURCES = [
-  "https://www.geneve.ch/agenda",
-  "https://billetterie-culture.geneve.ch/list/events?lang=fr",
-  "https://ladecadanse.darksite.ch/agenda.php?region=ge",
-];
+const MAX_BATCH_SIZE = 4;
+const FIRECRAWL_TIMEOUT_MS = 72_000;
 
 const EXTRACTION_SCHEMA = {
   type: "object",
   properties: {
     events: {
       type: "array",
+      maxItems: 60,
       items: {
         type: "object",
         properties: {
+          externalId: { type: ["string", "null"] },
           title: { type: "string" },
           description: { type: ["string", "null"] },
-          startDate: { type: ["string", "null"] },
+          startDate: {
+            type: ["string", "null"],
+            description: "ISO 8601 date-time including the UTC offset when a time is known",
+          },
           endDate: { type: ["string", "null"] },
           venueName: { type: ["string", "null"] },
           address: { type: ["string", "null"] },
@@ -37,36 +40,154 @@ const EXTRACTION_SCHEMA = {
           isFree: { type: ["boolean", "null"] },
           sourceUrl: { type: ["string", "null"] },
         },
-        required: ["title"],
+        required: ["title", "startDate"],
       },
     },
   },
   required: ["events"],
 };
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80);
+type DataSource = {
+  id: string;
+  name: string;
+  base_url: string;
+  domain: string;
+  page_count: number | null;
+  priority: number | null;
+  sync_frequency: string | null;
+  last_sync_at: string | null;
+  category_slug: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type SourceTask = {
+  source: DataSource;
+  page: number;
+  url: string;
+};
+
+type ExtractedEvent = {
+  externalId?: string | null;
+  title?: string | null;
+  description?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  venueName?: string | null;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  category?: string | null;
+  ticketUrl?: string | null;
+  imageUrl?: string | null;
+  isFree?: boolean | null;
+  sourceUrl?: string | null;
+};
+
+type FirecrawlPayload = {
+  data?: {
+    markdown?: string;
+    json?: { events?: ExtractedEvent[] };
+    metadata?: Record<string, unknown>;
+  };
+  message?: string;
+  error?: string;
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: cors });
+}
+
+function safeInteger(value: unknown, fallback: number, max: number): number {
+  const parsed = typeof value === "number" ? Math.trunc(value) : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 0), max);
+}
+
+function safeHttpUrl(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  try {
+    const parsed = new URL(value, fallback);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return fallback;
+    return parsed.toString();
+  } catch {
+    return fallback;
+  }
+}
+
+function safeOptionalHttpUrl(value: unknown, base: string): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = new URL(value, base);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function pageUrl(source: DataSource, page: number): string {
+  if (page === 0) return source.base_url;
+  const pagination = source.metadata?.pagination;
+  if (pagination !== "page") return source.base_url;
+  const url = new URL(source.base_url);
+  url.searchParams.set("page", String(page));
+  return url.toString();
+}
+
+function shouldSync(source: DataSource, force: boolean, runStartedAt: number | null): boolean {
+  if (force || !source.last_sync_at) return true;
+  const lastSync = new Date(source.last_sync_at).getTime();
+  if (runStartedAt && Number.isFinite(lastSync) && lastSync >= runStartedAt) return true;
+  const elapsed = Date.now() - lastSync;
+  if (!Number.isFinite(elapsed)) return true;
+  const minimum = source.sync_frequency === "weekly" ? 6 * 24 * 3_600_000 : 18 * 3_600_000;
+  return elapsed >= minimum;
+}
+
+function isValidDate(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  return (
+    timestamp >= Date.now() - 2 * 24 * 3_600_000 && timestamp <= Date.now() + 730 * 24 * 3_600_000
+  );
+}
+
+function isoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqual(left: string, right: string): boolean {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  let difference = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): Promise<boolean> {
-  const configuredSecret = Deno.env.get("GENEVA_SCRAPER_SECRET");
-  const providedSecret = req.headers.get("x-geneva-scraper-secret");
-  if (configuredSecret && providedSecret === configuredSecret) return true;
+  const configuredSecret = Deno.env.get("GENEVA_SCRAPER_SECRET")?.trim();
+  const providedSecret = req.headers.get("x-geneva-scraper-secret")?.trim();
+  if (configuredSecret && providedSecret && timingSafeEqual(providedSecret, configuredSecret)) {
+    return true;
+  }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return false;
   const userClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
-    {
-      global: { headers: { Authorization: authHeader } },
-    },
+    { global: { headers: { Authorization: authHeader } } },
   );
   const {
     data: { user },
@@ -80,138 +201,301 @@ async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): 
   return Boolean(data?.length);
 }
 
+async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<FirecrawlPayload> {
+  let lastError = "unknown_error";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FIRECRAWL_TIMEOUT_MS);
+    try {
+      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: task.url,
+          onlyMainContent: true,
+          maxAge: 3_600_000,
+          formats: [
+            "markdown",
+            {
+              type: "json",
+              schema: EXTRACTION_SCHEMA,
+              prompt:
+                `Nous sommes le ${new Date().toISOString().slice(0, 10)}. ` +
+                "Extrais tous les événements futurs distincts visibles sur cette page de liste. " +
+                "Une ligne par occurrence, jamais de texte de navigation ni d'événement inventé. " +
+                "Utilise la date ISO 8601 Europe/Zurich, le lien de la fiche détaillée comme sourceUrl, " +
+                "l'image réelle de l'événement et les coordonnées uniquement lorsqu'elles sont explicites.",
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let body: FirecrawlPayload = {};
+      try {
+        body = responseText ? (JSON.parse(responseText) as FirecrawlPayload) : {};
+      } catch {
+        body = {};
+      }
+      if (response.ok) return body;
+      lastError = body.message ?? body.error ?? responseText.slice(0, 500) ?? "unknown_error";
+      if (response.status !== 429 && response.status < 500) break;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "firecrawl_request_failed";
+    } finally {
+      clearTimeout(timeout);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`Firecrawl: ${lastError}`);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
-  if (req.method !== "POST")
-    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-      status: 405,
-      headers: cors,
-    });
+  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
-  if (!(await isAllowed(req, admin)))
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: cors });
+  if (!(await isAllowed(req, admin))) return json({ error: "unauthorized" }, 401);
 
-  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!firecrawlKey)
-    return new Response(JSON.stringify({ error: "firecrawl_not_configured" }), {
-      status: 500,
-      headers: cors,
+  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY")?.trim();
+  if (!firecrawlKey) return json({ error: "firecrawl_not_configured" }, 500);
+
+  const body = (await req.json().catch(() => ({}))) as {
+    cursor?: number;
+    batchSize?: number;
+    force?: boolean;
+    runStartedAt?: string;
+    sourceIds?: string[];
+  };
+  const cursor = safeInteger(body.cursor, 0, 10_000);
+  const batchSize = Math.max(1, safeInteger(body.batchSize, 3, MAX_BATCH_SIZE));
+  const force = body.force === true;
+  const parsedRunStartedAt = body.runStartedAt ? Date.parse(body.runStartedAt) : Number.NaN;
+  const runStartedAt = Number.isFinite(parsedRunStartedAt) ? parsedRunStartedAt : null;
+  const sourceIds = Array.isArray(body.sourceIds)
+    ? body.sourceIds.filter((value): value is string => typeof value === "string").slice(0, 50)
+    : [];
+
+  let sourceQuery = admin
+    .from("data_sources")
+    .select(
+      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,category_slug,metadata",
+    )
+    .eq("status", "active")
+    .eq("is_authorized", true)
+    .eq("is_verified", true)
+    .order("priority", { ascending: true })
+    .order("name", { ascending: true });
+  if (sourceIds.length) sourceQuery = sourceQuery.in("id", sourceIds);
+  const { data: sourceRows, error: sourcesError } = await sourceQuery;
+  if (sourcesError) return json({ error: sourcesError.message }, 500);
+
+  const sources = (sourceRows ?? []) as DataSource[];
+  const tasks = sources
+    .filter((source) => shouldSync(source, force, runStartedAt))
+    .flatMap((source) =>
+      Array.from({ length: Math.max(1, source.page_count ?? 1) }, (_, page) => ({
+        source,
+        page,
+        url: pageUrl(source, page),
+      })),
+    );
+  const batch = tasks.slice(cursor, cursor + batchSize);
+  if (!batch.length) {
+    return json({
+      ok: true,
+      cursor,
+      nextCursor: cursor,
+      hasMore: false,
+      totalTasks: tasks.length,
+      message: "nothing_to_sync",
     });
+  }
 
-  const { sources = GENEVA_SOURCES } = await req.json().catch(() => ({}));
   const { data: job, error: jobError } = await admin
     .from("ingestion_jobs")
-    .insert({ status: "running", started_at: new Date().toISOString(), metadata: { sources } })
+    .insert({
+      status: "running",
+      started_at: new Date().toISOString(),
+      pages_found: batch.length,
+      metadata: {
+        cursor,
+        batchSize,
+        totalTasks: tasks.length,
+        sources: batch.map((task) => ({
+          id: task.source.id,
+          name: task.source.name,
+          page: task.page,
+          url: task.url,
+        })),
+      },
+    })
     .select("id")
     .single();
-  if (jobError)
-    return new Response(JSON.stringify({ error: jobError.message }), {
-      status: 500,
-      headers: cors,
-    });
+  if (jobError) return json({ error: jobError.message }, 500);
 
-  let created = 0;
-  let failed = 0;
-  for (const url of sources as string[]) {
-    try {
-      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${firecrawlKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          formats: ["markdown", { type: "json", schema: EXTRACTION_SCHEMA }],
-        }),
-      });
-      const responseText = await response.text();
-      let body: Record<string, unknown> | null = null;
+  const results = await Promise.all(
+    batch.map(async (task) => {
+      let created = 0;
+      let updated = 0;
+      let rejected = 0;
       try {
-        body = responseText ? JSON.parse(responseText) : null;
-      } catch {
-        body = null;
-      }
-      if (!response.ok) {
-        const message =
-          typeof body?.message === "string"
-            ? body.message
-            : typeof body?.error === "string"
-              ? body.error
-              : responseText.slice(0, 500);
-        throw new Error(`Firecrawl ${response.status}: ${message || "unknown error"}`);
-      }
-      const events = body?.data?.json?.events ?? [];
-      await admin.from("source_records").insert({
-        source_url: url,
-        ingestion_job_id: job.id,
-        raw_markdown: body?.data?.markdown ?? null,
-        raw_json: body?.data ?? null,
-        extracted_data: { events },
-        processing_status: "processed",
-      });
-      for (const event of events) {
-        if (!event?.title || !event?.startDate) continue;
-        const slug = `${slugify(event.title)}-${slugify(String(event.startDate).slice(0, 10))}`;
-        const { data: upserted } = await admin
-          .from("events")
-          .upsert(
-            {
-              slug,
-              title: event.title,
-              short_description: event.description ?? null,
-              description: event.description ?? null,
-              status: "pending_review",
-              publication_status: "draft",
-              is_free: event.isFree ?? false,
-              official_url: event.sourceUrl ?? event.ticketUrl ?? url,
-              cover_image_url: event.imageUrl ?? null,
-              source_confidence: 70,
-              language: "fr",
-            },
-            { onConflict: "slug" },
-          )
+        const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
+        const events = Array.isArray(firecrawl.data?.json?.events)
+          ? (firecrawl.data?.json?.events ?? [])
+          : [];
+        const markdown = firecrawl.data?.markdown ?? null;
+        const contentHash = await sha256(markdown ?? JSON.stringify(firecrawl.data?.json ?? {}));
+
+        const { data: record, error: recordError } = await admin
+          .from("source_records")
+          .insert({
+            data_source_id: task.source.id,
+            source_url: task.url,
+            ingestion_job_id: job.id,
+            raw_markdown: markdown,
+            raw_json: firecrawl.data ?? null,
+            content_hash: contentHash,
+            extracted_data: { events },
+            processing_status: "processed",
+            processed_at: new Date().toISOString(),
+          })
           .select("id")
           .single();
-        if (upserted?.id) {
-          await admin.from("event_occurrences").upsert(
-            {
-              event_id: upserted.id,
-              starts_at: event.startDate,
-              ends_at: event.endDate ?? null,
-              timezone: "Europe/Zurich",
-              latitude: event.latitude ?? null,
-              longitude: event.longitude ?? null,
-            },
-            { onConflict: "event_id,starts_at" },
-          );
-          created += 1;
+        if (recordError) throw recordError;
+
+        for (const event of events) {
+          if (!event.title?.trim() || !isValidDate(event.startDate)) {
+            rejected += 1;
+            continue;
+          }
+          const sourceUrl = safeHttpUrl(event.sourceUrl, task.url);
+          const ticketUrl = safeOptionalHttpUrl(event.ticketUrl, sourceUrl);
+          const imageUrl = safeOptionalHttpUrl(event.imageUrl, sourceUrl);
+          const { data: upserted, error: upsertError } = await admin.rpc("upsert_ingested_event", {
+            _data_source_id: task.source.id,
+            _source_url: sourceUrl,
+            _title: event.title,
+            _description: event.description ?? null,
+            _starts_at: isoDate(event.startDate),
+            _ends_at: isoDate(event.endDate),
+            _venue_name: event.venueName ?? null,
+            _address: event.address ?? null,
+            _latitude: typeof event.latitude === "number" ? event.latitude : null,
+            _longitude: typeof event.longitude === "number" ? event.longitude : null,
+            _category: event.category ?? task.source.category_slug,
+            _ticket_url: ticketUrl,
+            _image_url: imageUrl,
+            _is_free: event.isFree ?? false,
+            _external_identifier: event.externalId ?? null,
+          });
+          if (upsertError) {
+            rejected += 1;
+            continue;
+          }
+          const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
+          if (outcome?.action === "created") created += 1;
+          else updated += 1;
         }
+
+        await Promise.all([
+          admin.from("ingestion_job_items").insert({
+            ingestion_job_id: job.id,
+            url: task.url,
+            status: "completed",
+            processed_at: new Date().toISOString(),
+          }),
+          admin
+            .from("data_sources")
+            .update({
+              last_sync_at: new Date().toISOString(),
+              next_sync_at: new Date(
+                Date.now() + (task.source.sync_frequency === "weekly" ? 7 * 24 : 24) * 3_600_000,
+              ).toISOString(),
+            })
+            .eq("id", task.source.id),
+        ]);
+
+        return {
+          ok: true as const,
+          source: task.source.name,
+          page: task.page,
+          url: task.url,
+          sourceRecordId: record.id,
+          extracted: events.length,
+          created,
+          updated,
+          rejected,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown_error";
+        await admin.from("ingestion_job_items").insert({
+          ingestion_job_id: job.id,
+          url: task.url,
+          status: "failed",
+          error_message: message.slice(0, 1_000),
+          processed_at: new Date().toISOString(),
+        });
+        return {
+          ok: false as const,
+          source: task.source.name,
+          page: task.page,
+          url: task.url,
+          error: message,
+          created,
+          updated,
+          rejected,
+        };
       }
-    } catch (error) {
-      failed += 1;
-      await admin.from("ingestion_job_items").insert({
-        ingestion_job_id: job.id,
-        url,
-        status: "failed",
-        error_message: error instanceof Error ? error.message : "unknown",
-      });
-    }
-  }
+    }),
+  );
+
+  const successful = results.filter((result) => result.ok).length;
+  const failed = results.length - successful;
+  const created = results.reduce((total, result) => total + result.created, 0);
+  const updated = results.reduce((total, result) => total + result.updated, 0);
+  const rejected = results.reduce((total, result) => total + result.rejected, 0);
+  const nextCursor = cursor + batch.length;
+  const hasMore = nextCursor < tasks.length;
 
   await admin
     .from("ingestion_jobs")
     .update({
-      status: failed ? "partially_completed" : "completed",
+      status: failed === 0 ? "completed" : successful > 0 ? "partially_completed" : "failed",
       finished_at: new Date().toISOString(),
-      pages_found: sources.length,
-      pages_success: sources.length - failed,
+      pages_success: successful,
       pages_failed: failed,
       events_created: created,
+      events_updated: updated,
+      duplicates_found: updated,
+      credits_used: successful,
+      error_message: failed === results.length ? "all_sources_failed" : null,
+      metadata: {
+        cursor,
+        nextCursor,
+        hasMore,
+        totalTasks: tasks.length,
+        rejected,
+        results,
+      },
     })
     .eq("id", job.id);
-  return new Response(JSON.stringify({ ok: true, jobId: job.id, eventsCreated: created, failed }), {
-    headers: cors,
+
+  return json({
+    ok: failed < results.length,
+    jobId: job.id,
+    cursor,
+    nextCursor,
+    hasMore,
+    totalTasks: tasks.length,
+    pagesSuccess: successful,
+    pagesFailed: failed,
+    eventsCreated: created,
+    eventsUpdated: updated,
+    eventsRejected: rejected,
+    results,
   });
 });
