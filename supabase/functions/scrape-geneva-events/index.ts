@@ -56,6 +56,7 @@ type DataSource = {
   priority: number | null;
   sync_frequency: string | null;
   last_sync_at: string | null;
+  next_sync_at: string | null;
   category_slug: string | null;
   metadata: Record<string, unknown> | null;
 };
@@ -135,7 +136,10 @@ function pageUrl(source: DataSource, page: number): string {
 }
 
 function shouldSync(source: DataSource, force: boolean, runStartedAt: number | null): boolean {
-  if (force || !source.last_sync_at) return true;
+  if (force) return true;
+  const nextSync = source.next_sync_at ? new Date(source.next_sync_at).getTime() : Number.NaN;
+  if (Number.isFinite(nextSync) && nextSync > Date.now()) return false;
+  if (!source.last_sync_at) return true;
   const lastSync = new Date(source.last_sync_at).getTime();
   if (runStartedAt && Number.isFinite(lastSync) && lastSync >= runStartedAt) return true;
   const elapsed = Date.now() - lastSync;
@@ -282,7 +286,7 @@ Deno.serve(async (req) => {
   let sourceQuery = admin
     .from("data_sources")
     .select(
-      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,category_slug,metadata",
+      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,category_slug,metadata",
     )
     .eq("status", "active")
     .eq("is_authorized", true)
@@ -342,6 +346,7 @@ Deno.serve(async (req) => {
       let created = 0;
       let updated = 0;
       let rejected = 0;
+      const upsertErrors: string[] = [];
       try {
         const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
         const events = Array.isArray(firecrawl.data?.json?.events)
@@ -394,6 +399,7 @@ Deno.serve(async (req) => {
           });
           if (upsertError) {
             rejected += 1;
+            if (upsertErrors.length < 5) upsertErrors.push(upsertError.message.slice(0, 500));
             continue;
           }
           const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
@@ -429,16 +435,27 @@ Deno.serve(async (req) => {
           created,
           updated,
           rejected,
+          upsertErrors,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : "unknown_error";
-        await admin.from("ingestion_job_items").insert({
-          ingestion_job_id: job.id,
-          url: task.url,
-          status: "failed",
-          error_message: message.slice(0, 1_000),
-          processed_at: new Date().toISOString(),
-        });
+        await Promise.all([
+          admin.from("ingestion_job_items").insert({
+            ingestion_job_id: job.id,
+            url: task.url,
+            status: "failed",
+            error_message: message.slice(0, 1_000),
+            processed_at: new Date().toISOString(),
+          }),
+          admin
+            .from("data_sources")
+            .update({
+              next_sync_at: new Date(
+                Date.now() + (task.source.sync_frequency === "weekly" ? 24 : 6) * 3_600_000,
+              ).toISOString(),
+            })
+            .eq("id", task.source.id),
+        ]);
         return {
           ok: false as const,
           source: task.source.name,
@@ -448,6 +465,7 @@ Deno.serve(async (req) => {
           created,
           updated,
           rejected,
+          upsertErrors,
         };
       }
     }),
