@@ -13,6 +13,12 @@ restent distinctes.
 
 Le mode par défaut orchestre la fonction Supabase protégée, par petits lots, jusqu’à ce que toutes les sources dues aient été traitées. Si un cycle atteint sa limite, il se termine proprement et le prochain passage planifié reprend les sources encore dues. Les secrets restent dans les variables d’environnement.
 
+Firecrawl est désormais optionnel. Sans `FIRECRAWL_API_KEY`, la fonction télécharge directement
+les pages des sources autorisées, lit leur JSON-LD et leur HTML événementiel déterministe, puis
+suit un nombre limité de fiches du même domaine. L’extracteur HTML exige une date calendaire
+complète et conserve les horaires nocturnes, images, genres et tarifs annoncés. Si Firecrawl
+échoue ou ne renvoie aucun candidat, ce moteur direct prend également le relais automatiquement.
+
 ```bash
 SUPABASE_URL="https://<project-ref>.supabase.co" \
 GENEVA_SCRAPER_SECRET="<secret>" \
@@ -23,6 +29,12 @@ Pour relancer toutes les sources, y compris celles déjà synchronisées aujourd
 
 ```bash
 python3 scripts/scrape_geneva_events.py --force
+```
+
+Pour forcer un cycle de contrôle sans Firecrawl, même lorsqu’une clé est configurée :
+
+```bash
+python3 scripts/scrape_geneva_events.py --force --direct-only
 ```
 
 ## Inspection directe d’un agenda
@@ -49,5 +61,5 @@ Lorsque `FIRECRAWL_API_KEY` est défini, Firecrawl est utilisé en repli pour le
 
 ```bash
 python3 -m unittest tests/test_scrape_geneva_events.py
-node --test supabase/functions/_shared/event-precision.test.ts
+node --test supabase/functions/_shared/*.test.ts
 ```

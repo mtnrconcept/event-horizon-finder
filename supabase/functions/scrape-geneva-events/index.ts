@@ -1,6 +1,7 @@
 // Batched, allow-listed event ingestion for Geneva and the international source registry.
 // Auth: a configured scheduler secret or an authenticated admin/moderator.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { scrapeDirectEventSource } from "../_shared/direct-event-scraper.ts";
 import {
   deduplicateNormalizedEvents,
   extractJsonLdCandidates,
@@ -268,6 +269,92 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
   throw new Error(`Firecrawl: ${lastError}`);
 }
 
+type CollectedCandidates = {
+  mode: "firecrawl" | "direct";
+  rawContent: string;
+  markdown: string | null;
+  rawJson: unknown;
+  metadata: Record<string, unknown>;
+  aiCandidates: EventCandidate[];
+  deterministicCandidates: EventCandidate[];
+};
+
+async function collectCandidates(
+  task: SourceTask,
+  firecrawlKey: string | undefined,
+  directOnly: boolean,
+): Promise<CollectedCandidates> {
+  const sourceContext = task.source as EventSourceContext;
+  let firecrawlFailure: string | null = null;
+  let emptyFirecrawlResult: CollectedCandidates | null = null;
+
+  if (firecrawlKey && !directOnly) {
+    try {
+      const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
+      const aiCandidates = Array.isArray(firecrawl.data?.json?.events)
+        ? (firecrawl.data?.json?.events ?? []).map((event) => ({
+            ...event,
+            extractionMethod: "ai" as const,
+          }))
+        : [];
+      const deterministicCandidates = extractJsonLdCandidates(
+        firecrawl.data?.rawHtml,
+        task.url,
+        sourceContext,
+      );
+      const result: CollectedCandidates = {
+        mode: "firecrawl",
+        rawContent:
+          firecrawl.data?.rawHtml ??
+          firecrawl.data?.markdown ??
+          JSON.stringify(firecrawl.data?.json ?? {}),
+        markdown: firecrawl.data?.markdown ?? null,
+        rawJson: firecrawl.data?.json ?? null,
+        metadata: { ...(firecrawl.data?.metadata ?? {}), transport: "firecrawl" },
+        aiCandidates,
+        deterministicCandidates,
+      };
+      if (aiCandidates.length || deterministicCandidates.length) return result;
+      emptyFirecrawlResult = result;
+      firecrawlFailure = "firecrawl_no_event_candidates";
+    } catch (error) {
+      firecrawlFailure = error instanceof Error ? error.message : "firecrawl_failed";
+    }
+  }
+
+  try {
+    const direct = await scrapeDirectEventSource({ url: task.url, source: sourceContext });
+    return {
+      mode: "direct",
+      rawContent: direct.rootHtml,
+      markdown: null,
+      rawJson: null,
+      metadata: {
+        ...direct.metadata,
+        transport: "direct",
+        directOnly,
+        firecrawlConfigured: Boolean(firecrawlKey),
+        ...(firecrawlFailure ? { firecrawlFallbackReason: firecrawlFailure.slice(0, 500) } : {}),
+      },
+      aiCandidates: [],
+      deterministicCandidates: direct.candidates,
+    };
+  } catch (directError) {
+    const directMessage =
+      directError instanceof Error ? directError.message : "direct_scrape_failed";
+    if (emptyFirecrawlResult) {
+      emptyFirecrawlResult.metadata = {
+        ...emptyFirecrawlResult.metadata,
+        directFallbackError: directMessage.slice(0, 500),
+      };
+      return emptyFirecrawlResult;
+    }
+    throw new Error(
+      [firecrawlFailure, `Direct: ${directMessage}`].filter(Boolean).join("; ").slice(0, 1_000),
+    );
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -279,7 +366,6 @@ Deno.serve(async (req) => {
   if (!(await isAllowed(req, admin))) return json({ error: "unauthorized" }, 401);
 
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY")?.trim();
-  if (!firecrawlKey) return json({ error: "firecrawl_not_configured" }, 500);
 
   const body = (await req.json().catch(() => ({}))) as {
     cursor?: number;
@@ -287,10 +373,12 @@ Deno.serve(async (req) => {
     force?: boolean;
     runStartedAt?: string;
     sourceIds?: string[];
+    directOnly?: boolean;
   };
   const cursor = safeInteger(body.cursor, 0, 10_000);
   const batchSize = Math.max(1, safeInteger(body.batchSize, 3, MAX_BATCH_SIZE));
   const force = body.force === true;
+  const directOnly = body.directOnly === true;
   const parsedRunStartedAt = body.runStartedAt ? Date.parse(body.runStartedAt) : Number.NaN;
   const runStartedAt = Number.isFinite(parsedRunStartedAt) ? parsedRunStartedAt : null;
   const sourceIds = Array.isArray(body.sourceIds)
@@ -343,6 +431,8 @@ Deno.serve(async (req) => {
         cursor,
         batchSize,
         totalTasks: tasks.length,
+        directOnly,
+        firecrawlConfigured: Boolean(firecrawlKey),
         sources: batch.map((task) => ({
           id: task.source.id,
           name: task.source.name,
@@ -362,19 +452,10 @@ Deno.serve(async (req) => {
       let rejected = 0;
       const upsertErrors: string[] = [];
       try {
-        const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
+        const collected = await collectCandidates(task, firecrawlKey, directOnly);
         const sourceContext = task.source as EventSourceContext;
-        const aiCandidates = Array.isArray(firecrawl.data?.json?.events)
-          ? (firecrawl.data?.json?.events ?? []).map((event) => ({
-              ...event,
-              extractionMethod: "ai" as const,
-            }))
-          : [];
-        const jsonLdCandidates = extractJsonLdCandidates(
-          firecrawl.data?.rawHtml,
-          task.url,
-          sourceContext,
-        );
+        const aiCandidates = collected.aiCandidates;
+        const jsonLdCandidates = collected.deterministicCandidates;
         const candidates = [...jsonLdCandidates, ...aiCandidates];
         const normalization = candidates.map((candidate) =>
           normalizeEventCandidate(candidate, sourceContext, task.url),
@@ -391,10 +472,8 @@ Deno.serve(async (req) => {
           .map((result) => result.event);
         const deduplication = deduplicateNormalizedEvents(normalizedEvents);
         const events = deduplication.events;
-        const markdown = firecrawl.data?.markdown ?? null;
-        const contentHash = await sha256(
-          firecrawl.data?.rawHtml ?? markdown ?? JSON.stringify(firecrawl.data?.json ?? {}),
-        );
+        const markdown = collected.markdown;
+        const contentHash = await sha256(collected.rawContent || JSON.stringify(collected.rawJson));
 
         const { data: record, error: recordError } = await admin
           .from("source_records")
@@ -404,12 +483,13 @@ Deno.serve(async (req) => {
             ingestion_job_id: job.id,
             raw_markdown: markdown,
             raw_json: {
-              json: firecrawl.data?.json ?? null,
-              metadata: firecrawl.data?.metadata ?? null,
+              json: collected.rawJson,
+              metadata: collected.metadata,
             },
             content_hash: contentHash,
             extracted_data: {
               precisionVersion: 2,
+              scrapeMode: collected.mode,
               candidateCount: candidates.length,
               deterministicCount: jsonLdCandidates.length,
               aiCount: aiCandidates.length,
@@ -551,6 +631,7 @@ Deno.serve(async (req) => {
           page: task.page,
           url: task.url,
           sourceRecordId: record.id,
+          scrapeMode: collected.mode,
           candidates: candidates.length,
           deterministic: jsonLdCandidates.length,
           extracted: events.length,

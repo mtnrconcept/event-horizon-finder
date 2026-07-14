@@ -209,6 +209,35 @@ class GenevaScraperTests(unittest.TestCase):
             ["https://project.supabase.co/functions/v1/scrape-geneva-events"],
         )
 
+    def test_edge_mode_can_force_direct_scraping_without_firecrawl(self):
+        args = SimpleNamespace(
+            max_batches=1,
+            batch_size=1,
+            force=True,
+            direct_only=True,
+            source_id=["00000000-0000-0000-0000-000000000000"],
+            timeout=30,
+        )
+        payloads = []
+
+        def fake_request(_url, **kwargs):
+            payloads.append(kwargs["payload"])
+            return {"hasMore": False, "nextCursor": 0}
+
+        with patch.dict(
+            SCRAPER.os.environ,
+            {
+                "SUPABASE_URL": "https://project.supabase.co",
+                "GENEVA_SCRAPER_SECRET": "secret",
+            },
+            clear=True,
+        ), patch.object(SCRAPER, "_request_json", side_effect=fake_request):
+            self.assertEqual(SCRAPER.run_edge(args), 0)
+
+        self.assertTrue(payloads[0]["directOnly"])
+        self.assertTrue(payloads[0]["force"])
+        self.assertEqual(payloads[0]["sourceIds"], args.source_id)
+
 
 if __name__ == "__main__":
     unittest.main()

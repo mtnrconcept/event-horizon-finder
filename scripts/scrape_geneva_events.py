@@ -952,6 +952,8 @@ def run_edge(args: argparse.Namespace) -> int:
         }
         if args.source_id:
             payload["sourceIds"] = args.source_id
+        if getattr(args, "direct_only", False):
+            payload["directOnly"] = True
         response = _request_json(
             f"{supabase_url}/functions/v1/scrape-geneva-events",
             method="POST",
@@ -1101,6 +1103,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-id", action="append", default=[], help="Restrict to one source UUID; repeatable")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument("--force", action="store_true", help="Ignore the per-source synchronization schedule")
+    parser.add_argument(
+        "--direct-only",
+        action="store_true",
+        help="Edge mode: bypass Firecrawl and verify deterministic direct HTML/JSON-LD scraping",
+    )
     parser.add_argument("--batch-size", type=int, default=3, choices=range(1, MAX_BATCH_SIZE + 1))
     parser.add_argument("--max-batches", type=int, default=100)
     parser.add_argument("--url", help="Direct-mode URL for an unregistered local dry run")
