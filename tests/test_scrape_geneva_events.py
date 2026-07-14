@@ -15,6 +15,9 @@ SPEC.loader.exec_module(SCRAPER)
 
 
 class GenevaScraperTests(unittest.TestCase):
+    def test_client_timeout_covers_server_side_retries(self):
+        self.assertGreaterEqual(SCRAPER.DEFAULT_TIMEOUT, 2 * 72 + 5)
+
     def test_extracts_nested_schema_org_event(self):
         html = """
         <html><head><script type="application/ld+json">
