@@ -1096,6 +1096,186 @@ export type Database = {
           },
         ]
       }
+      social_comments: {
+        Row: {
+          author_avatar_url: string | null
+          author_display_name: string
+          body: string
+          created_at: string
+          id: string
+          post_id: string
+          status: Database["public"]["Enums"]["social_comment_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          author_avatar_url?: string | null
+          author_display_name?: string
+          body: string
+          created_at?: string
+          id?: string
+          post_id: string
+          status?: Database["public"]["Enums"]["social_comment_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          author_avatar_url?: string | null
+          author_display_name?: string
+          body?: string
+          created_at?: string
+          id?: string
+          post_id?: string
+          status?: Database["public"]["Enums"]["social_comment_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_comments_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "social_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      social_post_likes: {
+        Row: {
+          created_at: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_post_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "social_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      social_post_media: {
+        Row: {
+          alt_text: string | null
+          created_at: string
+          duration_ms: number | null
+          height: number | null
+          id: string
+          kind: Database["public"]["Enums"]["social_media_kind"]
+          mime_type: string
+          post_id: string
+          sort_order: number
+          storage_path: string
+          width: number | null
+        }
+        Insert: {
+          alt_text?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          height?: number | null
+          id?: string
+          kind: Database["public"]["Enums"]["social_media_kind"]
+          mime_type: string
+          post_id: string
+          sort_order?: number
+          storage_path: string
+          width?: number | null
+        }
+        Update: {
+          alt_text?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          height?: number | null
+          id?: string
+          kind?: Database["public"]["Enums"]["social_media_kind"]
+          mime_type?: string
+          post_id?: string
+          sort_order?: number
+          storage_path?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_post_media_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "social_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      social_posts: {
+        Row: {
+          body: string | null
+          comment_count: number
+          comments_enabled: boolean
+          created_at: string
+          created_by: string | null
+          event_id: string | null
+          id: string
+          like_count: number
+          organizer_id: string
+          published_at: string | null
+          status: Database["public"]["Enums"]["social_post_status"]
+          updated_at: string
+        }
+        Insert: {
+          body?: string | null
+          comment_count?: number
+          comments_enabled?: boolean
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          id?: string
+          like_count?: number
+          organizer_id: string
+          published_at?: string | null
+          status?: Database["public"]["Enums"]["social_post_status"]
+          updated_at?: string
+        }
+        Update: {
+          body?: string | null
+          comment_count?: number
+          comments_enabled?: boolean
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          id?: string
+          like_count?: number
+          organizer_id?: string
+          published_at?: string | null
+          status?: Database["public"]["Enums"]["social_post_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "social_posts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "social_posts_organizer_id_fkey"
+            columns: ["organizer_id"]
+            isOneToOne: false
+            referencedRelation: "organizers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       source_domains: {
         Row: {
           authorized_at: string | null
@@ -1561,6 +1741,10 @@ export type Database = {
             }
             Returns: string
           }
+      create_organizer: {
+        Args: { _name: string; _slug: string }
+        Returns: string
+      }
       disablelongtransactions: { Args: never; Returns: string }
       discover_events: {
         Args: {
@@ -1586,6 +1770,42 @@ export type Database = {
           is_demo: boolean
           is_free: boolean
           is_verified: boolean
+          occurrence_id: string
+          short_description: string
+          slug: string
+          starts_at: string
+          status: Database["public"]["Enums"]["event_status"]
+          timezone: string
+          title: string
+          venue_name: string
+        }[]
+      }
+      discover_map_events: {
+        Args: {
+          _category_slugs?: string[]
+          _city_id?: string
+          _free_only?: boolean
+          _from?: string
+          _lat?: number
+          _limit?: number
+          _lon?: number
+          _offset?: number
+          _query?: string
+          _radius_km?: number
+          _to?: string
+        }
+        Returns: {
+          category_slug: string
+          city_name: string
+          cover_image_url: string
+          distance_km: number
+          ends_at: string
+          event_id: string
+          is_demo: boolean
+          is_free: boolean
+          is_verified: boolean
+          latitude: number
+          longitude: number
           occurrence_id: string
           short_description: string
           slug: string
@@ -2406,6 +2626,9 @@ export type Database = {
         | "postponed"
         | "sold_out"
         | "completed"
+      social_comment_status: "published" | "hidden"
+      social_media_kind: "image" | "video"
+      social_post_status: "draft" | "published" | "hidden"
       ticket_status:
         | "unknown"
         | "available"
@@ -2583,6 +2806,9 @@ export const Constants = {
         "sold_out",
         "completed",
       ],
+      social_comment_status: ["published", "hidden"],
+      social_media_kind: ["image", "video"],
+      social_post_status: ["draft", "published", "hidden"],
       ticket_status: [
         "unknown",
         "available",

@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Rss } from "lucide-react";
 
 export const Route = createFileRoute("/organizer/")({
   head: () => ({ meta: [{ title: "Portail organisateur — EVENTA" }] }),
@@ -14,37 +14,91 @@ type EventRow = { id: string; slug: string; title: string; status: string; is_de
 
 function OrganizerHome() {
   const navigate = useNavigate();
-  const [uid, setUid] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
 
-  useEffect(() => { (async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { navigate({ to: "/auth" }); return; }
-    setUid(user.id);
-    const { data: mems } = await supabase.from("organizer_members").select("organizer_id, role, organizer:organizers(name,slug,is_verified)").eq("user_id", user.id);
-    setOrgs((mems ?? []) as OrgRow[]);
-    const orgIds = (mems ?? []).map((m) => m.organizer_id);
-    if (orgIds.length) {
-      const { data: evs } = await supabase.from("events").select("id,slug,title,status,is_demo").in("organizer_id", orgIds).order("updated_at", { ascending: false });
-      setEvents((evs ?? []) as EventRow[]);
+  const loadOrganizerData = useCallback(async () => {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (!user) {
+      navigate({ to: "/auth", search: { redirect: "/organizer" } });
+      return;
     }
-  })(); }, [navigate]);
+    if (userError) {
+      toast.error(userError.message);
+      return;
+    }
+
+    const { data: mems, error: membershipsError } = await supabase
+      .from("organizer_members")
+      .select("organizer_id, role, organizer:organizers(name,slug,is_verified)")
+      .eq("user_id", user.id);
+    if (membershipsError) {
+      toast.error(membershipsError.message);
+      return;
+    }
+
+    const memberships = (mems ?? []) as OrgRow[];
+    setOrgs(memberships);
+    const orgIds = memberships.map((membership) => membership.organizer_id);
+    if (!orgIds.length) {
+      setEvents([]);
+      return;
+    }
+
+    const { data: evs, error: eventsError } = await supabase
+      .from("events")
+      .select("id,slug,title,status,is_demo")
+      .in("organizer_id", orgIds)
+      .order("updated_at", { ascending: false });
+    if (eventsError) {
+      toast.error(eventsError.message);
+      return;
+    }
+    setEvents((evs ?? []) as EventRow[]);
+  }, [navigate]);
+
+  useEffect(() => {
+    void loadOrganizerData();
+  }, [loadOrganizerData]);
 
   const createOrg = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uid || !name.trim()) return;
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Math.random().toString(36).slice(2, 6);
-    const { data, error } = await supabase.from("organizers").insert({ slug, name, verification_level: "unverified" }).select().single();
-    if (error) return toast.error(error.message);
-    await supabase.from("organizer_members").insert({ organizer_id: data.id, user_id: uid, role: "owner" });
-    // Give organizer role
-    await supabase.from("user_roles").insert({ user_id: uid, role: "organizer" }).select();
-    toast.success("Organisation créée");
-    setCreating(false); setName("");
-    location.reload();
+    const trimmedName = name.trim();
+    if (!trimmedName || submitting) return;
+
+    const slugRoot = trimmedName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "organisation";
+    const slug = `${slugRoot}-${Math.random().toString(36).slice(2, 6)}`;
+
+    setSubmitting(true);
+    try {
+      // Types are regenerated after the migration that introduces this RPC is applied.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("create_organizer", {
+        _name: trimmedName,
+        _slug: slug,
+      });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Organisation créée");
+      setCreating(false);
+      setName("");
+      await loadOrganizerData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de créer l'organisation");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -64,7 +118,9 @@ function OrganizerHome() {
           <label className="text-xs font-medium">Nom de l'organisation</label>
           <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm" />
           <div className="flex gap-2">
-            <button type="submit" className="rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground">Créer</button>
+            <button type="submit" disabled={submitting} className="rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">
+              {submitting ? "Création…" : "Créer"}
+            </button>
             <button type="button" onClick={() => setCreating(false)} className="rounded-full border px-4 py-2 text-sm">Annuler</button>
           </div>
         </form>
@@ -83,6 +139,12 @@ function OrganizerHome() {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="mb-6 flex justify-end">
+            <Link to="/social" className="flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium hover:bg-accent">
+              <Rss className="h-4 w-4" /> Publier dans le fil
+            </Link>
           </div>
 
           <div className="mb-3 flex items-center justify-between">
