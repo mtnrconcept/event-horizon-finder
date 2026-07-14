@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.scrape-geneva-events]
 verify_jwt = false
+
+[functions.event-cover]
+verify_jwt = false
