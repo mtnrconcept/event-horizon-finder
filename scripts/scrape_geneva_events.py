@@ -559,7 +559,8 @@ def run_edge(args: argparse.Namespace) -> int:
         if not isinstance(next_cursor, int) or next_cursor <= cursor:
             raise CollectorError("The scraper cursor did not advance")
         cursor = next_cursor
-    raise CollectorError(f"The scraper exceeded {args.max_batches} batches")
+    print(json.dumps({"completed": False, "continuation_required": True, **totals}, ensure_ascii=False))
+    return 0
 
 
 def _direct_source_events(source: Source, args: argparse.Namespace) -> tuple[list[Event], list[str]]:
@@ -624,7 +625,9 @@ def run_direct(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Scrape Geneva club, festival and concert events")
+    parser = argparse.ArgumentParser(
+        description="Continuously scrape allow-listed club, festival and concert sources worldwide"
+    )
     parser.add_argument("--mode", choices=("edge", "direct"), default="edge")
     parser.add_argument("--source-id", action="append", default=[], help="Restrict to one source UUID; repeatable")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)

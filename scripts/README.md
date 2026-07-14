@@ -1,10 +1,10 @@
-# Collecteur d’événements genevois
+# Collecteur continu d’événements
 
-Le script `scrape_geneva_events.py` couvre deux usages complémentaires.
+Le script historique `scrape_geneva_events.py` orchestre désormais toutes les sources autorisées du registre, de Genève aux villes internationales. Il couvre deux usages complémentaires.
 
 ## Synchronisation de production
 
-Le mode par défaut orchestre la fonction Supabase protégée, par petits lots, jusqu’à ce que toutes les sources dues aient été traitées. Les secrets restent dans les variables d’environnement.
+Le mode par défaut orchestre la fonction Supabase protégée, par petits lots, jusqu’à ce que toutes les sources dues aient été traitées. Si un cycle atteint sa limite, il se termine proprement et le prochain passage planifié reprend les sources encore dues. Les secrets restent dans les variables d’environnement.
 
 ```bash
 SUPABASE_URL="https://<project-ref>.supabase.co" \
