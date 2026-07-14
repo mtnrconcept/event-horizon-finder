@@ -27,8 +27,15 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is required" >&2; exit 1; }
           test -n "$SUPABASE_DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD is required" >&2; exit 1; }
           test -n "$SUPABASE_PROJECT_ID" || { echo "SUPABASE_PROJECT_ID is required" >&2; exit 1; }
-          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is required" >&2; exit 1; }
           test -n "$GENEVA_SCRAPER_SECRET" || { echo "GENEVA_SCRAPER_SECRET is required" >&2; exit 1; }
+
+      - name: Resolve Supabase function URL
+        run: |
+          normalized_url="$(printf '%s' "${SUPABASE_URL:-}" | tr -d '\r\n' | sed 's/[[:space:]]*$//' | sed 's#/*$##')"
+          if ! printf '%s' "$normalized_url" | grep -Eq '^https://[a-z0-9-]+\.supabase\.co$'; then
+            normalized_url="https://${SUPABASE_PROJECT_ID}.supabase.co"
+          fi
+          echo "SUPABASE_FUNCTION_URL=${normalized_url}" >> "$GITHUB_ENV"
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
@@ -54,4 +61,4 @@ jobs:
             --header "Content-Type: application/json" \
             --header "x-geneva-scraper-secret: $GENEVA_SCRAPER_SECRET" \
             --data '{}' \
-            "$SUPABASE_URL/functions/v1/scrape-geneva-events"
+            "$SUPABASE_FUNCTION_URL/functions/v1/scrape-geneva-events"
