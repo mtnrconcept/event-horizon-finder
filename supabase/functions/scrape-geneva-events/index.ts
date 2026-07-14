@@ -1,4 +1,4 @@
-// Batched, allow-listed event ingestion for Geneva and French-speaking Switzerland.
+// Batched, allow-listed event ingestion for Geneva and the international source registry.
 // Auth: a configured scheduler secret or an authenticated admin/moderator.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -35,6 +35,16 @@ const EXTRACTION_SCHEMA = {
           latitude: { type: ["number", "null"] },
           longitude: { type: ["number", "null"] },
           category: { type: ["string", "null"] },
+          genres: {
+            type: ["array", "null"],
+            maxItems: 8,
+            items: { type: "string" },
+            description: "Styles musicaux explicitement mentionnés, sans déduction",
+          },
+          capacity: { type: ["integer", "null"] },
+          priceMin: { type: ["number", "null"] },
+          priceMax: { type: ["number", "null"] },
+          currency: { type: ["string", "null"] },
           ticketUrl: { type: ["string", "null"] },
           imageUrl: { type: ["string", "null"] },
           isFree: { type: ["boolean", "null"] },
@@ -60,6 +70,7 @@ type DataSource = {
   updated_at: string | null;
   category_slug: string | null;
   metadata: Record<string, unknown> | null;
+  city: { name: string; timezone: string } | null;
 };
 
 type SourceTask = {
@@ -79,11 +90,74 @@ type ExtractedEvent = {
   latitude?: number | null;
   longitude?: number | null;
   category?: string | null;
+  genres?: string[] | null;
+  capacity?: number | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  currency?: string | null;
   ticketUrl?: string | null;
   imageUrl?: string | null;
   isFree?: boolean | null;
   sourceUrl?: string | null;
 };
+
+const ALLOWED_GENRES = new Set([
+  "afro-house",
+  "techno",
+  "house",
+  "electro",
+  "trance",
+  "drum-and-bass",
+  "hip-hop",
+  "r-and-b",
+  "soul",
+  "reggae",
+  "dancehall",
+  "disco",
+  "funk",
+  "jazz",
+  "blues",
+  "rock",
+  "metal",
+  "punk",
+  "indie",
+  "pop",
+  "classical",
+  "opera",
+  "latin",
+  "reggaeton",
+  "afrobeat",
+  "world",
+  "experimental",
+  "ambient",
+  "gospel",
+]);
+
+function normalizedGenres(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) =>
+          item
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim()
+            .replace(/\s+|_/g, "-"),
+        )
+        .filter((item) => ALLOWED_GENRES.has(item)),
+    ),
+  ];
+}
+
+function optionalPositiveNumber(value: unknown, maximum: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > maximum) {
+    return null;
+  }
+  return value;
+}
 
 type FirecrawlPayload = {
   data?: {
@@ -237,8 +311,10 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
                 `Nous sommes le ${new Date().toISOString().slice(0, 10)}. ` +
                 "Extrais tous les événements futurs distincts visibles sur cette page de liste. " +
                 "Une ligne par occurrence, jamais de texte de navigation ni d'événement inventé. " +
-                "Utilise la date ISO 8601 Europe/Zurich, le lien de la fiche détaillée comme sourceUrl, " +
-                "l'image réelle de l'événement et les coordonnées uniquement lorsqu'elles sont explicites.",
+                `Utilise la date ISO 8601 avec le fuseau ${task.source.city?.timezone ?? "local indiqué par la source"}, ` +
+                "le lien de la fiche détaillée comme sourceUrl, " +
+                "l'image réelle de l'événement et les coordonnées uniquement lorsqu'elles sont explicites. " +
+                "Renseigne genres, prix et capacité uniquement s'ils sont écrits dans la source; ne les devine jamais.",
             },
           ],
         }),
@@ -296,7 +372,7 @@ Deno.serve(async (req) => {
   let sourceQuery = admin
     .from("data_sources")
     .select(
-      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,updated_at,category_slug,metadata",
+      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,updated_at,category_slug,metadata,city:cities(name,timezone)",
     )
     .eq("status", "active")
     .eq("is_authorized", true)
@@ -413,10 +489,74 @@ Deno.serve(async (req) => {
             continue;
           }
           const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
+          if (outcome?.event_id) {
+            const genres = normalizedGenres(event.genres);
+            const capacity = optionalPositiveNumber(event.capacity, 1_000_000);
+            const priceMin = optionalPositiveNumber(event.priceMin, 100_000);
+            const priceMax = optionalPositiveNumber(event.priceMax, 100_000);
+            const currency =
+              typeof event.currency === "string" && /^[A-Z]{3}$/.test(event.currency.toUpperCase())
+                ? event.currency.toUpperCase()
+                : "CHF";
+
+            if (genres.length) {
+              const { error: genreError } = await admin
+                .from("events")
+                .update({ genres })
+                .eq("id", outcome.event_id);
+              if (genreError && upsertErrors.length < 5) {
+                upsertErrors.push(`genres: ${genreError.message.slice(0, 450)}`);
+              }
+            }
+
+            const occurrenceUpdate = {
+              timezone: task.source.city?.timezone ?? "Europe/Zurich",
+              ...(capacity != null ? { capacity: Math.round(capacity) } : {}),
+            };
+            {
+              const { error: capacityError } = await admin
+                .from("event_occurrences")
+                .update(occurrenceUpdate)
+                .eq("event_id", outcome.event_id)
+                .eq("starts_at", isoDate(event.startDate)!);
+              if (capacityError && upsertErrors.length < 5) {
+                upsertErrors.push(`capacity: ${capacityError.message.slice(0, 450)}`);
+              }
+            }
+
+            if (priceMin != null || priceMax != null) {
+              const { data: offer } = await admin
+                .from("ticket_offers")
+                .select("id")
+                .eq("event_id", outcome.event_id)
+                .order("id", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+              const ticketData = {
+                price_min: priceMin ?? priceMax,
+                price_max: priceMax ?? priceMin,
+                currency,
+                is_free: event.isFree === true,
+              };
+              const ticketResult = offer
+                ? await admin.from("ticket_offers").update(ticketData).eq("id", offer.id)
+                : await admin.from("ticket_offers").insert({
+                    event_id: outcome.event_id,
+                    name: "Billet standard",
+                    ticket_url: ticketUrl,
+                    status: ticketUrl ? "available" : "unknown",
+                    ...ticketData,
+                  });
+              if (ticketResult.error && upsertErrors.length < 5) {
+                upsertErrors.push(`price: ${ticketResult.error.message.slice(0, 450)}`);
+              }
+            }
+          }
           if (outcome?.action === "created") created += 1;
           else updated += 1;
         }
 
+        const sourceCompleted = task.page >= Math.max(1, task.source.page_count ?? 1) - 1;
         await Promise.all([
           admin.from("ingestion_job_items").insert({
             ingestion_job_id: job.id,
@@ -424,15 +564,18 @@ Deno.serve(async (req) => {
             status: "completed",
             processed_at: new Date().toISOString(),
           }),
-          admin
-            .from("data_sources")
-            .update({
-              last_sync_at: new Date().toISOString(),
-              next_sync_at: new Date(
-                Date.now() + (task.source.sync_frequency === "weekly" ? 7 * 24 : 24) * 3_600_000,
-              ).toISOString(),
-            })
-            .eq("id", task.source.id),
+          sourceCompleted
+            ? admin
+                .from("data_sources")
+                .update({
+                  last_sync_at: new Date().toISOString(),
+                  next_sync_at: new Date(
+                    Date.now() +
+                      (task.source.sync_frequency === "weekly" ? 7 * 24 : 24) * 3_600_000,
+                  ).toISOString(),
+                })
+                .eq("id", task.source.id)
+            : Promise.resolve(),
         ]);
 
         return {
@@ -449,6 +592,7 @@ Deno.serve(async (req) => {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : "unknown_error";
+        const sourceCompleted = task.page >= Math.max(1, task.source.page_count ?? 1) - 1;
         await Promise.all([
           admin.from("ingestion_job_items").insert({
             ingestion_job_id: job.id,
@@ -457,14 +601,16 @@ Deno.serve(async (req) => {
             error_message: message.slice(0, 1_000),
             processed_at: new Date().toISOString(),
           }),
-          admin
-            .from("data_sources")
-            .update({
-              next_sync_at: new Date(
-                Date.now() + (task.source.sync_frequency === "weekly" ? 24 : 6) * 3_600_000,
-              ).toISOString(),
-            })
-            .eq("id", task.source.id),
+          sourceCompleted
+            ? admin
+                .from("data_sources")
+                .update({
+                  next_sync_at: new Date(
+                    Date.now() + (task.source.sync_frequency === "weekly" ? 24 : 6) * 3_600_000,
+                  ).toISOString(),
+                })
+                .eq("id", task.source.id)
+            : Promise.resolve(),
         ]);
         return {
           ok: false as const,
