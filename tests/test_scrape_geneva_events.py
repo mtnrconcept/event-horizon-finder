@@ -2,6 +2,8 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "scrape_geneva_events.py"
@@ -85,6 +87,36 @@ class GenevaScraperTests(unittest.TestCase):
         self.assertEqual(payload["_title"], "Concert Test")
         self.assertEqual(payload["_data_source_id"], "00000000-0000-0000-0000-000000000000")
         self.assertIn("_external_identifier", payload)
+
+    def test_edge_mode_prefers_normalized_function_url(self):
+        args = SimpleNamespace(
+            max_batches=1,
+            batch_size=3,
+            force=False,
+            source_id=[],
+            timeout=30,
+        )
+        calls = []
+
+        def fake_request(url, **kwargs):
+            calls.append(url)
+            return {"hasMore": False, "nextCursor": 0}
+
+        with patch.dict(
+            SCRAPER.os.environ,
+            {
+                "SUPABASE_FUNCTION_URL": "https://project.supabase.co",
+                "SUPABASE_URL": "https://malformed.invalid",
+                "GENEVA_SCRAPER_SECRET": "secret",
+            },
+            clear=True,
+        ), patch.object(SCRAPER, "_request_json", side_effect=fake_request):
+            self.assertEqual(SCRAPER.run_edge(args), 0)
+
+        self.assertEqual(
+            calls,
+            ["https://project.supabase.co/functions/v1/scrape-geneva-events"],
+        )
 
 
 if __name__ == "__main__":
