@@ -6,7 +6,20 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+const env = process.env;
+const mapboxAccessToken =
+  env.VITE_MAPBOX_ACCESS_TOKEN ??
+  env.MAPBOX_ACCESS_TOKEN ??
+  env.MAPBOX_API_KEY ??
+  env.MAPBOX_TOKEN ??
+  "";
+
 export default defineConfig({
+  vite: {
+    define: {
+      "import.meta.env.VITE_MAPBOX_ACCESS_TOKEN": JSON.stringify(mapboxAccessToken),
+    },
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
