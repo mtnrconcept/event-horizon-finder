@@ -13,6 +13,7 @@ on:
       - main
     paths:
       - ".github/workflows/sync-geneva-events.yml"
+      - "scripts/**"
       - "supabase/**"
   schedule:
     - cron: "17 4 * * *"
@@ -81,39 +82,8 @@ jobs:
           supabase functions deploy firecrawl-webhook --no-verify-jwt
           supabase functions deploy scrape-geneva-events --no-verify-jwt
 
+      - name: Test the Geneva Python collector
+        run: python3 -m unittest tests/test_scrape_geneva_events.py
+
       - name: Scrape all due regional event sources in resilient batches
-        run: |
-          normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
-          cursor=0
-          batch=3
-          max_batches=40
-          run_started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-          for iteration in $(seq 1 "$max_batches"); do
-            response="$(curl --fail-with-body \
-              --retry 2 \
-              --retry-all-errors \
-              --request POST \
-              --header "Content-Type: application/json" \
-              --header "x-geneva-scraper-secret: $normalized_geneva_secret" \
-              --data "{\"cursor\":${cursor},\"batchSize\":${batch},\"runStartedAt\":\"${run_started_at}\"}" \
-              "$SUPABASE_FUNCTION_URL/functions/v1/scrape-geneva-events")"
-
-            printf '%s\n' "$response" | jq '{jobId, cursor, nextCursor, hasMore, totalTasks, pagesSuccess, pagesFailed, eventsCreated, eventsUpdated, eventsRejected}'
-            has_more="$(printf '%s' "$response" | jq -r '.hasMore // false')"
-            next_cursor="$(printf '%s' "$response" | jq -r '.nextCursor // empty')"
-            test -n "$next_cursor" || { echo "Missing nextCursor in scraper response" >&2; exit 1; }
-
-            if [ "$has_more" != "true" ]; then
-              echo "Regional event synchronization completed in ${iteration} batch(es)."
-              exit 0
-            fi
-            if [ "$next_cursor" -le "$cursor" ]; then
-              echo "Scraper cursor did not advance" >&2
-              exit 1
-            fi
-            cursor="$next_cursor"
-          done
-
-          echo "Scraper exceeded ${max_batches} batches" >&2
-          exit 1
+        run: python3 scripts/scrape_geneva_events.py --batch-size 3 --max-batches 100
