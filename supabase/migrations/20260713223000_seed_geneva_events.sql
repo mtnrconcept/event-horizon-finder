@@ -136,7 +136,7 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM public.event_occurrences o WHERE o.event_id = v_event_id);
 
     INSERT INTO public.ticket_offers (event_id, name, price_min, price_max, currency, is_free, ticket_url, status)
-    SELECT v_event_id, CASE WHEN rec.is_free THEN 'Entrée libre' ELSE 'Billet standard' END, rec.price, rec.price, 'CHF', rec.is_free, 'https://www.geneve.ch/', CASE WHEN rec.is_free THEN 'free' ELSE 'available' END
+    SELECT v_event_id, CASE WHEN rec.is_free THEN 'Entrée libre' ELSE 'Billet standard' END, rec.price, rec.price, 'CHF', rec.is_free, 'https://www.geneve.ch/', CASE WHEN rec.is_free THEN 'free'::public.ticket_status ELSE 'available'::public.ticket_status END
     WHERE NOT EXISTS (
       SELECT 1
       FROM public.ticket_offers t
