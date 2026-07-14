@@ -10,8 +10,8 @@ const cors = {
 };
 
 const GENEVA_SOURCES = [
-  "https://www.geneve.ch/fr/agenda",
-  "https://www.geneve.com/fr/agenda",
+  "https://www.geneve.ch/agenda",
+  "https://billetterie-culture.geneve.ch/list/events?lang=fr",
   "https://ladecadanse.darksite.ch/agenda.php?region=ge",
 ];
 
@@ -126,8 +126,22 @@ Deno.serve(async (req) => {
           formats: ["markdown", { type: "json", schema: EXTRACTION_SCHEMA }],
         }),
       });
-      if (!response.ok) throw new Error(`Firecrawl ${response.status}`);
-      const body = await response.json();
+      const responseText = await response.text();
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        body = null;
+      }
+      if (!response.ok) {
+        const message =
+          typeof body?.message === "string"
+            ? body.message
+            : typeof body?.error === "string"
+              ? body.error
+              : responseText.slice(0, 500);
+        throw new Error(`Firecrawl ${response.status}: ${message || "unknown error"}`);
+      }
       const events = body?.data?.json?.events ?? [];
       await admin.from("source_records").insert({
         source_url: url,
