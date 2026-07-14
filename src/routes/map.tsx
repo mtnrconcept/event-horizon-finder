@@ -50,6 +50,7 @@ function MapPage() {
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
   const [selected, setSelected] = useState<DiscoveredEvent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
 
   const selectedCity = useMemo(
     () =>
@@ -75,9 +76,26 @@ function MapPage() {
       center: GENEVA_CENTER,
       zoom: 12,
     });
+    let switchedToFallback = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (!MAPBOX_STYLE || m.isStyleLoaded()) return;
+      switchedToFallback = true;
+      m.setStyle(OSM_STYLE);
+    }, 6_000);
+    m.on("load", () => setMapReady(true));
+    m.on("styledata", () => {
+      if (m.isStyleLoaded()) setMapReady(true);
+    });
+    m.on("error", () => {
+      if (MAPBOX_STYLE && !switchedToFallback && !m.isStyleLoaded()) {
+        switchedToFallback = true;
+        m.setStyle(OSM_STYLE);
+      }
+    });
     m.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = m;
     return () => {
+      window.clearTimeout(fallbackTimer);
       m.remove();
       mapRef.current = null;
     };
@@ -147,19 +165,28 @@ function MapPage() {
     <div className="relative h-[calc(100vh-4rem)] w-full md:h-[calc(100vh-4rem)]">
       <div className="absolute inset-0">
         <div ref={ref} className="h-full w-full" />
+        {!mapReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/90">
+            <div className="text-center">
+              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <p className="text-sm font-medium">Chargement de la carte…</p>
+              <p className="text-xs text-muted-foreground">Bascule OpenStreetMap automatique</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="glass absolute left-3 right-3 top-3 z-10 rounded-3xl p-3 shadow-[var(--shadow-card)] md:left-6 md:right-auto md:w-[26rem]">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
-              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte Mapbox
+              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte interactive
             </Badge>
             <h1 className="text-xl font-black">Événements à {selectedCity?.name ?? "Genève"}</h1>
             <p className="text-xs text-muted-foreground">
               {loading
                 ? "Chargement des points…"
-                : `${events.length} événements scrappés géolocalisés · ${freeCount} gratuits`}
+                : `${events.length} événements géolocalisés · ${freeCount} gratuits`}
             </p>
           </div>
           <Button

@@ -1,7 +1,13 @@
-name: Sync Geneva events
+name: Sync regional events
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy migrations and Edge Functions before syncing
+        required: false
+        default: true
+        type: boolean
   push:
     branches:
       - main
@@ -44,36 +50,69 @@ jobs:
           echo "SUPABASE_FUNCTION_URL=${normalized_url}" >> "$GITHUB_ENV"
 
       - name: Set up Supabase CLI
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         uses: supabase/setup-cli@v1
         with:
           version: latest
 
       - name: Link Supabase project
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Sync Geneva scraper secret to Edge Functions
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         run: supabase secrets set GENEVA_SCRAPER_SECRET="$GENEVA_SCRAPER_SECRET"
 
       - name: Push database migrations
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         run: supabase db push
 
       - name: Sync Geneva scraper Edge Function secrets
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         run: |
           normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
           supabase secrets set "GENEVA_SCRAPER_SECRET=$normalized_geneva_secret"
 
       - name: Deploy Supabase Edge Functions
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         run: |
           supabase functions deploy firecrawl-scrape-event-url
           supabase functions deploy firecrawl-webhook --no-verify-jwt
           supabase functions deploy scrape-geneva-events --no-verify-jwt
 
-      - name: Trigger Geneva scraper Edge Function
+      - name: Scrape all due regional event sources in resilient batches
         run: |
           normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
-          curl --fail-with-body \
-            --request POST \
-            --header "Content-Type: application/json" \
-            --header "x-geneva-scraper-secret: $normalized_geneva_secret" \
-            --data '{}' \
-            "$SUPABASE_FUNCTION_URL/functions/v1/scrape-geneva-events"
+          cursor=0
+          batch=3
+          max_batches=40
+          run_started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          for iteration in $(seq 1 "$max_batches"); do
+            response="$(curl --fail-with-body \
+              --retry 2 \
+              --retry-all-errors \
+              --request POST \
+              --header "Content-Type: application/json" \
+              --header "x-geneva-scraper-secret: $normalized_geneva_secret" \
+              --data "{\"cursor\":${cursor},\"batchSize\":${batch},\"runStartedAt\":\"${run_started_at}\"}" \
+              "$SUPABASE_FUNCTION_URL/functions/v1/scrape-geneva-events")"
+
+            printf '%s\n' "$response" | jq '{jobId, cursor, nextCursor, hasMore, totalTasks, pagesSuccess, pagesFailed, eventsCreated, eventsUpdated, eventsRejected}'
+            has_more="$(printf '%s' "$response" | jq -r '.hasMore // false')"
+            next_cursor="$(printf '%s' "$response" | jq -r '.nextCursor // empty')"
+            test -n "$next_cursor" || { echo "Missing nextCursor in scraper response" >&2; exit 1; }
+
+            if [ "$has_more" != "true" ]; then
+              echo "Regional event synchronization completed in ${iteration} batch(es)."
+              exit 0
+            fi
+            if [ "$next_cursor" -le "$cursor" ]; then
+              echo "Scraper cursor did not advance" >&2
+              exit 1
+            fi
+            cursor="$next_cursor"
+          done
+
+          echo "Scraper exceeded ${max_batches} batches" >&2
+          exit 1

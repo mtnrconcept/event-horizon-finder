@@ -1,7 +1,8 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  CircleAlert,
   Crosshair,
   Flame,
   LayoutGrid,
@@ -59,13 +60,14 @@ const QUICK: { key: QuickRange; label: string; helper: string }[] = [
   { key: "tomorrow", label: "Demain", helper: "Toute la journée" },
   { key: "weekend", label: "Ce week-end", helper: "Vendredi → dimanche" },
   { key: "week", label: "7 jours", helper: "Planning complet" },
+  { key: "month", label: "30 jours", helper: "Tous les événements" },
 ];
 
 function Discover() {
   const [cities, setCities] = useState<City[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cityId, setCityId] = useState<string | null>(null);
-  const [range, setRange] = useState<QuickRange>("week");
+  const [range, setRange] = useState<QuickRange>("month");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [freeOnly, setFreeOnly] = useState(false);
@@ -73,11 +75,15 @@ function Discover() {
   const [sort, setSort] = useState<SortMode>("soon");
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const deferredQuery = useDeferredValue(query.trim());
 
   useEffect(() => {
     fetchCities().then((c) => {
       setCities(c as City[]);
-      if (!cityId && c.length) setCityId((c[0] as City).id);
+      const geneva = (c as City[]).find((city) => city.slug === "geneve");
+      if (!cityId && c.length) setCityId(geneva?.id ?? (c[0] as City).id);
     });
     fetchCategories().then((c) => setCategories(c as Category[]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,7 +97,9 @@ function Discover() {
   );
 
   useEffect(() => {
+    let current = true;
     setLoading(true);
+    setError(null);
     discoverEvents({
       lat: coords?.lat ?? null,
       lon: coords?.lon ?? null,
@@ -99,15 +107,26 @@ function Discover() {
       cityId,
       categorySlugs: cats.size ? [...cats] : null,
       freeOnly,
-      query,
+      query: deferredQuery,
       from,
       to,
-      limit: 80,
+      limit: 120,
     })
-      .then((d) => setEvents(d))
-      .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
-  }, [cityId, cats, freeOnly, query, from, to, coords]);
+      .then((data) => {
+        if (current) setEvents(data);
+      })
+      .catch(() => {
+        if (!current) return;
+        setEvents([]);
+        setError("Le catalogue n'a pas pu être chargé. Réessaie dans un instant.");
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [cityId, cats, freeOnly, deferredQuery, from, to, coords, reloadKey]);
 
   const sortedEvents = useMemo(() => {
     const list = [...(events ?? [])];
@@ -154,7 +173,7 @@ function Discover() {
     setQuery("");
     setFreeOnly(false);
     setCoords(null);
-    setRange("week");
+    setRange("month");
     setSort("soon");
   };
 
@@ -165,14 +184,14 @@ function Discover() {
         <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
           <div>
             <Badge className="mb-5 border-transparent bg-primary/15 px-3 py-1 text-primary">
-              <Flame className="mr-1.5 h-3.5 w-3.5" /> Sorties triées en temps réel
+              <Flame className="mr-1.5 h-3.5 w-3.5" /> Genève & Suisse romande · catalogue live
             </Badge>
             <h1 className="max-w-4xl text-4xl font-black leading-[0.95] md:text-7xl">
               Trouve le bon plan avant qu'il ne disparaisse.
             </h1>
             <p className="mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
-              EVENTA transforme ta ville en radar culturel : concerts, expos, soirées, festivals et
-              sorties gratuites, filtrés pour maintenant, ce soir ou ton prochain week-end.
+              EVENTA transforme la région en radar culturel : clubs, concerts, festivals et sorties
+              gratuites réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
@@ -339,6 +358,20 @@ function Discover() {
           <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
         </button>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="flex items-center gap-2">
+            <CircleAlert className="h-4 w-4" /> {error}
+          </span>
+          <button
+            onClick={() => setReloadKey((value) => value + 1)}
+            className="font-semibold underline"
+          >
+            Réessayer
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
