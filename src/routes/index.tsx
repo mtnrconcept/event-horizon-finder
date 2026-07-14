@@ -60,14 +60,15 @@ const QUICK: { key: QuickRange; label: string; helper: string }[] = [
   { key: "tomorrow", label: "Demain", helper: "Toute la journée" },
   { key: "weekend", label: "Ce week-end", helper: "Vendredi → dimanche" },
   { key: "week", label: "7 jours", helper: "Planning complet" },
-  { key: "month", label: "30 jours", helper: "Tous les événements" },
+  { key: "month", label: "30 jours", helper: "Prochains événements" },
+  { key: "year", label: "Tout à venir", helper: "Catalogue sur 12 mois" },
 ];
 
 function Discover() {
   const [cities, setCities] = useState<City[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cityId, setCityId] = useState<string | null>(null);
-  const [range, setRange] = useState<QuickRange>("month");
+  const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [freeOnly, setFreeOnly] = useState(false);
@@ -173,7 +174,7 @@ function Discover() {
     setQuery("");
     setFreeOnly(false);
     setCoords(null);
-    setRange("month");
+    setRange("year");
     setSort("soon");
   };
 
