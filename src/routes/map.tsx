@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { discoverMapEvents, fetchCities, type DiscoveredEvent } from "@/lib/queries";
 import { EventCard } from "@/components/event-card";
@@ -21,8 +21,8 @@ const MAPBOX_STYLE = MAPBOX_ACCESS_TOKEN
   ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${MAPBOX_ACCESS_TOKEN}`
   : null;
 
-/** Free fallback when no Mapbox public token is configured. */
-const OSM_STYLE = {
+/** Free raster fallback when no Mapbox public token is configured. */
+const OSM_STYLE: StyleSpecification = {
   version: 8 as const,
   sources: {
     osm: {
@@ -33,7 +33,6 @@ const OSM_STYLE = {
     },
   },
   layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
-  glyphs: undefined,
 };
 
 type City = {
@@ -72,7 +71,7 @@ function MapPage() {
     if (!ref.current || mapRef.current) return;
     const m = new maplibregl.Map({
       container: ref.current,
-      style: (MAPBOX_STYLE ?? OSM_STYLE) as never,
+      style: MAPBOX_STYLE ?? OSM_STYLE,
       center: GENEVA_CENTER,
       zoom: 12,
     });
