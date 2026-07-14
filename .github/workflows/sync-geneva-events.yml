@@ -1,0 +1,24 @@
+name: Sync Geneva events
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Geneva scraper Edge Function
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          GENEVA_SCRAPER_SECRET: ${{ secrets.GENEVA_SCRAPER_SECRET }}
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$GENEVA_SCRAPER_SECRET"
+          curl --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "x-geneva-scraper-secret: $GENEVA_SCRAPER_SECRET" \
+            --data '{}' \
+            "$SUPABASE_URL/functions/v1/scrape-geneva-events"
