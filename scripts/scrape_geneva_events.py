@@ -28,7 +28,9 @@ from urllib.request import Request, urlopen
 
 
 USER_AGENT = "EVENTA-Geneva-Event-Collector/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)"
-DEFAULT_TIMEOUT = 90
+# A server batch may perform two 72-second Firecrawl attempts plus backoff.
+# The client must wait longer or it will retry a still-running batch.
+DEFAULT_TIMEOUT = 210
 MAX_BATCH_SIZE = 4
 MAX_DIRECT_LINKS = 40
 EVENT_PATH_HINT = re.compile(
