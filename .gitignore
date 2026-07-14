@@ -32,6 +32,6 @@ dist-ssr
 *.sw?
 
 # Environment files
-.env
+# .env contains public VITE_* values required by Lovable previews.
 .env.*
 !.env.example
