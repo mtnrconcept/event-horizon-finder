@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
+from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 from urllib.error import HTTPError, URLError
@@ -53,6 +56,11 @@ class Source:
     category: str = "concerts"
     page_count: int = 1
     metadata: Mapping[str, Any] | None = None
+    city: str = "Genève"
+    timezone: str = "Europe/Zurich"
+    latitude: float | None = 46.2044
+    longitude: float | None = 6.1432
+    country_code: str = "CH"
 
 
 @dataclass(frozen=True)
@@ -71,6 +79,23 @@ class Event:
     image_url: str | None = None
     is_free: bool = False
     external_identifier: str | None = None
+    timezone: str = "Europe/Zurich"
+    time_precision: str = "exact"
+    all_day: bool = False
+    city: str | None = None
+    region: str | None = None
+    country_code: str | None = None
+    organizer_name: str | None = None
+    organizer_url: str | None = None
+    status: str = "scheduled"
+    language: str | None = None
+    genres: tuple[str, ...] = ()
+    capacity: int | None = None
+    price_min: float | None = None
+    price_max: float | None = None
+    currency: str | None = None
+    quality_score: int = 0
+    warnings: tuple[str, ...] = ()
 
     def rpc_payload(self, source_id: str) -> dict[str, Any]:
         return {
@@ -202,7 +227,13 @@ def _first_text(value: Any) -> str | None:
             if found:
                 return found
     if isinstance(value, Mapping):
-        return _first_text(value.get("url") or value.get("contentUrl"))
+        return _first_text(
+            value.get("name")
+            or value.get("value")
+            or value.get("url")
+            or value.get("contentUrl")
+            or value.get("@id")
+        )
     return None
 
 
@@ -216,6 +247,9 @@ def _absolute_http_url(value: Any, base_url: str) -> str | None:
 
 
 def _number(value: Any) -> float | None:
+    if isinstance(value, str):
+        match = re.search(r"-?\d+(?:[.,]\d+)?", value.replace("'", ""))
+        value = match.group(0).replace(",", ".") if match else value
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -223,7 +257,7 @@ def _number(value: Any) -> float | None:
     return result if result == result else None
 
 
-def _iso_datetime(value: Any) -> str | None:
+def _iso_datetime(value: Any, timezone_name: str = "Europe/Zurich") -> str | None:
     text = _first_text(value)
     if not text:
         return None
@@ -233,21 +267,139 @@ def _iso_datetime(value: Any) -> str | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        # Official Geneva pages without an offset are interpreted in local time.
+        # A source-local time must never be interpreted in the CI runner timezone.
         try:
             from zoneinfo import ZoneInfo
 
-            parsed = parsed.replace(tzinfo=ZoneInfo("Europe/Zurich"))
+            parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name))
         except Exception:  # pragma: no cover - zoneinfo is part of supported Python versions.
             parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.isoformat()
 
 
-def _event_from_json_ld(raw: Mapping[str, Any], page_url: str, category: str) -> Event | None:
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _canonical_http_url(value: Any, base_url: str) -> str | None:
+    candidate = _absolute_http_url(value, base_url)
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    query = [
+        part
+        for part in parsed.query.split("&")
+        if part and not re.match(r"(?i)(?:utm_[^=]*|fbclid|gclid|ref|source)=", part)
+    ]
+    return parsed._replace(query="&".join(query), fragment="").geturl()
+
+
+def _source_host_matches(candidate_url: str, source_url: str) -> bool:
+    candidate = urlparse(candidate_url).hostname or ""
+    source = urlparse(source_url).hostname or ""
+    candidate = candidate.casefold().removeprefix("www.")
+    source = source.casefold().removeprefix("www.")
+    return bool(
+        candidate
+        and source
+        and (candidate == source or candidate.endswith(f".{source}") or source.endswith(f".{candidate}"))
+    )
+
+
+def _offer_details(value: Any, base_url: str) -> tuple[float | None, float | None, str | None, str | None]:
+    prices: list[float] = []
+    currencies: list[str] = []
+    ticket_url: str | None = None
+    for offer in _as_list(value):
+        if not isinstance(offer, Mapping):
+            continue
+        for key in ("price", "lowPrice", "highPrice", "minPrice", "maxPrice"):
+            price = _number(offer.get(key))
+            if price is not None and 0 <= price <= 100_000:
+                prices.append(price)
+        currency = _first_text(offer.get("priceCurrency"))
+        if currency and re.fullmatch(r"[A-Za-z]{3}", currency):
+            currencies.append(currency.upper())
+        ticket_url = ticket_url or _canonical_http_url(offer.get("url"), base_url)
+        nested = offer.get("offers")
+        if nested:
+            low, high, nested_currency, nested_url = _offer_details(nested, base_url)
+            prices.extend(price for price in (low, high) if price is not None)
+            if nested_currency:
+                currencies.append(nested_currency)
+            ticket_url = ticket_url or nested_url
+    return (
+        min(prices) if prices else None,
+        max(prices) if prices else None,
+        currencies[0] if currencies else None,
+        ticket_url,
+    )
+
+
+def _normalize_status(value: Any) -> str:
+    status = re.sub(r"\W+", "", (_first_text(value) or "").casefold())
+    if "cancel" in status:
+        return "cancelled"
+    if "postpon" in status or "report" in status:
+        return "postponed"
+    if "soldout" in status or "complet" in status:
+        return "sold_out"
+    return "scheduled"
+
+
+def _clean_description(value: Any) -> str | None:
+    text = _first_text(value)
+    if not text:
+        return None
+    cleaned = re.sub(r"<[^>]+>", " ", unescape(text))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:6000] or None
+
+
+def _haversine_km(left_lat: float, left_lon: float, right_lat: float, right_lon: float) -> float:
+    radians = math.radians
+    delta_lat = radians(right_lat - left_lat)
+    delta_lon = radians(right_lon - left_lon)
+    value = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(radians(left_lat))
+        * math.cos(radians(right_lat))
+        * math.sin(delta_lon / 2) ** 2
+    )
+    return 6371 * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+
+def _event_quality(event: Event) -> int:
+    score = 44
+    score += 10 if event.ends_at else 0
+    score += 12 if event.venue_name or event.address else 0
+    score += 8 if event.city else 0
+    score += 8 if event.description and len(event.description) >= 40 else 0
+    score += 6 if event.image_url else 0
+    score += 5 if event.ticket_url else 0
+    score += 4 if event.category else 0
+    score += 3 if event.latitude is not None and event.longitude is not None else 0
+    return min(100, score)
+
+
+def _event_from_json_ld(
+    raw: Mapping[str, Any],
+    page_url: str,
+    category: str,
+    *,
+    timezone_name: str = "Europe/Zurich",
+    city_name: str | None = "Genève",
+    city_latitude: float | None = 46.2044,
+    city_longitude: float | None = 6.1432,
+    country_code: str | None = "CH",
+) -> Event | None:
     if not _has_event_type(raw.get("@type")):
         return None
     title = _first_text(raw.get("name") or raw.get("headline"))
-    starts_at = _iso_datetime(raw.get("startDate"))
+    start_text = _first_text(raw.get("startDate"))
+    starts_at = _iso_datetime(start_text, timezone_name)
     if not title or not starts_at:
         return None
 
@@ -268,49 +420,138 @@ def _event_from_json_ld(raw: Mapping[str, Any], page_url: str, category: str) ->
         address = _first_text(address_value)
     geo = location.get("geo") if isinstance(location, Mapping) and isinstance(location.get("geo"), Mapping) else {}
 
-    offers_value = raw.get("offers")
-    offers = offers_value[0] if isinstance(offers_value, list) and offers_value else offers_value
-    offers = offers if isinstance(offers, Mapping) else {}
-    price = _number(offers.get("price"))
-    source_url = _absolute_http_url(raw.get("url") or raw.get("@id"), page_url) or page_url
-    ticket_url = _absolute_http_url(offers.get("url"), source_url)
+    city = _first_text(address_value.get("addressLocality")) if isinstance(address_value, Mapping) else None
+    region = _first_text(address_value.get("addressRegion")) if isinstance(address_value, Mapping) else None
+    json_country = _first_text(address_value.get("addressCountry")) if isinstance(address_value, Mapping) else None
+    latitude = _number(geo.get("latitude")) if isinstance(geo, Mapping) else None
+    longitude = _number(geo.get("longitude")) if isinstance(geo, Mapping) else None
+    warnings: list[str] = []
+    if (latitude is None) != (longitude is None):
+        warnings.append("incomplete_coordinates")
+        latitude = longitude = None
+    if latitude is not None and longitude is not None:
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            warnings.append("invalid_coordinates")
+            latitude = longitude = None
+        elif city_latitude is not None and city_longitude is not None:
+            if _haversine_km(latitude, longitude, city_latitude, city_longitude) > 250:
+                warnings.append("coordinates_outside_source_area")
+                latitude = longitude = None
 
-    return Event(
+    price_min, price_max, currency, ticket_url = _offer_details(raw.get("offers"), page_url)
+    source_url = _canonical_http_url(raw.get("url") or raw.get("@id"), page_url) or page_url
+    if not _source_host_matches(source_url, page_url):
+        warnings.append("off_domain_source_url")
+        source_url = page_url
+    organizer = raw.get("organizer") if isinstance(raw.get("organizer"), Mapping) else {}
+    genre_values = _as_list(raw.get("genre") or raw.get("eventType") or raw.get("category"))
+    genres = tuple(dict.fromkeys(filter(None, (_first_text(value) for value in genre_values))))
+    all_day = bool(start_text and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start_text))
+    ends_at = _iso_datetime(raw.get("endDate"), timezone_name)
+    if all_day:
+        try:
+            start_date = datetime.fromisoformat(starts_at)
+            if ends_at:
+                ends_at = (datetime.fromisoformat(ends_at) + timedelta(days=1)).isoformat()
+            else:
+                ends_at = (start_date + timedelta(days=1)).isoformat()
+        except (TypeError, ValueError):
+            pass
+
+    event = Event(
         title=title[:240],
         starts_at=starts_at,
-        ends_at=_iso_datetime(raw.get("endDate")),
+        ends_at=ends_at,
         source_url=source_url,
-        description=_first_text(raw.get("description")),
+        description=_clean_description(raw.get("description")),
         venue_name=_first_text(location.get("name")) if isinstance(location, Mapping) else None,
         address=address,
-        latitude=_number(geo.get("latitude")) if isinstance(geo, Mapping) else None,
-        longitude=_number(geo.get("longitude")) if isinstance(geo, Mapping) else None,
+        latitude=latitude,
+        longitude=longitude,
         category=_first_text(raw.get("eventType")) or category,
         ticket_url=ticket_url,
-        image_url=_absolute_http_url(raw.get("image"), source_url),
-        is_free=price == 0 if price is not None else False,
+        image_url=_canonical_http_url(raw.get("image"), source_url),
+        is_free=(raw.get("isAccessibleForFree") is True) or price_min == 0,
         external_identifier=_first_text(raw.get("identifier") or raw.get("@id")),
+        timezone=timezone_name,
+        time_precision="date" if all_day else "exact",
+        all_day=all_day,
+        city=city or city_name,
+        region=region,
+        country_code=json_country or country_code,
+        organizer_name=_first_text(raw.get("organizer")),
+        organizer_url=_canonical_http_url(organizer.get("url") or organizer.get("@id"), page_url),
+        status=_normalize_status(raw.get("eventStatus")),
+        language=_first_text(raw.get("inLanguage")),
+        genres=genres,
+        capacity=int(value) if (value := _number(raw.get("maximumAttendeeCapacity"))) else None,
+        price_min=price_min,
+        price_max=price_max,
+        currency=currency,
+        warnings=tuple(warnings),
     )
+    return replace(event, quality_score=_event_quality(event))
 
 
-def extract_json_ld_events(html: str, page_url: str, category: str = "concerts") -> list[Event]:
+def _decode_json_documents(value: str) -> list[Any]:
+    cleaned = value.strip().removeprefix("<!--").removesuffix("-->").strip().rstrip(";")
+    if not cleaned:
+        return []
+    try:
+        return [json.loads(cleaned)]
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        documents: list[Any] = []
+        position = 0
+        while position < len(cleaned):
+            match = re.search(r"[\[{]", cleaned[position:])
+            if not match:
+                break
+            position += match.start()
+            try:
+                document, end = decoder.raw_decode(cleaned, position)
+            except json.JSONDecodeError:
+                position += 1
+                continue
+            documents.append(document)
+            position = end
+        return documents
+
+
+def extract_json_ld_events(
+    html: str,
+    page_url: str,
+    category: str = "concerts",
+    *,
+    timezone_name: str = "Europe/Zurich",
+    city_name: str | None = "Genève",
+    city_latitude: float | None = 46.2044,
+    city_longitude: float | None = 6.1432,
+    country_code: str | None = "CH",
+) -> list[Event]:
     parser = AgendaHTMLParser()
     parser.feed(html)
     events: list[Event] = []
     seen: set[tuple[str, str, str]] = set()
     for block in parser.json_ld:
-        try:
-            document = json.loads(block)
-        except json.JSONDecodeError:
-            continue
-        for raw in _iter_json_objects(document):
-            event = _event_from_json_ld(raw, page_url, category)
-            if not event:
-                continue
-            key = (event.title.casefold(), event.starts_at, event.source_url)
-            if key not in seen:
-                seen.add(key)
-                events.append(event)
+        for document in _decode_json_documents(block):
+            for raw in _iter_json_objects(document):
+                event = _event_from_json_ld(
+                    raw,
+                    page_url,
+                    category,
+                    timezone_name=timezone_name,
+                    city_name=city_name,
+                    city_latitude=city_latitude,
+                    city_longitude=city_longitude,
+                    country_code=country_code,
+                )
+                if not event:
+                    continue
+                key = (event.title.casefold(), event.starts_at, event.source_url)
+                if key not in seen:
+                    seen.add(key)
+                    events.append(event)
     return events
 
 
@@ -370,11 +611,22 @@ def _firecrawl_events(source: Source, page_url: str, api_key: str, timeout: int)
                         "description": {"type": ["string", "null"]},
                         "startDate": {"type": ["string", "null"]},
                         "endDate": {"type": ["string", "null"]},
+                        "timePrecision": {"type": ["string", "null"]},
+                        "allDay": {"type": ["boolean", "null"]},
                         "venueName": {"type": ["string", "null"]},
                         "address": {"type": ["string", "null"]},
+                        "city": {"type": ["string", "null"]},
+                        "countryCode": {"type": ["string", "null"]},
                         "latitude": {"type": ["number", "null"]},
                         "longitude": {"type": ["number", "null"]},
+                        "status": {"type": ["string", "null"]},
+                        "language": {"type": ["string", "null"]},
                         "category": {"type": ["string", "null"]},
+                        "genres": {"type": ["array", "null"], "items": {"type": "string"}},
+                        "capacity": {"type": ["integer", "null"]},
+                        "priceMin": {"type": ["number", "null"]},
+                        "priceMax": {"type": ["number", "null"]},
+                        "currency": {"type": ["string", "null"]},
                         "ticketUrl": {"type": ["string", "null"]},
                         "imageUrl": {"type": ["string", "null"]},
                         "isFree": {"type": ["boolean", "null"]},
@@ -400,8 +652,9 @@ def _firecrawl_events(source: Source, page_url: str, api_key: str, timeout: int)
                     "schema": schema,
                     "prompt": (
                         "Extrais tous les événements futurs réels visibles: clubs, soirées, festivals et concerts. "
-                        "Une ligne par occurrence, dates ISO 8601 Europe/Zurich, lien officiel dans sourceUrl, "
-                        "aucune invention et aucun élément de navigation."
+                        f"Une ligne par occurrence, dates ISO 8601 dans {source.timezone}, lien officiel dans sourceUrl. "
+                        "Ne transforme jamais une heure inconnue en minuit. N'invente aucune coordonnée, prix, "
+                        "genre, capacité ou information absente et ignore les éléments de navigation."
                     ),
                 }
             ],
@@ -414,28 +667,89 @@ def _firecrawl_events(source: Source, page_url: str, api_key: str, timeout: int)
         if not isinstance(raw, Mapping):
             continue
         title = _first_text(raw.get("title"))
-        starts_at = _iso_datetime(raw.get("startDate"))
-        if not title or not starts_at:
+        starts_at = _iso_datetime(raw.get("startDate"), source.timezone)
+        if not title or not starts_at or re.search(
+            r"(?i)(gift\s*card|carte\s*cadeau|newsletter|privacy|cookie|membership|contact|faq)",
+            title,
+        ):
             continue
-        source_url = _absolute_http_url(raw.get("sourceUrl"), page_url) or page_url
+        source_url = _canonical_http_url(raw.get("sourceUrl"), page_url) or page_url
+        if not _source_host_matches(source_url, page_url):
+            source_url = page_url
+            warnings = ["off_domain_source_url"]
+        else:
+            warnings = []
+        latitude = _number(raw.get("latitude"))
+        longitude = _number(raw.get("longitude"))
+        if (latitude is None) != (longitude is None):
+            latitude = longitude = None
+            warnings.append("incomplete_coordinates")
+        if latitude is not None and longitude is not None:
+            if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+                latitude = longitude = None
+                warnings.append("invalid_coordinates")
+            elif source.latitude is not None and source.longitude is not None:
+                if _haversine_km(latitude, longitude, source.latitude, source.longitude) > 250:
+                    latitude = longitude = None
+                    warnings.append("coordinates_outside_source_area")
+        price_min = _number(raw.get("priceMin"))
+        price_max = _number(raw.get("priceMax"))
+        if price_min is not None and price_max is not None and price_min > price_max:
+            price_min, price_max = price_max, price_min
+        currency = (_first_text(raw.get("currency")) or "").upper() or None
+        if currency and not re.fullmatch(r"[A-Z]{3}", currency):
+            currency = None
+        all_day = raw.get("allDay") is True or bool(
+            re.fullmatch(r"\d{4}-\d{2}-\d{2}", _first_text(raw.get("startDate")) or "")
+        )
+        ends_at = _iso_datetime(raw.get("endDate"), source.timezone)
+        if all_day:
+            try:
+                if ends_at and re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}", _first_text(raw.get("endDate")) or ""
+                ):
+                    ends_at = (datetime.fromisoformat(ends_at) + timedelta(days=1)).isoformat()
+                elif not ends_at:
+                    ends_at = (datetime.fromisoformat(starts_at) + timedelta(days=1)).isoformat()
+            except ValueError:
+                pass
         event = Event(
             title=title[:240],
             starts_at=starts_at,
-            ends_at=_iso_datetime(raw.get("endDate")),
+            ends_at=ends_at,
             source_url=source_url,
-            description=_first_text(raw.get("description")),
+            description=_clean_description(raw.get("description")),
             venue_name=_first_text(raw.get("venueName")),
             address=_first_text(raw.get("address")),
-            latitude=_number(raw.get("latitude")),
-            longitude=_number(raw.get("longitude")),
+            latitude=latitude,
+            longitude=longitude,
             category=_first_text(raw.get("category")) or source.category,
-            ticket_url=_absolute_http_url(raw.get("ticketUrl"), source_url),
-            image_url=_absolute_http_url(raw.get("imageUrl"), source_url),
-            is_free=raw.get("isFree") is True,
+            ticket_url=_canonical_http_url(raw.get("ticketUrl"), source_url),
+            image_url=_canonical_http_url(raw.get("imageUrl"), source_url),
+            is_free=raw.get("isFree") is True or price_min == 0,
             external_identifier=_first_text(raw.get("externalId")),
+            timezone=source.timezone,
+            time_precision="date" if all_day else (_first_text(raw.get("timePrecision")) or "exact"),
+            all_day=all_day,
+            city=_first_text(raw.get("city")) or source.city,
+            country_code=_first_text(raw.get("countryCode")) or source.country_code,
+            status=_normalize_status(raw.get("status")),
+            language=_first_text(raw.get("language")),
+            genres=tuple(
+                dict.fromkeys(
+                    filter(None, (_first_text(value) for value in _as_list(raw.get("genres"))))
+                )
+            ),
+            capacity=int(value) if (value := _number(raw.get("capacity"))) and value <= 1_000_000 else None,
+            price_min=price_min if price_min is not None and 0 <= price_min <= 100_000 else None,
+            price_max=price_max if price_max is not None and 0 <= price_max <= 100_000 else None,
+            currency=currency,
+            warnings=tuple(warnings),
         )
         if _future_event(event):
-            events.append(event)
+            scored = replace(event, quality_score=_event_quality(event))
+            if scored.quality_score >= 48:
+                events.append(scored)
     return events
 
 
@@ -445,16 +759,19 @@ class SupabaseREST:
         self.headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
         self.timeout = timeout
 
-    def sources(self, source_ids: Sequence[str]) -> list[Source]:
+    def sources(self, source_ids: Sequence[str], city_slug: str = "geneve") -> list[Source]:
         city_rows = _request_json(
-            f"{self.url}/rest/v1/cities?slug=eq.geneve&select=id&limit=1",
+            f"{self.url}/rest/v1/cities?slug=eq.{city_slug}&select=id&limit=1",
             headers=self.headers,
             timeout=self.timeout,
         )
         if not city_rows:
-            raise CollectorError("The Geneva city row is missing in Supabase")
+            raise CollectorError(f"The {city_slug!r} city row is missing in Supabase")
         query = {
-            "select": "id,name,base_url,category_slug,page_count,metadata",
+            "select": (
+                "id,name,base_url,category_slug,page_count,metadata,"
+                "city:cities(name,timezone,latitude,longitude,country:countries(code))"
+            ),
             "status": "eq.active",
             "is_authorized": "eq.true",
             "is_verified": "eq.true",
@@ -468,17 +785,24 @@ class SupabaseREST:
             headers=self.headers,
             timeout=self.timeout,
         )
-        return [
-            Source(
+        sources: list[Source] = []
+        for row in rows:
+            city = row.get("city") if isinstance(row.get("city"), Mapping) else {}
+            country = city.get("country") if isinstance(city.get("country"), Mapping) else {}
+            sources.append(Source(
                 id=row["id"],
                 name=row["name"],
                 base_url=row["base_url"],
                 category=row.get("category_slug") or "concerts",
                 page_count=max(1, min(int(row.get("page_count") or 1), 40)),
                 metadata=row.get("metadata") or {},
-            )
-            for row in rows
-        ]
+                city=_first_text(city.get("name")) or city_slug,
+                timezone=_first_text(city.get("timezone")) or "UTC",
+                latitude=_number(city.get("latitude")),
+                longitude=_number(city.get("longitude")),
+                country_code=(_first_text(country.get("code")) or "").upper(),
+            ))
+        return sources
 
     def upsert(self, source_id: str, event: Event) -> Mapping[str, Any]:
         result = _request_json(
@@ -492,15 +816,117 @@ class SupabaseREST:
             return result[0] if result else {}
         return result if isinstance(result, Mapping) else {}
 
+    def enrich(self, event_id: str, event: Event) -> None:
+        event_update: dict[str, Any] = {"quality_score": event.quality_score}
+        if event.genres:
+            event_update["genres"] = list(event.genres)
+        if event.language:
+            event_update["language"] = event.language[:10].lower()
+        if event.status != "scheduled":
+            event_update["status"] = event.status
+        _request_json(
+            f"{self.url}/rest/v1/events?id=eq.{event_id}",
+            method="PATCH",
+            headers=self.headers,
+            payload=event_update,
+            timeout=self.timeout,
+        )
+        occurrence_query = urlencode({"event_id": f"eq.{event_id}", "starts_at": f"eq.{event.starts_at}"})
+        occurrence_update: dict[str, Any] = {
+            "timezone": event.timezone,
+            "time_precision": event.time_precision,
+            "all_day": event.all_day,
+            "status": event.status,
+        }
+        if event.capacity is not None:
+            occurrence_update["capacity"] = event.capacity
+        _request_json(
+            f"{self.url}/rest/v1/event_occurrences?{occurrence_query}",
+            method="PATCH",
+            headers=self.headers,
+            payload=occurrence_update,
+            timeout=self.timeout,
+        )
+        if event.price_min is not None or event.price_max is not None or event.currency:
+            ticket_update = {
+                "price_min": event.price_min if event.price_min is not None else event.price_max,
+                "price_max": event.price_max if event.price_max is not None else event.price_min,
+                "is_free": event.is_free,
+            }
+            if event.currency:
+                ticket_update["currency"] = event.currency
+            _request_json(
+                f"{self.url}/rest/v1/ticket_offers?event_id=eq.{event_id}",
+                method="PATCH",
+                headers=self.headers,
+                payload=ticket_update,
+                timeout=self.timeout,
+            )
+
 
 def _dedupe(events: Iterable[Event]) -> list[Event]:
     result: list[Event] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: dict[tuple[str, str], int] = {}
     for event in events:
-        key = (event.title.casefold(), event.starts_at, urlparse(event.source_url).path.rstrip("/"))
-        if key not in seen and _future_event(event):
-            seen.add(key)
-            result.append(event)
+        if not _future_event(event):
+            continue
+        key = (event.external_identifier or event.source_url, event.starts_at[:16])
+        if key in seen:
+            index = seen[key]
+            current = result[index]
+            richer = event if event.quality_score > current.quality_score else current
+            other = current if richer is event else event
+            result[index] = replace(
+                richer,
+                description=(
+                    other.description
+                    if len(other.description or "") > len(richer.description or "")
+                    else richer.description
+                ),
+                image_url=richer.image_url or other.image_url,
+                ticket_url=richer.ticket_url or other.ticket_url,
+                genres=tuple(dict.fromkeys((*richer.genres, *other.genres))),
+                warnings=tuple(dict.fromkeys((*richer.warnings, *other.warnings))),
+            )
+            continue
+
+        best_index: int | None = None
+        best_score = 0.0
+        for index, current in enumerate(result):
+            try:
+                delta = abs(
+                    (
+                        datetime.fromisoformat(current.starts_at.replace("Z", "+00:00"))
+                        - datetime.fromisoformat(event.starts_at.replace("Z", "+00:00"))
+                    ).total_seconds()
+                )
+            except ValueError:
+                continue
+            if delta > 4 * 3600:
+                continue
+            title_score = SequenceMatcher(None, current.title.casefold(), event.title.casefold()).ratio()
+            if title_score < 0.7:
+                continue
+            venue_score = SequenceMatcher(
+                None,
+                (current.venue_name or current.address or "").casefold(),
+                (event.venue_name or event.address or "").casefold(),
+            ).ratio()
+            date_score = max(0.0, 1 - delta / (4 * 3600))
+            score = 0.55 * title_score + 0.25 * date_score + 0.20 * venue_score
+            if score > best_score:
+                best_score = score
+                best_index = index
+        if best_index is not None:
+            current_start = datetime.fromisoformat(result[best_index].starts_at.replace("Z", "+00:00"))
+            event_start = datetime.fromisoformat(event.starts_at.replace("Z", "+00:00"))
+            if best_score >= 0.92 and abs((current_start - event_start).total_seconds()) <= 15 * 60:
+                seen[key] = best_index
+                current = result[best_index]
+                result[best_index] = event if event.quality_score > current.quality_score else current
+                continue
+        seen[key] = len(result)
+        result.append(event)
     return result
 
 
@@ -580,12 +1006,32 @@ def _direct_source_events(source: Source, args: argparse.Namespace) -> tuple[lis
         page_url = _source_page_url(source, page)
         try:
             html = _request_text(page_url, timeout=args.timeout)
-            page_events = extract_json_ld_events(html, page_url, source.category)
+            page_events = extract_json_ld_events(
+                html,
+                page_url,
+                source.category,
+                timezone_name=source.timezone,
+                city_name=source.city,
+                city_latitude=source.latitude,
+                city_longitude=source.longitude,
+                country_code=source.country_code,
+            )
             if args.follow_links and len(page_events) < 2:
                 for detail_url in discover_event_links(html, page_url, args.follow_links):
                     try:
                         detail_html = _request_text(detail_url, timeout=args.timeout, retries=1)
-                        page_events.extend(extract_json_ld_events(detail_html, detail_url, source.category))
+                        page_events.extend(
+                            extract_json_ld_events(
+                                detail_html,
+                                detail_url,
+                                source.category,
+                                timezone_name=source.timezone,
+                                city_name=source.city,
+                                city_latitude=source.latitude,
+                                city_longitude=source.longitude,
+                                country_code=source.country_code,
+                            )
+                        )
                     except CollectorError as error:
                         errors.append(f"{detail_url}: {error}")
             if not page_events and firecrawl_key:
@@ -601,14 +1047,26 @@ def run_direct(args: argparse.Namespace) -> int:
     supabase_url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
     database = SupabaseREST(supabase_url, service_key, args.timeout) if supabase_url and service_key else None
     if args.url:
-        sources = [Source(None, args.venue or urlparse(args.url).netloc, args.url, args.category)]
+        sources = [
+            Source(
+                None,
+                args.venue or urlparse(args.url).netloc,
+                args.url,
+                args.category,
+                city=args.city_name,
+                timezone=args.timezone,
+                latitude=args.latitude,
+                longitude=args.longitude,
+                country_code=args.country_code,
+            )
+        ]
     else:
         if not database:
             raise CollectorError(
                 "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to load the source registry; "
                 "alternatively pass --url for a local dry run"
             )
-        sources = database.sources(args.source_id)
+        sources = database.sources(args.source_id, args.city_slug)
     if args.write and not database:
         raise CollectorError("--write requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
 
@@ -625,6 +1083,8 @@ def run_direct(args: argparse.Namespace) -> int:
                     raise CollectorError("A registered data source is required when using --write")
                 outcome = database.upsert(source.id, event) if database else {}
                 action = str(outcome.get("action") or "updated")
+                if database and outcome.get("event_id"):
+                    database.enrich(str(outcome["event_id"]), event)
                 summary["created" if action == "created" else "updated"] += 1
             else:
                 print(json.dumps(event.__dict__, ensure_ascii=False, sort_keys=True))
@@ -645,6 +1105,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-batches", type=int, default=100)
     parser.add_argument("--url", help="Direct-mode URL for an unregistered local dry run")
     parser.add_argument("--venue", help="Venue name used with --url")
+    parser.add_argument("--city-slug", default="geneve", help="Registered city slug used in direct mode")
+    parser.add_argument("--city-name", default="Genève", help="City hint used with --url")
+    parser.add_argument("--country-code", default="CH", help="ISO country hint used with --url")
+    parser.add_argument("--timezone", default="Europe/Zurich", help="IANA timezone used with --url")
+    parser.add_argument("--latitude", type=float, default=46.2044, help="City latitude used with --url")
+    parser.add_argument("--longitude", type=float, default=6.1432, help="City longitude used with --url")
     parser.add_argument("--category", default="concerts", choices=("soirees", "festivals", "concerts"))
     parser.add_argument(
         "--follow-links",

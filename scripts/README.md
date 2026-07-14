@@ -2,6 +2,13 @@
 
 Le script historique `scrape_geneva_events.py` orchestre désormais toutes les sources autorisées du registre, de Genève aux villes internationales. Il couvre deux usages complémentaires.
 
+La couche de précision est partagée avec la fonction Edge : extraction déterministe du
+JSON-LD avant le repli IA, dates interprétées dans le fuseau IANA de la ville, intervalles
+journée entière semi-ouverts, prix/devises/statuts conservés, coordonnées incohérentes
+écartées et dédoublonnage prudent par occurrence. Une paire ambiguë n’est jamais fusionnée
+automatiquement sous le seuil de `0.92`, et deux séances séparées de plus de 15 minutes
+restent distinctes.
+
 ## Synchronisation de production
 
 Le mode par défaut orchestre la fonction Supabase protégée, par petits lots, jusqu’à ce que toutes les sources dues aient été traitées. Si un cycle atteint sa limite, il se termine proprement et le prochain passage planifié reprend les sources encore dues. Les secrets restent dans les variables d’environnement.
@@ -28,6 +35,11 @@ python3 scripts/scrape_geneva_events.py \
   --url "https://un-lieu.ch/agenda/" \
   --venue "Nom du lieu" \
   --category concerts \
+  --city-name Genève \
+  --country-code CH \
+  --timezone Europe/Zurich \
+  --latitude 46.2044 \
+  --longitude 6.1432 \
   --follow-links 20
 ```
 
@@ -37,4 +49,5 @@ Lorsque `FIRECRAWL_API_KEY` est défini, Firecrawl est utilisé en repli pour le
 
 ```bash
 python3 -m unittest tests/test_scrape_geneva_events.py
+node --test supabase/functions/_shared/event-precision.test.ts
 ```

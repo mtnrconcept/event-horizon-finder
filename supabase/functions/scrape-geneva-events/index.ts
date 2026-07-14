@@ -1,6 +1,14 @@
 // Batched, allow-listed event ingestion for Geneva and the international source registry.
 // Auth: a configured scheduler secret or an authenticated admin/moderator.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  deduplicateNormalizedEvents,
+  extractJsonLdCandidates,
+  normalizeEventCandidate,
+  type EventCandidate,
+  type EventSourceContext,
+  type NormalizedEvent,
+} from "../_shared/event-precision.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": Deno.env.get("APP_ALLOWED_ORIGINS") ?? "*",
@@ -30,10 +38,23 @@ const EXTRACTION_SCHEMA = {
             description: "ISO 8601 date-time including the UTC offset when a time is known",
           },
           endDate: { type: ["string", "null"] },
+          timezone: { type: ["string", "null"] },
+          timePrecision: {
+            type: ["string", "null"],
+            enum: ["exact", "date", "tbd", "unknown", null],
+          },
+          allDay: { type: ["boolean", "null"] },
           venueName: { type: ["string", "null"] },
           address: { type: ["string", "null"] },
+          city: { type: ["string", "null"] },
+          region: { type: ["string", "null"] },
+          countryCode: { type: ["string", "null"] },
           latitude: { type: ["number", "null"] },
           longitude: { type: ["number", "null"] },
+          organizerName: { type: ["string", "null"] },
+          organizerUrl: { type: ["string", "null"] },
+          status: { type: ["string", "null"] },
+          language: { type: ["string", "null"] },
           category: { type: ["string", "null"] },
           genres: {
             type: ["array", "null"],
@@ -70,7 +91,13 @@ type DataSource = {
   updated_at: string | null;
   category_slug: string | null;
   metadata: Record<string, unknown> | null;
-  city: { name: string; timezone: string } | null;
+  city: {
+    name: string;
+    timezone: string;
+    latitude: number | null;
+    longitude: number | null;
+    country: { code: string } | null;
+  } | null;
 };
 
 type SourceTask = {
@@ -79,90 +106,11 @@ type SourceTask = {
   url: string;
 };
 
-type ExtractedEvent = {
-  externalId?: string | null;
-  title?: string | null;
-  description?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  venueName?: string | null;
-  address?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  category?: string | null;
-  genres?: string[] | null;
-  capacity?: number | null;
-  priceMin?: number | null;
-  priceMax?: number | null;
-  currency?: string | null;
-  ticketUrl?: string | null;
-  imageUrl?: string | null;
-  isFree?: boolean | null;
-  sourceUrl?: string | null;
-};
-
-const ALLOWED_GENRES = new Set([
-  "afro-house",
-  "techno",
-  "house",
-  "electro",
-  "trance",
-  "drum-and-bass",
-  "hip-hop",
-  "r-and-b",
-  "soul",
-  "reggae",
-  "dancehall",
-  "disco",
-  "funk",
-  "jazz",
-  "blues",
-  "rock",
-  "metal",
-  "punk",
-  "indie",
-  "pop",
-  "classical",
-  "opera",
-  "latin",
-  "reggaeton",
-  "afrobeat",
-  "world",
-  "experimental",
-  "ambient",
-  "gospel",
-]);
-
-function normalizedGenres(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(
-      value
-        .filter((item): item is string => typeof item === "string")
-        .map((item) =>
-          item
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase()
-            .trim()
-            .replace(/\s+|_/g, "-"),
-        )
-        .filter((item) => ALLOWED_GENRES.has(item)),
-    ),
-  ];
-}
-
-function optionalPositiveNumber(value: unknown, maximum: number): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > maximum) {
-    return null;
-  }
-  return value;
-}
-
 type FirecrawlPayload = {
   data?: {
     markdown?: string;
-    json?: { events?: ExtractedEvent[] };
+    rawHtml?: string;
+    json?: { events?: EventCandidate[] };
     metadata?: Record<string, unknown>;
   };
   message?: string;
@@ -177,28 +125,6 @@ function safeInteger(value: unknown, fallback: number, max: number): number {
   const parsed = typeof value === "number" ? Math.trunc(value) : Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, 0), max);
-}
-
-function safeHttpUrl(value: unknown, fallback: string): string {
-  if (typeof value !== "string" || !value.trim()) return fallback;
-  try {
-    const parsed = new URL(value, fallback);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return fallback;
-    return parsed.toString();
-  } catch {
-    return fallback;
-  }
-}
-
-function safeOptionalHttpUrl(value: unknown, base: string): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
-  try {
-    const parsed = new URL(value, base);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 function pageUrl(source: DataSource, page: number): string {
@@ -230,21 +156,6 @@ function shouldSync(source: DataSource, force: boolean, runStartedAt: number | n
   if (!Number.isFinite(elapsed)) return true;
   const minimum = source.sync_frequency === "weekly" ? 6 * 24 * 3_600_000 : 18 * 3_600_000;
   return elapsed >= minimum;
-}
-
-function isValidDate(value: string | null | undefined): value is string {
-  if (!value) return false;
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return false;
-  return (
-    timestamp >= Date.now() - 2 * 24 * 3_600_000 && timestamp <= Date.now() + 730 * 24 * 3_600_000
-  );
-}
-
-function isoDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
 async function sha256(value: string): Promise<string> {
@@ -305,6 +216,7 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
           maxAge: 3_600_000,
           formats: [
             "markdown",
+            "rawHtml",
             {
               type: "json",
               schema: EXTRACTION_SCHEMA,
@@ -315,9 +227,24 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
                 `Utilise la date ISO 8601 avec le fuseau ${task.source.city?.timezone ?? "local indiqué par la source"}, ` +
                 "le lien de la fiche détaillée comme sourceUrl, " +
                 "l'image réelle de l'événement et les coordonnées uniquement lorsqu'elles sont explicites. " +
-                "Renseigne genres, prix et capacité uniquement s'ils sont écrits dans la source; ne les devine jamais.",
+                "Conserve les dates sans heure comme date-only (timePrecision=date, allDay uniquement si annoncé), " +
+                "et n'invente jamais minuit lorsqu'une heure est inconnue (timePrecision=tbd). " +
+                "Renseigne ville, pays, statut, organisateur, genres, prix, devise et capacité uniquement s'ils sont " +
+                "écrits dans la source; ne complète rien par déduction.",
             },
           ],
+          ...(task.source.city?.country?.code
+            ? {
+                location: {
+                  country: task.source.city.country.code,
+                  languages:
+                    typeof task.source.metadata?.locale === "string" &&
+                    task.source.metadata.locale !== "auto"
+                      ? [task.source.metadata.locale]
+                      : undefined,
+                },
+              }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -373,7 +300,7 @@ Deno.serve(async (req) => {
   let sourceQuery = admin
     .from("data_sources")
     .select(
-      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,updated_at,category_slug,metadata,city:cities(name,timezone)",
+      "id,name,base_url,domain,page_count,priority,sync_frequency,last_sync_at,next_sync_at,updated_at,category_slug,metadata,city:cities(name,timezone,latitude,longitude,country:countries(code))",
     )
     .eq("status", "active")
     .eq("is_authorized", true)
@@ -436,11 +363,38 @@ Deno.serve(async (req) => {
       const upsertErrors: string[] = [];
       try {
         const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
-        const events = Array.isArray(firecrawl.data?.json?.events)
-          ? (firecrawl.data?.json?.events ?? [])
+        const sourceContext = task.source as EventSourceContext;
+        const aiCandidates = Array.isArray(firecrawl.data?.json?.events)
+          ? (firecrawl.data?.json?.events ?? []).map((event) => ({
+              ...event,
+              extractionMethod: "ai" as const,
+            }))
           : [];
+        const jsonLdCandidates = extractJsonLdCandidates(
+          firecrawl.data?.rawHtml,
+          task.url,
+          sourceContext,
+        );
+        const candidates = [...jsonLdCandidates, ...aiCandidates];
+        const normalization = candidates.map((candidate) =>
+          normalizeEventCandidate(candidate, sourceContext, task.url),
+        );
+        const rejectionReasons = normalization
+          .filter((result) => !result.ok)
+          .reduce<Record<string, number>>((summary, result) => {
+            if (!result.ok) summary[result.reason] = (summary[result.reason] ?? 0) + 1;
+            return summary;
+          }, {});
+        rejected += normalization.filter((result) => !result.ok).length;
+        const normalizedEvents = normalization
+          .filter((result): result is { ok: true; event: NormalizedEvent } => result.ok)
+          .map((result) => result.event);
+        const deduplication = deduplicateNormalizedEvents(normalizedEvents);
+        const events = deduplication.events;
         const markdown = firecrawl.data?.markdown ?? null;
-        const contentHash = await sha256(markdown ?? JSON.stringify(firecrawl.data?.json ?? {}));
+        const contentHash = await sha256(
+          firecrawl.data?.rawHtml ?? markdown ?? JSON.stringify(firecrawl.data?.json ?? {}),
+        );
 
         const { data: record, error: recordError } = await admin
           .from("source_records")
@@ -449,9 +403,23 @@ Deno.serve(async (req) => {
             source_url: task.url,
             ingestion_job_id: job.id,
             raw_markdown: markdown,
-            raw_json: firecrawl.data ?? null,
+            raw_json: {
+              json: firecrawl.data?.json ?? null,
+              metadata: firecrawl.data?.metadata ?? null,
+            },
             content_hash: contentHash,
-            extracted_data: { events },
+            extracted_data: {
+              precisionVersion: 2,
+              candidateCount: candidates.length,
+              deterministicCount: jsonLdCandidates.length,
+              aiCount: aiCandidates.length,
+              acceptedCount: events.length,
+              rejectedCount: rejected,
+              rejectionReasons,
+              duplicatesMerged: deduplication.duplicates,
+              duplicateReview: deduplication.review,
+              events,
+            },
             processing_status: "processed",
             processed_at: new Date().toISOString(),
           })
@@ -460,29 +428,22 @@ Deno.serve(async (req) => {
         if (recordError) throw recordError;
 
         for (const event of events) {
-          if (!event.title?.trim() || !isValidDate(event.startDate)) {
-            rejected += 1;
-            continue;
-          }
-          const sourceUrl = safeHttpUrl(event.sourceUrl, task.url);
-          const ticketUrl = safeOptionalHttpUrl(event.ticketUrl, sourceUrl);
-          const imageUrl = safeOptionalHttpUrl(event.imageUrl, sourceUrl);
           const { data: upserted, error: upsertError } = await admin.rpc("upsert_ingested_event", {
             _data_source_id: task.source.id,
-            _source_url: sourceUrl,
+            _source_url: event.sourceUrl,
             _title: event.title,
-            _description: event.description ?? null,
-            _starts_at: isoDate(event.startDate),
-            _ends_at: isoDate(event.endDate),
-            _venue_name: event.venueName ?? null,
-            _address: event.address ?? null,
-            _latitude: typeof event.latitude === "number" ? event.latitude : null,
-            _longitude: typeof event.longitude === "number" ? event.longitude : null,
-            _category: event.category ?? task.source.category_slug,
-            _ticket_url: ticketUrl,
-            _image_url: imageUrl,
-            _is_free: event.isFree ?? false,
-            _external_identifier: event.externalId ?? null,
+            _description: event.description,
+            _starts_at: event.startDate,
+            _ends_at: event.endDate,
+            _venue_name: event.venueName,
+            _address: event.address,
+            _latitude: event.latitude,
+            _longitude: event.longitude,
+            _category: event.category,
+            _ticket_url: event.ticketUrl,
+            _image_url: event.imageUrl,
+            _is_free: event.isFree,
+            _external_identifier: event.externalId,
           });
           if (upsertError) {
             rejected += 1;
@@ -491,41 +452,46 @@ Deno.serve(async (req) => {
           }
           const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
           if (outcome?.event_id) {
-            const genres = normalizedGenres(event.genres);
-            const capacity = optionalPositiveNumber(event.capacity, 1_000_000);
-            const priceMin = optionalPositiveNumber(event.priceMin, 100_000);
-            const priceMax = optionalPositiveNumber(event.priceMax, 100_000);
-            const currency =
-              typeof event.currency === "string" && /^[A-Z]{3}$/.test(event.currency.toUpperCase())
-                ? event.currency.toUpperCase()
-                : "CHF";
-
-            if (genres.length) {
-              const { error: genreError } = await admin
-                .from("events")
-                .update({ genres })
-                .eq("id", outcome.event_id);
-              if (genreError && upsertErrors.length < 5) {
-                upsertErrors.push(`genres: ${genreError.message.slice(0, 450)}`);
-              }
+            const eventUpdate: Record<string, unknown> = {
+              quality_score: Math.max(Number(outcome.score ?? 0), event.qualityScore),
+            };
+            if (event.language !== "und") eventUpdate.language = event.language;
+            if (event.genres.length) eventUpdate.genres = event.genres;
+            if (event.status !== "scheduled") {
+              eventUpdate.status = event.status;
+            }
+            const { error: eventUpdateError } = await admin
+              .from("events")
+              .update(eventUpdate)
+              .eq("id", outcome.event_id);
+            if (eventUpdateError && upsertErrors.length < 5) {
+              upsertErrors.push(`event: ${eventUpdateError.message.slice(0, 450)}`);
             }
 
             const occurrenceUpdate = {
-              timezone: task.source.city?.timezone ?? "Europe/Zurich",
-              ...(capacity != null ? { capacity: Math.round(capacity) } : {}),
+              timezone: event.timezone,
+              time_precision: event.timePrecision,
+              all_day: event.allDay,
+              status: event.status,
+              ...(event.capacity != null ? { capacity: event.capacity } : {}),
             };
             {
-              const { error: capacityError } = await admin
+              const { error: occurrenceError } = await admin
                 .from("event_occurrences")
                 .update(occurrenceUpdate)
                 .eq("event_id", outcome.event_id)
-                .eq("starts_at", isoDate(event.startDate)!);
-              if (capacityError && upsertErrors.length < 5) {
-                upsertErrors.push(`capacity: ${capacityError.message.slice(0, 450)}`);
+                .eq("starts_at", event.startDate);
+              if (occurrenceError && upsertErrors.length < 5) {
+                upsertErrors.push(`occurrence: ${occurrenceError.message.slice(0, 450)}`);
               }
             }
 
-            if (priceMin != null || priceMax != null) {
+            if (
+              event.priceMin != null ||
+              event.priceMax != null ||
+              event.ticketUrl ||
+              event.isFree
+            ) {
               const { data: offer } = await admin
                 .from("ticket_offers")
                 .select("id")
@@ -533,19 +499,19 @@ Deno.serve(async (req) => {
                 .order("id", { ascending: true })
                 .limit(1)
                 .maybeSingle();
-              const ticketData = {
-                price_min: priceMin ?? priceMax,
-                price_max: priceMax ?? priceMin,
-                currency,
-                is_free: event.isFree === true,
+              const ticketData: Record<string, unknown> = {
+                price_min: event.priceMin ?? event.priceMax,
+                price_max: event.priceMax ?? event.priceMin,
+                is_free: event.isFree,
+                ticket_url: event.ticketUrl,
+                status: event.isFree ? "free" : event.ticketUrl ? "available" : "unknown",
               };
+              if (event.currency) ticketData.currency = event.currency;
               const ticketResult = offer
                 ? await admin.from("ticket_offers").update(ticketData).eq("id", offer.id)
                 : await admin.from("ticket_offers").insert({
                     event_id: outcome.event_id,
-                    name: "Billet standard",
-                    ticket_url: ticketUrl,
-                    status: ticketUrl ? "available" : "unknown",
+                    name: event.isFree ? "Entrée gratuite" : "Billetterie officielle",
                     ...ticketData,
                   });
               if (ticketResult.error && upsertErrors.length < 5) {
@@ -585,7 +551,12 @@ Deno.serve(async (req) => {
           page: task.page,
           url: task.url,
           sourceRecordId: record.id,
+          candidates: candidates.length,
+          deterministic: jsonLdCandidates.length,
           extracted: events.length,
+          duplicatesMerged: deduplication.duplicates,
+          duplicateReview: deduplication.review.length,
+          rejectionReasons,
           created,
           updated,
           rejected,

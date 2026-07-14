@@ -561,6 +561,7 @@ export type Database = {
       };
       event_occurrences: {
         Row: {
+          all_day: boolean;
           capacity: number | null;
           created_at: string;
           doors_open_at: string | null;
@@ -575,10 +576,12 @@ export type Database = {
           starts_at: string;
           status: Database["public"]["Enums"]["occurrence_status"];
           ticket_status: Database["public"]["Enums"]["ticket_status"];
+          time_precision: string;
           timezone: string;
           updated_at: string;
         };
         Insert: {
+          all_day?: boolean;
           capacity?: number | null;
           created_at?: string;
           doors_open_at?: string | null;
@@ -593,10 +596,12 @@ export type Database = {
           starts_at: string;
           status?: Database["public"]["Enums"]["occurrence_status"];
           ticket_status?: Database["public"]["Enums"]["ticket_status"];
+          time_precision?: string;
           timezone?: string;
           updated_at?: string;
         };
         Update: {
+          all_day?: boolean;
           capacity?: number | null;
           created_at?: string;
           doors_open_at?: string | null;
@@ -611,6 +616,7 @@ export type Database = {
           starts_at?: string;
           status?: Database["public"]["Enums"]["occurrence_status"];
           ticket_status?: Database["public"]["Enums"]["ticket_status"];
+          time_precision?: string;
           timezone?: string;
           updated_at?: string;
         };
