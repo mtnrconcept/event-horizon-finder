@@ -7,6 +7,9 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const env = process.env;
+const supabaseUrl = env.VITE_SUPABASE_URL ?? env.SUPABASE_URL ?? "";
+const supabasePublishableKey =
+  env.VITE_SUPABASE_PUBLISHABLE_KEY ?? env.SUPABASE_PUBLISHABLE_KEY ?? "";
 const mapboxAccessToken =
   env.VITE_MAPBOX_ACCESS_TOKEN ??
   env.MAPBOX_ACCESS_TOKEN ??
@@ -17,6 +20,8 @@ const mapboxAccessToken =
 export default defineConfig({
   vite: {
     define: {
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
+      "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabasePublishableKey),
       "import.meta.env.VITE_MAPBOX_ACCESS_TOKEN": JSON.stringify(mapboxAccessToken),
     },
   },
