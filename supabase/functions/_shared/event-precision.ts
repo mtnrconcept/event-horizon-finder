@@ -46,7 +46,7 @@ export type EventCandidate = {
   imageUrls?: string[] | null;
   isFree?: boolean | null;
   sourceUrl?: string | null;
-  extractionMethod?: "jsonld" | "ai";
+  extractionMethod?: "jsonld" | "html" | "ai";
 };
 
 export type NormalizedEvent = {
@@ -79,7 +79,7 @@ export type NormalizedEvent = {
   imageUrl: string | null;
   isFree: boolean;
   sourceUrl: string;
-  extractionMethod: "jsonld" | "ai";
+  extractionMethod: "jsonld" | "html" | "ai";
   qualityScore: number;
   fingerprint: string;
   warnings: string[];

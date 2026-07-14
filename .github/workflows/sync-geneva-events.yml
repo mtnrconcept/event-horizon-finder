@@ -8,6 +8,11 @@ on:
         required: false
         default: true
         type: boolean
+      direct_only:
+        description: Bypass Firecrawl and use deterministic direct scraping
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -41,7 +46,7 @@ jobs:
           node-version: 24
 
       - name: Test the deterministic event normalizer
-        run: node --test supabase/functions/_shared/event-precision.test.ts
+        run: node --test supabase/functions/_shared/*.test.ts
 
       - name: Validate required secrets
         run: |
@@ -95,4 +100,11 @@ jobs:
 
       - name: Scrape all due worldwide event sources in resilient batches
         timeout-minutes: 330
-        run: python3 scripts/scrape_geneva_events.py --batch-size 4 --max-batches 80
+        env:
+          DIRECT_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.direct_only }}
+        run: |
+          extra_args=()
+          if [ "$DIRECT_ONLY" = "true" ]; then
+            extra_args+=(--direct-only)
+          fi
+          python3 scripts/scrape_geneva_events.py --batch-size 4 --max-batches 80 "${extra_args[@]}"
