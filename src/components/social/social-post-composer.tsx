@@ -4,6 +4,7 @@ import { CalendarPlus, ImagePlus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { EventArtworkImage } from "@/components/event-artwork-image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateSocialPost, useSocialPostingContext } from "@/hooks/use-social-feed";
@@ -216,13 +217,12 @@ export function SocialPostComposer({ userId }: { userId: string }) {
           )}
           {selectedEvent && (
             <div className="mt-3 flex items-center gap-3 rounded-xl border p-2">
-              {selectedEvent.cover_image_url && (
-                <img
-                  src={selectedEvent.cover_image_url}
-                  alt=""
-                  className="h-12 w-12 rounded-lg object-cover"
-                />
-              )}
+              <EventArtworkImage
+                eventId={selectedEvent.id}
+                sourceUrl={selectedEvent.cover_image_url}
+                alt=""
+                className="h-12 w-12 rounded-lg object-cover"
+              />
               <p className="line-clamp-2 text-xs font-medium">{selectedEvent.title}</p>
             </div>
           )}
