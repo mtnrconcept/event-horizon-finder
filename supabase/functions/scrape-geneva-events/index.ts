@@ -11,7 +11,7 @@ const cors = {
 };
 
 const MAX_BATCH_SIZE = 4;
-const FIRECRAWL_TIMEOUT_MS = 72_000;
+const FIRECRAWL_TIMEOUT_MS = 120_000;
 
 const EXTRACTION_SCHEMA = {
   type: "object",
@@ -301,6 +301,7 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
         body: JSON.stringify({
           url: task.url,
           onlyMainContent: true,
+          timeout: 90_000,
           maxAge: 3_600_000,
           formats: [
             "markdown",
@@ -606,7 +607,7 @@ Deno.serve(async (req) => {
                 .from("data_sources")
                 .update({
                   next_sync_at: new Date(
-                    Date.now() + (task.source.sync_frequency === "weekly" ? 24 : 6) * 3_600_000,
+                    Date.now() + (task.source.sync_frequency === "weekly" ? 6 * 60 : 30) * 60_000,
                   ).toISOString(),
                 })
                 .eq("id", task.source.id)

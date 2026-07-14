@@ -554,8 +554,17 @@ def run_edge(args: argparse.Namespace) -> int:
         totals["failed"] += batch["pages_failed"]
         next_cursor = response.get("nextCursor")
         if not response.get("hasMore"):
-            print(json.dumps({"completed": True, **totals}, ensure_ascii=False))
-            return 1 if totals["success"] == 0 and totals["failed"] > 0 else 0
+            print(
+                json.dumps(
+                    {
+                        "completed": True,
+                        "completed_with_errors": totals["failed"] > 0,
+                        **totals,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if not isinstance(next_cursor, int) or next_cursor <= cursor:
             raise CollectorError("The scraper cursor did not advance")
         cursor = next_cursor
