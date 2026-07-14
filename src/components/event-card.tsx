@@ -1,11 +1,21 @@
 import { Link } from "@tanstack/react-router";
-import { Heart, MapPin, Clock, BadgeCheck, Sparkles } from "lucide-react";
+import {
+  Accessibility,
+  BadgeCheck,
+  Clock,
+  Heart,
+  MapPin,
+  Sparkles,
+  Ticket,
+  Users,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { DiscoveredEvent } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
+import { GENRE_LABELS } from "@/lib/event-filters";
 
 function formatLocalTime(iso: string, tz: string) {
   try {
@@ -67,6 +77,13 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
   };
 
   const cancelled = ev.status === "cancelled";
+  const priceLabel = ev.is_free
+    ? "Gratuit"
+    : ev.price_from != null
+      ? `Dès CHF ${Number(ev.price_from).toLocaleString("fr-CH")}`
+      : ev.has_tickets
+        ? "Billets disponibles"
+        : null;
 
   return (
     <Link
@@ -169,6 +186,42 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             <span className="ml-auto shrink-0 text-[10px]">{ev.distance_km} km</span>
           )}
         </div>
+        {(priceLabel || ev.capacity != null || ev.wheelchair) && (
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground">
+            {priceLabel && (
+              <span className="inline-flex items-center gap-1 text-foreground">
+                <Ticket className="h-3.5 w-3.5 text-primary" /> {priceLabel}
+              </span>
+            )}
+            {ev.capacity != null && (
+              <span className="inline-flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" /> {ev.capacity.toLocaleString("fr-CH")} pers.
+              </span>
+            )}
+            {ev.wheelchair && (
+              <span className="inline-flex items-center gap-1">
+                <Accessibility className="h-3.5 w-3.5" /> PMR
+              </span>
+            )}
+          </div>
+        )}
+        {ev.genres?.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {ev.genres.slice(0, 3).map((genre) => (
+              <span
+                key={genre}
+                className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium"
+              >
+                {GENRE_LABELS[genre] ?? genre}
+              </span>
+            ))}
+          </div>
+        )}
+        {ev.location_precision === "city" && (
+          <span className="text-[10px] text-amber-700 dark:text-amber-300">
+            Position approximative au niveau de la ville
+          </span>
+        )}
       </div>
     </Link>
   );
