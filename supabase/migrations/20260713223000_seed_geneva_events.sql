@@ -2,34 +2,34 @@
 -- Data is demo/import content and can be replaced by ingestion jobs later.
 DO $$
 DECLARE
-  ch_id uuid;
-  ge_id uuid;
-  cat_concert uuid;
-  cat_festival uuid;
-  cat_expo uuid;
-  cat_nightlife uuid;
-  cat_theatre uuid;
-  cat_family uuid;
-  org_id uuid;
-  source_id uuid;
-  venue_id uuid;
-  event_id uuid;
+  v_ch_id uuid;
+  v_ge_id uuid;
+  v_cat_concert uuid;
+  v_cat_festival uuid;
+  v_cat_expo uuid;
+  v_cat_nightlife uuid;
+  v_cat_theatre uuid;
+  v_cat_family uuid;
+  v_org_id uuid;
+  v_source_id uuid;
+  v_venue_id uuid;
+  v_event_id uuid;
   rec record;
 BEGIN
   INSERT INTO public.countries (code, name)
   VALUES ('CH', 'Switzerland')
   ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
-  RETURNING id INTO ch_id;
+  RETURNING id INTO v_ch_id;
 
   INSERT INTO public.cities (country_id, slug, name, timezone, latitude, longitude, is_demo)
-  VALUES (ch_id, 'geneve', 'Genève', 'Europe/Zurich', 46.2044, 6.1432, true)
+  VALUES (v_ch_id, 'geneve', 'Genève', 'Europe/Zurich', 46.2044, 6.1432, true)
   ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,
     timezone = EXCLUDED.timezone,
     latitude = EXCLUDED.latitude,
     longitude = EXCLUDED.longitude,
     country_id = EXCLUDED.country_id
-  RETURNING id INTO ge_id;
+  RETURNING id INTO v_ge_id;
 
   INSERT INTO public.event_categories (slug, name_fr, name_en, icon, sort_order) VALUES
     ('concerts', 'Concerts', 'Concerts', '🎸', 10),
@@ -40,25 +40,44 @@ BEGIN
     ('famille', 'Famille', 'Family', '👨‍👩‍👧‍👦', 60)
   ON CONFLICT (slug) DO UPDATE SET name_fr = EXCLUDED.name_fr, name_en = EXCLUDED.name_en, icon = EXCLUDED.icon, sort_order = EXCLUDED.sort_order;
 
-  SELECT id INTO cat_concert FROM public.event_categories WHERE slug = 'concerts';
-  SELECT id INTO cat_festival FROM public.event_categories WHERE slug = 'festivals';
-  SELECT id INTO cat_expo FROM public.event_categories WHERE slug = 'expositions';
-  SELECT id INTO cat_nightlife FROM public.event_categories WHERE slug = 'soirees';
-  SELECT id INTO cat_theatre FROM public.event_categories WHERE slug = 'theatre';
-  SELECT id INTO cat_family FROM public.event_categories WHERE slug = 'famille';
+  SELECT id INTO v_cat_concert FROM public.event_categories WHERE slug = 'concerts';
+  SELECT id INTO v_cat_festival FROM public.event_categories WHERE slug = 'festivals';
+  SELECT id INTO v_cat_expo FROM public.event_categories WHERE slug = 'expositions';
+  SELECT id INTO v_cat_nightlife FROM public.event_categories WHERE slug = 'soirees';
+  SELECT id INTO v_cat_theatre FROM public.event_categories WHERE slug = 'theatre';
+  SELECT id INTO v_cat_family FROM public.event_categories WHERE slug = 'famille';
 
   INSERT INTO public.organizers (slug, name, description, website, is_verified, verification_level, is_demo)
   VALUES ('geneve-demo-agenda', 'Agenda Genève — import démo', 'Sélection importée de sorties genevoises pour alimenter EVENTA.', 'https://www.geneve.ch/', true, 'partner', true)
   ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, website = EXCLUDED.website, is_verified = true, verification_level = 'partner'
-  RETURNING id INTO org_id;
+  RETURNING id INTO v_org_id;
 
   INSERT INTO public.source_domains (domain, is_authorized, notes)
   VALUES ('geneve.ch', true, 'Source publique utilisée pour initialiser des événements de démonstration à Genève.')
   ON CONFLICT (domain) DO UPDATE SET is_authorized = true, notes = EXCLUDED.notes;
 
-  INSERT INTO public.data_sources (organizer_id, name, source_type, base_url, domain, is_authorized, is_verified, sync_frequency, status, legal_basis)
-  VALUES (org_id, 'Agenda culturel Genève', 'import', 'https://www.geneve.ch/', 'geneve.ch', true, true, 'daily', 'active', 'Données de démonstration; remplacement prévu par ingestion officielle.')
-  RETURNING id INTO source_id;
+  SELECT ds.id INTO v_source_id
+  FROM public.data_sources ds
+  WHERE ds.organizer_id = v_org_id
+    AND ds.name = 'Agenda culturel Genève'
+    AND ds.base_url = 'https://www.geneve.ch/'
+    AND ds.domain = 'geneve.ch'
+  LIMIT 1;
+
+  IF v_source_id IS NULL THEN
+    INSERT INTO public.data_sources (organizer_id, name, source_type, base_url, domain, is_authorized, is_verified, sync_frequency, status, legal_basis)
+    VALUES (v_org_id, 'Agenda culturel Genève', 'import', 'https://www.geneve.ch/', 'geneve.ch', true, true, 'daily', 'active', 'Données de démonstration; remplacement prévu par ingestion officielle.')
+    RETURNING id INTO v_source_id;
+  ELSE
+    UPDATE public.data_sources ds
+    SET source_type = 'import',
+        is_authorized = true,
+        is_verified = true,
+        sync_frequency = 'daily',
+        status = 'active',
+        legal_basis = 'Données de démonstration; remplacement prévu par ingestion officielle.'
+    WHERE ds.id = v_source_id;
+  END IF;
 
   FOR rec IN SELECT * FROM (VALUES
     ('victoria-hall-geneve','Victoria Hall','Rue du Général-Dufour 14',46.2018,6.1414,'https://www.ville-ge.ch/culture/victoria_hall/'),
@@ -73,7 +92,7 @@ BEGIN
     ('grutli-geneve','Maison des arts du Grütli','Rue du Général-Dufour 16',46.2016,6.1408,'https://www.grutli.ch/')
   ) AS v(slug,name,address,lat,lon,website) LOOP
     INSERT INTO public.venues (slug, name, address, city_id, country_id, latitude, longitude, website, is_verified, is_demo)
-    VALUES (rec.slug, rec.name, rec.address, ge_id, ch_id, rec.lat, rec.lon, rec.website, true, true)
+    VALUES (rec.slug, rec.name, rec.address, v_ge_id, v_ch_id, rec.lat, rec.lon, rec.website, true, true)
     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, address = EXCLUDED.address, city_id = EXCLUDED.city_id, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, website = EXCLUDED.website, is_verified = true;
   END LOOP;
 
@@ -103,25 +122,37 @@ BEGIN
     ('vernissage-quartier-mamco','Vernissage quartier des Bains','Galeries ouvertes, parcours commentés et rencontres avec les artistes.','expositions','mamco-geneve',30,18,true,0),
     ('festival-jeune-public-carouge','Festival jeune public','Spectacles courts, marionnettes, ateliers et goûter pour les enfants.','famille','theatre-carouge',31,10,false,8)
   ) AS e(slug,title,short_description,category_slug,venue_slug,day_offset,hour_start,is_free,price) LOOP
-    SELECT id INTO venue_id FROM public.venues WHERE slug = rec.venue_slug;
+    SELECT id INTO v_venue_id FROM public.venues WHERE slug = rec.venue_slug;
     INSERT INTO public.events (slug, title, short_description, description, category_id, organizer_id, venue_id, status, publication_status, is_free, is_verified, verification_level, source_confidence, language, official_url, genres, is_demo, published_at)
-    VALUES (rec.slug, rec.title, rec.short_description, rec.short_description, CASE rec.category_slug WHEN 'concerts' THEN cat_concert WHEN 'festivals' THEN cat_festival WHEN 'expositions' THEN cat_expo WHEN 'soirees' THEN cat_nightlife WHEN 'theatre' THEN cat_theatre ELSE cat_family END, org_id, venue_id, 'published', 'published', rec.is_free, true, 'partner', 8.5, 'fr', 'https://www.geneve.ch/', ARRAY[rec.category_slug, 'geneve'], true, now())
+    VALUES (rec.slug, rec.title, rec.short_description, rec.short_description, CASE rec.category_slug WHEN 'concerts' THEN v_cat_concert WHEN 'festivals' THEN v_cat_festival WHEN 'expositions' THEN v_cat_expo WHEN 'soirees' THEN v_cat_nightlife WHEN 'theatre' THEN v_cat_theatre ELSE v_cat_family END, v_org_id, v_venue_id, 'published', 'published', rec.is_free, true, 'partner', 8.5, 'fr', 'https://www.geneve.ch/', ARRAY[rec.category_slug, 'geneve'], true, now())
     ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, short_description = EXCLUDED.short_description, description = EXCLUDED.description, category_id = EXCLUDED.category_id, organizer_id = EXCLUDED.organizer_id, venue_id = EXCLUDED.venue_id, status = 'published', is_free = EXCLUDED.is_free, is_verified = true
-    RETURNING id INTO event_id;
+    RETURNING id INTO v_event_id;
 
     INSERT INTO public.event_occurrences (event_id, starts_at, ends_at, timezone, latitude, longitude, status, ticket_status)
-    SELECT event_id, date_trunc('day', now() AT TIME ZONE 'Europe/Zurich') AT TIME ZONE 'Europe/Zurich' + (rec.day_offset || ' days')::interval + (rec.hour_start || ' hours')::interval,
+    SELECT v_event_id, date_trunc('day', now() AT TIME ZONE 'Europe/Zurich') AT TIME ZONE 'Europe/Zurich' + (rec.day_offset || ' days')::interval + (rec.hour_start || ' hours')::interval,
            date_trunc('day', now() AT TIME ZONE 'Europe/Zurich') AT TIME ZONE 'Europe/Zurich' + (rec.day_offset || ' days')::interval + ((rec.hour_start + 2) || ' hours')::interval,
            'Europe/Zurich', v.latitude, v.longitude, 'scheduled', CASE WHEN rec.is_free THEN 'free'::public.ticket_status ELSE 'available'::public.ticket_status END
-    FROM public.venues v WHERE v.id = venue_id
-    AND NOT EXISTS (SELECT 1 FROM public.event_occurrences o WHERE o.event_id = event_id);
+    FROM public.venues v WHERE v.id = v_venue_id
+    AND NOT EXISTS (SELECT 1 FROM public.event_occurrences o WHERE o.event_id = v_event_id);
 
     INSERT INTO public.ticket_offers (event_id, name, price_min, price_max, currency, is_free, ticket_url, status)
-    VALUES (event_id, CASE WHEN rec.is_free THEN 'Entrée libre' ELSE 'Billet standard' END, rec.price, rec.price, 'CHF', rec.is_free, 'https://www.geneve.ch/', CASE WHEN rec.is_free THEN 'free' ELSE 'available' END)
-    ON CONFLICT DO NOTHING;
+    SELECT v_event_id, CASE WHEN rec.is_free THEN 'Entrée libre' ELSE 'Billet standard' END, rec.price, rec.price, 'CHF', rec.is_free, 'https://www.geneve.ch/', CASE WHEN rec.is_free THEN 'free' ELSE 'available' END
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.ticket_offers t
+      WHERE t.event_id = v_event_id
+        AND t.name = CASE WHEN rec.is_free THEN 'Entrée libre' ELSE 'Billet standard' END
+        AND t.ticket_url = 'https://www.geneve.ch/'
+    );
 
     INSERT INTO public.source_records (data_source_id, source_url, external_identifier, raw_json, extracted_data, processing_status, processed_at)
-    VALUES (source_id, 'https://www.geneve.ch/', rec.slug, jsonb_build_object('seed', true, 'city', 'Genève'), to_jsonb(rec), 'completed', now())
-    ON CONFLICT DO NOTHING;
+    SELECT v_source_id, 'https://www.geneve.ch/', rec.slug, jsonb_build_object('seed', true, 'city', 'Genève'), to_jsonb(rec), 'completed', now()
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.source_records sr
+      WHERE sr.data_source_id = v_source_id
+        AND sr.source_url = 'https://www.geneve.ch/'
+        AND sr.external_identifier = rec.slug
+    );
   END LOOP;
 END $$;
