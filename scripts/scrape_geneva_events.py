@@ -503,7 +503,11 @@ def _dedupe(events: Iterable[Event]) -> list[Event]:
 
 
 def run_edge(args: argparse.Namespace) -> int:
-    supabase_url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    # CI exposes a normalized URL because an old or malformed SUPABASE_URL
+    # secret must not turn into an invalid DNS hostname.
+    supabase_url = (
+        os.getenv("SUPABASE_FUNCTION_URL") or os.getenv("SUPABASE_URL") or ""
+    ).strip().rstrip("/")
     secret = (os.getenv("GENEVA_SCRAPER_SECRET") or "").strip()
     if not supabase_url or not secret:
         raise CollectorError("SUPABASE_URL and GENEVA_SCRAPER_SECRET are required in edge mode")
