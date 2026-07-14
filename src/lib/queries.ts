@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export type QuickRange = "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month";
+export type QuickRange =
+  "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
 
 /**
  * "Ce soir" = nuit événementielle 18h → 6h le lendemain (heure locale de l'utilisateur).
@@ -61,6 +62,10 @@ export function computeRange(range: QuickRange, base: Date = new Date()): { from
     }
     case "month": {
       const to = new Date(b.getTime() + 30 * 24 * 60 * 60 * 1000);
+      return { from: b, to };
+    }
+    case "year": {
+      const to = new Date(b.getTime() + 365 * 24 * 60 * 60 * 1000);
       return { from: b, to };
     }
   }
