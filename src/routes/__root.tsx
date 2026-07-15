@@ -94,6 +94,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         as: "image",
         type: "image/png",
       },
+      {
+        rel: "preload",
+        href: "/brand/global-party-intro-poster.jpg",
+        as: "image",
+        type: "image/jpeg",
+      },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
       // Vercel-protected previews require credentials for manifest requests.
