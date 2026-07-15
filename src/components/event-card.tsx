@@ -103,11 +103,15 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         : null;
 
   return (
-    <Link
-      to="/event/$slug"
-      params={{ slug: ev.slug }}
-      className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]"
-    >
+    <article className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+      <Link
+        to="/event/$slug"
+        params={{ slug: ev.slug }}
+        aria-label={`Ouvrir l'événement ${ev.title}`}
+        className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+      >
+        <span className="sr-only">Ouvrir l'événement {ev.title}</span>
+      </Link>
       <div className="relative aspect-[16/10] overflow-hidden bg-muted">
         <EventArtworkImage
           eventId={ev.event_id}
@@ -160,9 +164,10 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             {cancelled && <Badge variant="destructive">Annulé</Badge>}
           </div>
           <button
+            type="button"
             onClick={toggleFav}
             aria-label={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
-            className="glass flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90"
+            className="glass relative z-20 flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90"
           >
             <Heart
               className="h-4 w-4"
@@ -240,7 +245,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
           </span>
         )}
       </div>
-    </Link>
+    </article>
   );
 }
 
