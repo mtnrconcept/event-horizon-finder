@@ -461,7 +461,37 @@ function Discover() {
     Number(Boolean(coords));
 
   return (
-    <div className="mx-auto max-w-7xl px-4 pt-6 md:px-6 md:pt-10">
+    <div className="mx-auto max-w-7xl px-4 pt-2 md:px-6 md:pt-10">
+      <div className="glass sticky top-0 z-30 mb-4 rounded-2xl p-2 shadow-[var(--shadow-card)] md:hidden">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Événement, artiste ou lieu…"
+              aria-label="Rechercher un événement"
+              className="h-11 rounded-2xl border-transparent bg-surface/70 pl-9 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={mobileFiltersOpen}
+            onClick={() => setMobileFiltersOpen(true)}
+            className="relative inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl border bg-surface px-3 text-xs font-bold"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-primary" />
+            Filtres
+            {mobileFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-primary px-1 text-[10px] text-primary-foreground">
+                {mobileFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
       <section className="relative mb-6 overflow-hidden rounded-[2rem] border p-5 md:mb-8 md:p-8">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,oklch(0.68_0.22_295_/_0.35),transparent_32%),radial-gradient(circle_at_82%_18%,oklch(0.72_0.18_35_/_0.22),transparent_30%),linear-gradient(135deg,oklch(0.19_0.03_265_/_0.92),oklch(0.12_0.03_265_/_0.86))]" />
         <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
@@ -537,36 +567,6 @@ function Discover() {
           })}
         </div>
       </section>
-
-      <div className="glass sticky top-0 z-30 mb-4 rounded-2xl p-2 shadow-[var(--shadow-card)] md:hidden">
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Événement, artiste ou lieu…"
-              aria-label="Rechercher un événement"
-              className="h-11 rounded-2xl border-transparent bg-surface/70 pl-9 text-sm"
-            />
-          </div>
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={mobileFiltersOpen}
-            onClick={() => setMobileFiltersOpen(true)}
-            className="relative inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl border bg-surface px-3 text-xs font-bold"
-          >
-            <SlidersHorizontal className="h-4 w-4 text-primary" />
-            Filtres
-            {mobileFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-primary px-1 text-[10px] text-primary-foreground">
-                {mobileFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
 
       {mobileFiltersOpen && (
         <div
