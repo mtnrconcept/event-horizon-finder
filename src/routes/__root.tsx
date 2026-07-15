@@ -3,6 +3,7 @@ import {
   Outlet,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -108,11 +109,12 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const isMapRoute = useRouterState({ select: (state) => state.location.pathname === "/map" });
   return (
     <QueryClientProvider client={queryClient}>
       <ClientJourneyTracker />
       <DesktopHeader />
-      <main className="pb-24 md:pb-8">
+      <main className={isMapRoute ? "pb-0 md:pb-8" : "pb-24 md:pb-8"}>
         <Outlet />
       </main>
       <MobileNav />
