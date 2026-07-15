@@ -16,10 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
 import { GENRE_LABELS } from "@/lib/event-filters";
+import { useTranslation } from "@/lib/i18n";
 
-function formatLocalTime(iso: string, tz: string) {
+function formatLocalTime(iso: string, tz: string, locale: string) {
   try {
-    return new Intl.DateTimeFormat("fr-FR", {
+    return new Intl.DateTimeFormat(locale, {
       timeZone: tz,
       weekday: "short",
       day: "numeric",
@@ -28,7 +29,7 @@ function formatLocalTime(iso: string, tz: string) {
       minute: "2-digit",
     }).format(new Date(iso));
   } catch {
-    return new Date(iso).toLocaleString("fr-FR");
+    return new Date(iso).toLocaleString(locale);
   }
 }
 
@@ -61,6 +62,7 @@ async function fetchFavoriteEventIds(userId: string) {
 }
 
 export function EventCard({ ev }: { ev: DiscoveredEvent }) {
+  const { t, formatNumber, localeTag } = useTranslation();
   const queryClient = useQueryClient();
   const viewer = useQuery({
     queryKey: ["viewer-id"],
@@ -80,7 +82,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
     e.preventDefault();
     e.stopPropagation();
     if (!userId) {
-      toast.error("Connecte-toi pour enregistrer un événement");
+      toast.error(t("event.signInFavorite"));
       return;
     }
     if (fav) {
@@ -103,11 +105,11 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
 
   const cancelled = ev.status === "cancelled";
   const priceLabel = ev.is_free
-    ? "Gratuit"
+    ? t("common.free")
     : ev.price_from != null
-      ? `Dès ${Number(ev.price_from).toLocaleString("fr-CH")}`
+      ? `Dès ${formatNumber(Number(ev.price_from))}`
       : ev.has_tickets
-        ? "Billets disponibles"
+        ? t("event.ticketAvailable")
         : null;
 
   return (
@@ -115,10 +117,10 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
       <Link
         to="/event/$slug"
         params={{ slug: ev.slug }}
-        aria-label={`Ouvrir l'événement ${ev.title}`}
+        aria-label={t("event.open", { title: ev.title })}
         className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
-        <span className="sr-only">Ouvrir l'événement {ev.title}</span>
+        <span className="sr-only">{t("event.open", { title: ev.title })}</span>
       </Link>
       <div className="relative aspect-[16/10] overflow-hidden bg-muted">
         <EventArtworkImage
@@ -132,12 +134,12 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
               <div className="text-center">
                 <Sparkles className="mx-auto mb-2 h-8 w-8 opacity-70" />
                 <p className="text-3xl font-black">
-                  {new Intl.DateTimeFormat("fr-FR", { day: "2-digit" }).format(
+                  {new Intl.DateTimeFormat(localeTag, { day: "2-digit" }).format(
                     new Date(ev.starts_at),
                   )}
                 </p>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] opacity-75">
-                  {new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(
+                  {new Intl.DateTimeFormat(localeTag, { month: "short" }).format(
                     new Date(ev.starts_at),
                   )}
                 </p>
@@ -166,15 +168,15 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
                   color: "var(--color-secondary-foreground)",
                 }}
               >
-                Gratuit
+                {t("common.free")}
               </Badge>
             )}
-            {cancelled && <Badge variant="destructive">Annulé</Badge>}
+            {cancelled && <Badge variant="destructive">{t("event.cancelled")}</Badge>}
           </div>
           <button
             type="button"
             onClick={toggleFav}
-            aria-label={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
+            aria-label={fav ? t("event.removeFavorite") : t("event.addFavorite")}
             className="glass relative z-20 flex h-11 w-11 items-center justify-center rounded-full transition-transform active:scale-90"
           >
             <Heart
@@ -204,7 +206,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock className="h-3.5 w-3.5" />
-          <span>{formatLocalTime(ev.starts_at, ev.timezone)}</span>
+          <span>{formatLocalTime(ev.starts_at, ev.timezone, localeTag)}</span>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MapPin className="h-3.5 w-3.5" />
@@ -225,7 +227,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             )}
             {ev.capacity != null && (
               <span className="inline-flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" /> {ev.capacity.toLocaleString("fr-CH")} pers.
+                <Users className="h-3.5 w-3.5" /> {formatNumber(ev.capacity)} pers.
               </span>
             )}
             {ev.wheelchair && (

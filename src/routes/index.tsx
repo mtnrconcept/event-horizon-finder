@@ -48,6 +48,7 @@ import {
 } from "@/lib/event-filters";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -125,6 +126,7 @@ type LandingCollections = {
 };
 
 function Discover() {
+  const { t, formatNumber } = useTranslation();
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
@@ -495,7 +497,7 @@ function Discover() {
         <div className="flex items-center gap-2">
           <Link
             to="/"
-            aria-label="Global Party — accueil"
+            aria-label={t("brand.home")}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-surface/70 outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <BrandLogo variant="mark" className="h-9 w-10" />
@@ -505,8 +507,8 @@ function Discover() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Événement, artiste ou lieu…"
-              aria-label="Rechercher un événement"
+              placeholder={t("home.searchPlaceholder")}
+              aria-label={t("home.searchAria")}
               className="h-11 rounded-2xl border-transparent bg-surface/70 pl-9 text-sm"
             />
           </div>
@@ -518,7 +520,7 @@ function Discover() {
             className="relative inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl border bg-surface px-3 text-xs font-bold"
           >
             <SlidersHorizontal className="h-4 w-4 text-primary" />
-            Filtres
+            {t("common.filters")}
             {mobileFilterCount > 0 && (
               <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-primary px-1 text-[10px] text-primary-foreground">
                 {mobileFilterCount}
@@ -543,31 +545,30 @@ function Discover() {
           </div>
           <div>
             <Badge className="mb-5 border-transparent bg-primary/15 px-3 py-1 text-primary">
-              <Flame className="mr-1.5 h-3.5 w-3.5" /> Catalogue mondial · mis à jour en continu
+              <Flame className="mr-1.5 h-3.5 w-3.5" /> {t("home.catalogBadge")}
             </Badge>
             <h1 className="max-w-4xl text-4xl font-black leading-[0.95] md:text-7xl">
-              Trouve le bon plan avant qu'il ne disparaisse.
+              {t("home.heroTitle")}
             </h1>
             <p className="mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
-              Global Party transforme le monde en radar culturel : clubs, concerts, festivals et
-              sorties réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
+              {t("home.heroBody")}
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
             <HeroStat
               icon={CalendarDays}
-              label="au total"
-              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.total_count)}
+              label={t("home.total")}
+              value={loading || statsLoading ? "…" : formatNumber(stats.total_count)}
             />
             <HeroStat
               icon={Ticket}
-              label="gratuits"
-              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.free_count)}
+              label={t("home.free")}
+              value={loading || statsLoading ? "…" : formatNumber(stats.free_count)}
             />
             <HeroStat
               icon={Star}
-              label="vérifiés"
-              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.verified_count)}
+              label={t("home.verified")}
+              value={loading || statsLoading ? "…" : formatNumber(stats.verified_count)}
             />
           </div>
         </div>
@@ -579,14 +580,14 @@ function Discover() {
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-              Inspiration instantanée
+              {t("home.inspiration")}
             </p>
             <h2 id="vibe-title" className="mt-1 text-2xl font-black md:text-3xl">
-              Tu cherches quelle ambiance ?
+              {t("home.chooseVibe")}
             </h2>
           </div>
           <Link to="/map" className="hidden text-sm font-semibold text-primary sm:inline-flex">
-            Explorer la carte →
+            {t("home.openMap")} →
           </Link>
         </div>
         <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
@@ -628,15 +629,15 @@ function Discover() {
           >
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-                Affiner la découverte
+                {t("discovery.refine")}
               </p>
               <h2 id="home-mobile-filter-title" className="text-xl font-black">
-                Filtres
+                {t("common.filters")}
               </h2>
             </div>
             <button
               type="button"
-              aria-label="Fermer les filtres"
+              aria-label={t("discovery.closeFilters")}
               onClick={() => setMobileFiltersOpen(false)}
               className="grid h-11 w-11 place-items-center rounded-full border bg-surface"
             >
@@ -646,7 +647,7 @@ function Discover() {
 
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 overscroll-contain">
             <section>
-              <h3 className="mb-2 text-sm font-black">Destination</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.destination")}</h3>
               <div className="mb-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -659,14 +660,14 @@ function Discover() {
                   }
                 >
                   <Crosshair className="h-4 w-4" />
-                  {coords ? "Autour de moi" : "Me localiser"}
+                  {coords ? t("home.nearMe") : t("home.locate")}
                 </button>
                 <Link
                   to="/map"
                   onClick={() => setMobileFiltersOpen(false)}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-3 text-xs font-bold text-primary-foreground"
                 >
-                  <MapIcon className="h-4 w-4" /> Carte live
+                  <MapIcon className="h-4 w-4" /> {t("home.liveMap")}
                 </Link>
               </div>
               <GeographyFilter
@@ -685,7 +686,7 @@ function Discover() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Date</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.date")}</h3>
               <div className="grid grid-cols-2 gap-2">
                 {QUICK.map((item) => (
                   <button
@@ -712,31 +713,31 @@ function Discover() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Trier par</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.sort")}</h3>
               <div className="grid grid-cols-3 gap-2">
                 <SortButton
                   active={sort === "soon"}
                   onClick={() => setSort("soon")}
                   icon={TrendingUp}
-                  label="Bientôt"
+                  label={t("home.soon")}
                 />
                 <SortButton
                   active={sort === "distance"}
                   onClick={() => setSort("distance")}
                   icon={MapPin}
-                  label="Distance"
+                  label={t("home.distance")}
                 />
                 <SortButton
                   active={sort === "popular"}
                   onClick={() => setSort("popular")}
                   icon={Sparkles}
-                  label="Top"
+                  label={t("home.top")}
                 />
               </div>
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Catégories</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.categories")}</h3>
               <div className="flex flex-wrap gap-2">
                 {categories.map((category) => (
                   <button
@@ -763,7 +764,7 @@ function Discover() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Prix, musique, jauge et accès</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.advanced")}</h3>
               <div className="rounded-2xl border p-3">
                 <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
               </div>
@@ -779,7 +780,7 @@ function Discover() {
               onClick={resetFilters}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 text-xs font-bold"
             >
-              <RotateCcw className="h-4 w-4" /> Réinitialiser
+              <RotateCcw className="h-4 w-4" /> {t("common.reset")}
             </button>
             <button
               type="button"
@@ -801,7 +802,8 @@ function Discover() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Concert gratuit ce soir, rooftop, expo immersive…"
+              placeholder={t("home.searchLongPlaceholder")}
+              aria-label={t("home.searchAria")}
               className="h-12 rounded-2xl border-transparent bg-surface/70 pl-11 text-base"
             />
           </div>
@@ -815,13 +817,13 @@ function Discover() {
             }
           >
             <Crosshair className="h-4 w-4" />
-            {coords ? "Autour de moi" : "Me localiser"}
+            {coords ? t("home.nearMe") : t("home.locate")}
           </button>
           <Link
             to="/map"
             className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-semibold text-primary-foreground btn-glow"
           >
-            <MapIcon className="h-4 w-4" /> Carte live
+            <MapIcon className="h-4 w-4" /> {t("home.liveMap")}
           </Link>
         </div>
         <div className="mt-3 border-t pt-3">

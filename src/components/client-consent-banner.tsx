@@ -5,10 +5,12 @@ import { ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { notifyPrivacyUpdated } from "@/lib/client-analytics";
+import { useTranslation } from "@/lib/i18n";
 
 const clientDb = supabase as unknown as SupabaseClient<any>;
 
 export function ClientConsentBanner() {
+  const { t } = useTranslation();
   const [userId, setUserId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -61,15 +63,13 @@ export function ClientConsentBanner() {
       <div className="flex items-start gap-3">
         <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">Une expérience adaptée à tes sorties</p>
+          <p className="font-semibold">{t("consent.title")}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            Avec ton accord, Global Party enregistre ton parcours dans l'application et utilise ta
-            ville, ta tranche d'âge et tes goûts musicaux pour personnaliser les recommandations et
-            publicités. Les organisateurs ne voient que des statistiques agrégées.
+            {t("consent.body")}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" disabled={saving} onClick={() => void decide(true)}>
-              Accepter
+              {t("consent.accept")}
             </Button>
             <Button
               size="sm"
@@ -77,7 +77,7 @@ export function ClientConsentBanner() {
               disabled={saving}
               onClick={() => void decide(false)}
             >
-              Continuer sans personnalisation
+              {t("consent.decline")}
             </Button>
           </div>
         </div>

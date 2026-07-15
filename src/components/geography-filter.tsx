@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Building2, Globe2, LoaderCircle, MapPinned, Search } from "lucide-react";
 import type { CityOption, CountryOption, RegionOption } from "@/lib/queries";
+import { useTranslation, type TranslationKey } from "@/lib/i18n";
 
 export interface GeographySelection {
   countryId: string | null;
@@ -8,18 +9,18 @@ export interface GeographySelection {
   cityId: string | null;
 }
 
-function subdivisionLabel(countryCode?: string) {
+function subdivisionLabelKey(countryCode?: string): TranslationKey {
   switch (countryCode) {
     case "CH":
-      return "Canton";
+      return "geo.canton";
     case "FR":
-      return "Région / département";
+      return "geo.regionDepartment";
     case "US":
-      return "État";
+      return "geo.state";
     case "CA":
-      return "Province";
+      return "geo.province";
     default:
-      return "Région / province";
+      return "geo.regionProvince";
   }
 }
 
@@ -42,6 +43,7 @@ export function GeographyFilter({
   cityLoading?: boolean;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const cityListId = useId();
   const [cityQuery, setCityQuery] = useState("");
   const selectedCountry = useMemo(
@@ -64,7 +66,7 @@ export function GeographyFilter({
         : [],
     [cities, value.countryId, value.regionId],
   );
-  const regionLabel = subdivisionLabel(selectedCountry?.code);
+  const regionLabel = t(subdivisionLabelKey(selectedCountry?.code));
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === value.cityId) ?? null,
     [cities, value.cityId],
@@ -91,14 +93,14 @@ export function GeographyFilter({
       <label className="relative min-w-0">
         <Globe2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <select
-          aria-label="Pays"
+          aria-label={t("common.country")}
           value={value.countryId ?? ""}
           onChange={(event) =>
             onChange({ countryId: event.target.value || null, regionId: null, cityId: null })
           }
           className={`${selectClass} w-full pl-9`}
         >
-          <option value="">Tous les pays</option>
+          <option value="">{t("geo.allCountries")}</option>
           {countries.map((country) => (
             <option key={country.id} value={country.id}>
               {country.name}
@@ -120,10 +122,10 @@ export function GeographyFilter({
         >
           <option value="">
             {!value.countryId
-              ? "Choisir un pays"
+              ? t("geo.chooseCountry")
               : availableRegions.length
-                ? `Tous · ${regionLabel.toLowerCase()}`
-                : `${regionLabel} non précisé`}
+                ? t("geo.allRegion", { region: regionLabel.toLocaleLowerCase() })
+                : t("geo.unspecifiedRegion", { region: regionLabel })}
           </option>
           {availableRegions.map((region) => (
             <option key={region.id} value={region.id}>
@@ -140,11 +142,11 @@ export function GeographyFilter({
           <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         )}
         <input
-          aria-label="Ville"
+          aria-label={t("common.city")}
           list={cityListId}
           value={cityQuery}
           disabled={!value.countryId}
-          placeholder={value.countryId ? "Rechercher une ville…" : "Choisir un pays"}
+          placeholder={value.countryId ? t("geo.searchCity") : t("geo.chooseCountry")}
           autoComplete="off"
           onFocus={() => {
             if (!cityQuery && value.countryId) onCityQuery?.("");

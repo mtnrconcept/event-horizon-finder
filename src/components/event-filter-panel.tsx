@@ -5,6 +5,7 @@ import {
   type CapacityMode,
   type PriceMode,
 } from "@/lib/event-filters";
+import { useTranslation } from "@/lib/i18n";
 
 export function EventFilterPanel({
   value,
@@ -15,6 +16,7 @@ export function EventFilterPanel({
   onChange: (next: AdvancedEventFilters) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const update = <K extends keyof AdvancedEventFilters>(key: K, next: AdvancedEventFilters[K]) =>
     onChange({ ...value, [key]: next });
 
@@ -31,39 +33,39 @@ export function EventFilterPanel({
     <div className={compact ? "space-y-3" : "space-y-4 rounded-3xl border bg-surface/40 p-4"}>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1.5 text-xs font-semibold">
-          Prix d'entrée / ticket
+          {t("filters.price")}
           <select
             value={value.priceMode}
             onChange={(event) => update("priceMode", event.target.value as PriceMode)}
             className="h-11 w-full rounded-2xl border bg-background/80 px-3 text-sm font-normal outline-none focus:border-primary"
           >
-            <option value="all">Tous les prix</option>
-            <option value="free">Gratuit</option>
-            <option value="under-20">Jusqu'à CHF 20</option>
-            <option value="under-40">Jusqu'à CHF 40</option>
-            <option value="over-40">Dès CHF 40</option>
-            <option value="known">Prix renseigné</option>
+            <option value="all">{t("filters.allPrices")}</option>
+            <option value="free">{t("common.free")}</option>
+            <option value="under-20">{t("filters.under20")}</option>
+            <option value="under-40">{t("filters.under40")}</option>
+            <option value="over-40">{t("filters.over40")}</option>
+            <option value="known">{t("filters.knownPrice")}</option>
           </select>
         </label>
         <label className="space-y-1.5 text-xs font-semibold">
-          Nombre de personnes
+          {t("filters.capacity")}
           <select
             value={value.capacityMode}
             onChange={(event) => update("capacityMode", event.target.value as CapacityMode)}
             className="h-11 w-full rounded-2xl border bg-background/80 px-3 text-sm font-normal outline-none focus:border-primary"
           >
-            <option value="all">Toutes les jauges</option>
-            <option value="intimate">Intime · jusqu'à 200</option>
-            <option value="club">Club · 201 à 800</option>
-            <option value="large">Grande salle · 801 à 5 000</option>
-            <option value="festival">Festival · plus de 5 000</option>
-            <option value="unknown">Capacité non précisée</option>
+            <option value="all">{t("filters.allCapacities")}</option>
+            <option value="intimate">{t("filters.intimate")}</option>
+            <option value="club">{t("filters.club")}</option>
+            <option value="large">{t("filters.large")}</option>
+            <option value="festival">{t("filters.festival")}</option>
+            <option value="unknown">{t("filters.unknownCapacity")}</option>
           </select>
         </label>
       </div>
 
       <fieldset>
-        <legend className="mb-2 text-xs font-semibold">Style musical</legend>
+        <legend className="mb-2 text-xs font-semibold">{t("filters.music")}</legend>
         <div className="no-scrollbar flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
           {MUSIC_GENRES.map(([slug, label]) => {
             const active = value.genres.includes(slug);
@@ -95,25 +97,25 @@ export function EventFilterPanel({
         <FilterToggle
           active={value.ticketsOnly}
           icon={TicketCheck}
-          label="Billets disponibles"
+          label={t("filters.tickets")}
           onClick={() => update("ticketsOnly", !value.ticketsOnly)}
         />
         <FilterToggle
           active={value.verifiedOnly}
           icon={BadgeCheck}
-          label="Événements vérifiés"
+          label={t("filters.verified")}
           onClick={() => update("verifiedOnly", !value.verifiedOnly)}
         />
         <FilterToggle
           active={value.accessibleOnly}
           icon={Accessibility}
-          label="Accessible PMR"
+          label={t("filters.accessible")}
           onClick={() => update("accessibleOnly", !value.accessibleOnly)}
         />
         <FilterToggle
           active={value.venueOnly}
           icon={MapPinCheck}
-          label="Lieu confirmé"
+          label={t("filters.confirmedVenue")}
           onClick={() => update("venueOnly", !value.venueOnly)}
         />
       </div>
