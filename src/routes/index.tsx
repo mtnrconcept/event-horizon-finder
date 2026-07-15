@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  discoverEventStats,
   discoverEvents,
   fetchCategories,
   fetchGeographies,
@@ -29,6 +30,7 @@ import {
   computeRange,
   type CityOption,
   type CountryOption,
+  type DiscoveryStats,
   type DiscoveredEvent,
   type QuickRange,
   type RegionOption,
@@ -63,6 +65,7 @@ export const Route = createFileRoute("/")({
 type Category = { slug: string; name_fr: string; icon: string | null };
 type SortMode = "soon" | "distance" | "popular";
 const EVENT_PAGE_SIZE = 48;
+const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 
 const QUICK: { key: QuickRange; label: string; helper: string }[] = [
   { key: "now", label: "Maintenant", helper: "2 prochaines heures" },
@@ -140,10 +143,12 @@ function Discover() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [sort, setSort] = useState<SortMode>("soon");
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
+  const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [landingCollections, setLandingCollections] = useState<LandingCollections | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
+  const [pageMayHaveMore, setPageMayHaveMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -267,10 +272,13 @@ function Discover() {
     setLoading(true);
     setLoadingMore(false);
     setEvents(null);
+    setDiscoveryStats(null);
+    setStatsLoading(true);
     setNextOffset(0);
-    setHasMore(false);
+    setPageMayHaveMore(false);
     setError(null);
-    discoverEvents({
+
+    void discoverEvents({
       ...discoveryParams,
       limit: EVENT_PAGE_SIZE,
       offset: 0,
@@ -279,7 +287,7 @@ function Discover() {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(data);
         setNextOffset(data.length);
-        setHasMore(data.length === EVENT_PAGE_SIZE);
+        setPageMayHaveMore(data.length === EVENT_PAGE_SIZE);
       })
       .catch(() => {
         if (!current) return;
@@ -287,7 +295,22 @@ function Discover() {
         setError("Le catalogue n'a pas pu être chargé. Réessaie dans un instant.");
       })
       .finally(() => {
-        if (current) setLoading(false);
+        if (current && requestVersion === requestVersionRef.current) setLoading(false);
+      });
+
+    // The aggregate request is deliberately independent: a transient failure
+    // must not hide the event cards that have already loaded successfully.
+    void discoverEventStats(discoveryParams)
+      .then((nextStats) => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setDiscoveryStats(nextStats);
+      })
+      .catch(() => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setDiscoveryStats(null);
+      })
+      .finally(() => {
+        if (current && requestVersion === requestVersionRef.current) setStatsLoading(false);
       });
     return () => {
       current = false;
@@ -361,7 +384,7 @@ function Discover() {
         return [...(current ?? []), ...page.filter((event) => !known.has(event.occurrence_id))];
       });
       setNextOffset(offset + page.length);
-      setHasMore(page.length === EVENT_PAGE_SIZE);
+      setPageMayHaveMore(page.length === EVENT_PAGE_SIZE);
     } catch {
       if (requestVersion === requestVersionRef.current) {
         setError("La page suivante n'a pas pu être chargée. Réessaie dans un instant.");
@@ -383,14 +406,19 @@ function Discover() {
     return list.sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
   }, [events, sort]);
 
-  const stats = useMemo(() => {
+  const localStats = useMemo(() => {
     const list = events ?? [];
     return {
-      total: list.length,
-      free: list.filter((e) => e.is_free).length,
-      verified: list.filter((e) => e.is_verified).length,
+      total_count: list.length,
+      free_count: list.filter((e) => e.is_free).length,
+      verified_count: list.filter((e) => e.is_verified).length,
     };
   }, [events]);
+  const stats = discoveryStats ?? localStats;
+  const hasMore = discoveryStats ? nextOffset < discoveryStats.total_count : pageMayHaveMore;
+  const nextPageCount = discoveryStats
+    ? Math.min(EVENT_PAGE_SIZE, Math.max(discoveryStats.total_count - nextOffset, 0))
+    : EVENT_PAGE_SIZE;
 
   const requestGeo = () => {
     if (!navigator.geolocation) return;
@@ -510,18 +538,18 @@ function Discover() {
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
             <HeroStat
               icon={CalendarDays}
-              label="chargés"
-              value={loading ? "…" : `${stats.total}${hasMore ? "+" : ""}`}
+              label="au total"
+              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.total_count)}
             />
             <HeroStat
               icon={Ticket}
               label="gratuits"
-              value={loading ? "…" : stats.free.toString()}
+              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.free_count)}
             />
             <HeroStat
               icon={Star}
               label="vérifiés"
-              value={loading ? "…" : stats.verified.toString()}
+              value={loading || statsLoading ? "…" : COUNT_FORMATTER.format(stats.verified_count)}
             />
           </div>
         </div>
@@ -740,8 +768,9 @@ function Discover() {
               onClick={() => setMobileFiltersOpen(false)}
               className="min-h-12 rounded-2xl bg-primary px-4 text-sm font-black text-primary-foreground"
             >
-              Voir {sortedEvents.length.toLocaleString("fr-CH")} sortie
-              {sortedEvents.length > 1 ? "s" : ""}
+              {statsLoading
+                ? "Calcul du total…"
+                : `Voir ${COUNT_FORMATTER.format(stats.total_count)} sortie${stats.total_count > 1 ? "s" : ""}`}
             </button>
           </footer>
         </div>
@@ -899,7 +928,9 @@ function Discover() {
           <p className="text-sm font-semibold">
             {loading
               ? "Recherche des meilleurs plans…"
-              : `${sortedEvents.length} sorties chargées${hasMore ? " · d'autres sont disponibles" : ""}`}
+              : statsLoading
+                ? `${COUNT_FORMATTER.format(sortedEvents.length)} sorties chargées · calcul du total…`
+                : `${COUNT_FORMATTER.format(stats.total_count)} sorties au total · ${COUNT_FORMATTER.format(sortedEvents.length)} chargées`}
           </p>
           <p className="text-xs text-muted-foreground">
             {coords
@@ -994,7 +1025,7 @@ function Discover() {
                 {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
                 {loadingMore
                   ? "Chargement…"
-                  : `Charger ${EVENT_PAGE_SIZE} événements supplémentaires`}
+                  : `Charger ${COUNT_FORMATTER.format(nextPageCount)} événements supplémentaires`}
               </button>
               <p className="text-xs text-muted-foreground">
                 Aucun plafond global : continue jusqu'au dernier événement correspondant.

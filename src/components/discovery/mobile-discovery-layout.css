@@ -2,7 +2,7 @@
   --mobile-global-nav-height: calc(3.75rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   height: calc(var(--mobile-visual-viewport-height, 100dvh) - var(--mobile-global-nav-height));
-  min-height: 28rem;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   background: var(--color-background);

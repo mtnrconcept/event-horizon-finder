@@ -10,12 +10,14 @@ import {
 } from "react";
 import maplibregl, {
   type GeoJSONSource,
-  type MapLayerMouseEvent,
+  type MapGeoJSONFeature,
+  type MapMouseEvent,
   type StyleSpecification,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   computeRange,
+  discoverEventStats,
   discoverMapEvents,
   fetchCategories,
   fetchGeographies,
@@ -23,6 +25,7 @@ import {
   searchGeographyCities,
   type CityOption,
   type CountryOption,
+  type DiscoveryStats,
   type DiscoveredEvent,
   type DiscoveredVenue,
   type QuickRange,
@@ -47,6 +50,7 @@ import {
   type MapPointCollection,
   type MapPointProperties,
 } from "@/lib/map-clusters";
+import { selectNearestMapHit, type MapHitCandidate, type MapHitKind } from "@/lib/map-interactions";
 import {
   Building2,
   CalendarDays,
@@ -90,6 +94,7 @@ const OSM_STYLE: StyleSpecification = {
 type Category = { slug: string; name_fr: string; icon: string | null };
 const MAP_EVENT_PAGE_SIZE = 1_000;
 const MOBILE_LIST_BATCH_SIZE = 24;
+const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 const MAP_POINT_SOURCE_ID = "eventa-map-points";
 const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
 const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
@@ -97,6 +102,8 @@ const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
 const MAP_EVENT_LABEL_LAYER_ID = "eventa-map-event-labels";
 const MAP_VENUE_POINT_LAYER_ID = "eventa-map-venue-points";
 const MAP_VENUE_LABEL_LAYER_ID = "eventa-map-venue-labels";
+const MOBILE_MAP_HIT_RADIUS = 24;
+const DESKTOP_MAP_HIT_RADIUS = 8;
 
 const MAP_RANGES: { value: QuickRange; label: string }[] = [
   { value: "tonight", label: "Ce soir" },
@@ -107,6 +114,13 @@ const MAP_RANGES: { value: QuickRange; label: string }[] = [
   { value: "month", label: "30 jours" },
   { value: "year", label: "Tout à venir" },
 ];
+
+function mapFeatureHitKind(feature: MapGeoJSONFeature): MapHitKind | null {
+  if (feature.layer.id === MAP_CLUSTER_LAYER_ID) return "cluster";
+  if (feature.layer.id === MAP_EVENT_POINT_LAYER_ID) return "event";
+  if (feature.layer.id === MAP_VENUE_POINT_LAYER_ID) return "venue";
+  return null;
+}
 
 function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
   const existingSource = map.getSource(MAP_POINT_SOURCE_ID) as GeoJSONSource | undefined;
@@ -203,14 +217,14 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
       id: MAP_EVENT_LABEL_LAYER_ID,
       type: "symbol",
       source: MAP_POINT_SOURCE_ID,
-      minzoom: 12,
+      minzoom: 14,
       filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
       layout: {
         "text-field": ["get", "marker_label"],
         "text-font": ["Noto Sans Regular"],
         "text-size": 9,
-        "text-allow-overlap": true,
-        "text-ignore-placement": true,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
       },
       paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.35)" },
     });
@@ -237,14 +251,14 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
       id: MAP_VENUE_LABEL_LAYER_ID,
       type: "symbol",
       source: MAP_POINT_SOURCE_ID,
-      minzoom: 12,
+      minzoom: 14,
       filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "venue"]],
       layout: {
         "text-field": "L",
         "text-font": ["Noto Sans Regular"],
         "text-size": 9,
-        "text-allow-overlap": true,
-        "text-ignore-placement": true,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
       },
       paint: { "text-color": "#ffffff" },
     });
@@ -379,6 +393,7 @@ function MapPage() {
   const [cities, setCities] = useState<CityOption[]>([]);
   const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [geographyReady, setGeographyReady] = useState(false);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
     regionId: null,
@@ -391,6 +406,8 @@ function MapPage() {
   const deferredQuery = useDeferredValue(query.trim());
   const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
+  const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [venues, setVenues] = useState<DiscoveredVenue[]>([]);
   const [showEvents, setShowEvents] = useState(true);
   const [showVenues, setShowVenues] = useState(true);
@@ -398,7 +415,7 @@ function MapPage() {
   const [selectedVenue, setSelectedVenue] = useState<DiscoveredVenue | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMoreEvents, setHasMoreEvents] = useState(false);
+  const [pageMayHaveMoreEvents, setPageMayHaveMoreEvents] = useState(false);
   const [nextEventOffset, setNextEventOffset] = useState(0);
   const [visibleMobileEventCount, setVisibleMobileEventCount] = useState(MOBILE_LIST_BATCH_SIZE);
   const [error, setError] = useState<string | null>(null);
@@ -499,9 +516,14 @@ function MapPage() {
             cityId: geneva.id,
           });
         }
+        setGeographyReady(true);
       })
       .catch(() => {
-        if (current) setError("Les filtres géographiques n'ont pas pu être chargés.");
+        if (current) {
+          setError("Les filtres géographiques n'ont pas pu être chargés.");
+          // Preserve worldwide discovery if the geography catalogue is down.
+          setGeographyReady(true);
+        }
       });
     return () => {
       current = false;
@@ -530,6 +552,7 @@ function MapPage() {
         style: MAPBOX_STYLE ?? OSM_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
+        clickTolerance: isMobile ? 8 : 3,
         fadeDuration: 0,
       });
     } catch {
@@ -608,12 +631,32 @@ function MapPage() {
     [advancedFilters, cats, cityId, countryId, deferredQuery, from, regionId, to],
   );
 
+  const localDiscoveryStats = useMemo<DiscoveryStats>(
+    () => ({
+      total_count: events.length,
+      free_count: events.filter((event) => event.is_free).length,
+      verified_count: events.filter((event) => event.is_verified).length,
+    }),
+    [events],
+  );
+  const mapStats = discoveryStats ?? localDiscoveryStats;
+  const totalEventCount = mapStats.total_count;
+  const hasMoreEvents = discoveryStats
+    ? nextEventOffset < discoveryStats.total_count
+    : pageMayHaveMoreEvents;
+  const nextMapPageCount = discoveryStats
+    ? Math.min(MAP_EVENT_PAGE_SIZE, Math.max(discoveryStats.total_count - nextEventOffset, 0))
+    : MAP_EVENT_PAGE_SIZE;
+
   useEffect(() => {
+    if (!geographyReady) return;
     let current = true;
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
+    setStatsLoading(true);
     setLoadingMore(false);
-    setHasMoreEvents(false);
+    setDiscoveryStats(null);
+    setPageMayHaveMoreEvents(false);
     setNextEventOffset(0);
     setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
@@ -630,7 +673,7 @@ function MapPage() {
         setEvents(nextEvents);
         setVenues(nextVenues);
         setNextEventOffset(nextEvents.length);
-        setHasMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
+        setPageMayHaveMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
         setSelectedEvent(null);
         setSelectedVenue(null);
       })
@@ -641,12 +684,27 @@ function MapPage() {
         setError("Impossible de charger les points de la carte. Réessaie dans un instant.");
       })
       .finally(() => {
-        if (current) setLoading(false);
+        if (current && requestVersion === requestVersionRef.current) setLoading(false);
+      });
+
+    // Keep aggregates independent from point loading so an unavailable count
+    // endpoint never prevents the map itself from rendering.
+    void discoverEventStats(mapDiscoveryParams, { requireCoordinates: true })
+      .then((nextStats) => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setDiscoveryStats(nextStats);
+      })
+      .catch(() => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setDiscoveryStats(null);
+      })
+      .finally(() => {
+        if (current && requestVersion === requestVersionRef.current) setStatsLoading(false);
       });
     return () => {
       current = false;
     };
-  }, [geography, mapDiscoveryParams, reloadKey]);
+  }, [geography, geographyReady, mapDiscoveryParams, reloadKey]);
 
   const loadMoreEvents = async () => {
     if (loading || loadingMore || !hasMoreEvents) return;
@@ -666,7 +724,7 @@ function MapPage() {
         return [...current, ...page.filter((event) => !known.has(event.occurrence_id))];
       });
       setNextEventOffset(offset + page.length);
-      setHasMoreEvents(page.length === MAP_EVENT_PAGE_SIZE);
+      setPageMayHaveMoreEvents(page.length === MAP_EVENT_PAGE_SIZE);
     } catch {
       if (requestVersion === requestVersionRef.current) {
         setError("Impossible de charger la page suivante de points.");
@@ -693,8 +751,7 @@ function MapPage() {
     const syncLayers = () => {
       if (map.isStyleLoaded()) syncClusterLayers(map, mapPoints);
     };
-    const handleClusterClick = async (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
+    const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
       const clusterId = Number(feature.properties?.cluster_id);
       if (!Number.isFinite(clusterId)) return;
@@ -715,8 +772,8 @@ function MapPage() {
         // The style may have switched to the OSM fallback during the async lookup.
       }
     };
-    const handlePointClick = (event: MapLayerMouseEvent) => {
-      const properties = event.features?.[0]?.properties as Partial<MapPointProperties> | undefined;
+    const openPoint = (feature: MapGeoJSONFeature) => {
+      const properties = feature.properties as Partial<MapPointProperties> | undefined;
       const entityId = typeof properties?.entity_id === "string" ? properties.entity_id : "";
 
       if (properties?.kind === "event") {
@@ -746,23 +803,51 @@ function MapPage() {
         });
       }
     };
+    const interactiveLayers = [
+      MAP_CLUSTER_LAYER_ID,
+      MAP_EVENT_POINT_LAYER_ID,
+      MAP_VENUE_POINT_LAYER_ID,
+    ] as const;
+    const handleMapClick = (event: MapMouseEvent) => {
+      const hitRadius = isMobile ? MOBILE_MAP_HIT_RADIUS : DESKTOP_MAP_HIT_RADIUS;
+      const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
+      if (!renderedLayers.length) return;
+
+      const features = map.queryRenderedFeatures(
+        [
+          [event.point.x - hitRadius, event.point.y - hitRadius],
+          [event.point.x + hitRadius, event.point.y + hitRadius],
+        ],
+        { layers: [...renderedLayers] },
+      );
+      const candidates: MapHitCandidate<MapGeoJSONFeature>[] = [];
+
+      for (const feature of features) {
+        const kind = mapFeatureHitKind(feature);
+        if (!kind || feature.geometry.type !== "Point") continue;
+        const [longitude, latitude] = feature.geometry.coordinates;
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) continue;
+        const screenPoint = map.project([Number(longitude), Number(latitude)]);
+        candidates.push({ kind, x: screenPoint.x, y: screenPoint.y, value: feature });
+      }
+
+      const selected = selectNearestMapHit(candidates, event.point, hitRadius);
+      if (!selected) return;
+      if (selected.kind === "cluster") {
+        void expandCluster(selected.value);
+      } else {
+        openPoint(selected.value);
+      }
+    };
     const showPointerCursor = () => {
       map.getCanvas().style.cursor = "pointer";
     };
     const resetCursor = () => {
       map.getCanvas().style.cursor = "";
     };
-    const interactiveLayers = [
-      MAP_CLUSTER_LAYER_ID,
-      MAP_EVENT_POINT_LAYER_ID,
-      MAP_VENUE_POINT_LAYER_ID,
-    ] as const;
-
     syncLayers();
     map.on("style.load", syncLayers);
-    map.on("click", MAP_CLUSTER_LAYER_ID, handleClusterClick);
-    map.on("click", MAP_EVENT_POINT_LAYER_ID, handlePointClick);
-    map.on("click", MAP_VENUE_POINT_LAYER_ID, handlePointClick);
+    map.on("click", handleMapClick);
     interactiveLayers.forEach((layerId) => {
       map.on("mouseenter", layerId, showPointerCursor);
       map.on("mouseleave", layerId, resetCursor);
@@ -770,16 +855,14 @@ function MapPage() {
 
     return () => {
       map.off("style.load", syncLayers);
-      map.off("click", MAP_CLUSTER_LAYER_ID, handleClusterClick);
-      map.off("click", MAP_EVENT_POINT_LAYER_ID, handlePointClick);
-      map.off("click", MAP_VENUE_POINT_LAYER_ID, handlePointClick);
+      map.off("click", handleMapClick);
       interactiveLayers.forEach((layerId) => {
         map.off("mouseenter", layerId, showPointerCursor);
         map.off("mouseleave", layerId, resetCursor);
       });
       resetCursor();
     };
-  }, [cityId, eventsByOccurrenceId, mapPoints, mapReady, venuesById]);
+  }, [cityId, eventsByOccurrenceId, isMobile, mapPoints, mapReady, venuesById]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -809,7 +892,6 @@ function MapPage() {
     setShowVenues(true);
   };
 
-  const freeCount = events.filter((event) => event.is_free).length;
   const approximateCount =
     events.filter((event) => event.location_precision === "city").length +
     visibleVenues.filter((venue) => venue.location_precision === "city").length;
@@ -830,7 +912,7 @@ function MapPage() {
 
     return (
       <MobileDiscoveryLayout
-        resultCount={events.length}
+        resultCount={totalEventCount}
         activeFilterCount={mobileActiveFilterCount}
         hasSelection={Boolean(mobileSelection)}
         onMapResizeNeeded={requestMapResize}
@@ -849,7 +931,9 @@ function MapPage() {
             <p className="mt-1 truncate px-1 text-[10px] text-muted-foreground">
               {loading
                 ? "Chargement des événements…"
-                : `${events.length}${hasMoreEvents ? "+" : ""} événements · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? "Monde entier"}`}
+                : statsLoading
+                  ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
+                  : `${COUNT_FORMATTER.format(totalEventCount)} événements · ${COUNT_FORMATTER.format(events.length)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? "Monde entier"}`}
             </p>
             {error && (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
@@ -881,12 +965,12 @@ function MapPage() {
                   Résultats
                 </p>
                 <h1 className="text-xl font-black">
-                  {events.length}
-                  {hasMoreEvents ? "+" : ""} sorties
+                  {statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)} sorties
                 </h1>
               </div>
               <span className="text-[10px] text-muted-foreground">
-                {mobileListEvents.length} affichées
+                {COUNT_FORMATTER.format(mobileListEvents.length)} affichées ·{" "}
+                {COUNT_FORMATTER.format(events.length)} points chargés
               </span>
             </div>
 
@@ -1002,7 +1086,7 @@ function MapPage() {
                 <LayerToggle
                   active={showEvents}
                   icon={CalendarDays}
-                  label={`Événements (${events.length})`}
+                  label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}
                   onClick={() => setShowEvents((value) => !value)}
                 />
                 <LayerToggle
@@ -1065,8 +1149,15 @@ function MapPage() {
             <p className="text-xs text-muted-foreground">
               {loading
                 ? "Chargement des premiers points…"
-                : `${events.length}${hasMoreEvents ? "+" : ""} événements · ${visibleVenues.length} lieux · ${freeCount} gratuits`}
+                : statsLoading
+                  ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
+                  : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits · ${COUNT_FORMATTER.format(visibleVenues.length)} lieux`}
             </p>
+            {!loading && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {COUNT_FORMATTER.format(events.length)} points d’événements chargés sur la carte
+              </p>
+            )}
             {!loading && mapReady && mapPoints.features.length > 0 && (
               <p className="mt-1 text-[11px] font-medium text-primary">
                 Les nombres regroupent les points · clique pour zoomer
@@ -1157,7 +1248,7 @@ function MapPage() {
           <LayerToggle
             active={showEvents}
             icon={CalendarDays}
-            label={`Événements (${events.length})`}
+            label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}
             onClick={() => setShowEvents((value) => !value)}
           />
           <LayerToggle
@@ -1178,7 +1269,7 @@ function MapPage() {
             {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
             {loadingMore
               ? "Chargement des points…"
-              : `Afficher ${MAP_EVENT_PAGE_SIZE.toLocaleString("fr-CH")} événements suivants`}
+              : `Afficher ${COUNT_FORMATTER.format(nextMapPageCount)} événements suivants`}
           </button>
         )}
 

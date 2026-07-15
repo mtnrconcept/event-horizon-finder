@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 
 export type QuickRange =
   "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
@@ -141,6 +142,12 @@ export interface DiscoveredVenue {
   location_precision: "exact" | "city";
 }
 
+export interface DiscoveryStats {
+  total_count: number;
+  free_count: number;
+  verified_count: number;
+}
+
 export interface CountryOption {
   id: string;
   code: string;
@@ -175,7 +182,7 @@ export interface CitySearchFilters extends GeographyFilters {
   limit?: number;
 }
 
-function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, unknown> {
+function discoveryFilterArgs(p: DiscoverParams): Record<string, unknown> {
   const args: Record<string, unknown> = {
     _radius_km: p.radiusKm ?? 25,
     _from: (p.from ?? new Date()).toISOString(),
@@ -187,8 +194,6 @@ function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, 
     _verified_only: p.verifiedOnly ?? false,
     _accessible_only: p.accessibleOnly ?? false,
     _venue_only: p.venueOnly ?? false,
-    _limit: p.limit ?? defaultLimit,
-    _offset: p.offset ?? 0,
   };
   if (p.lat != null) args._lat = p.lat;
   if (p.lon != null) args._lon = p.lon;
@@ -205,6 +210,14 @@ function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, 
   return args;
 }
 
+function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, unknown> {
+  return {
+    ...discoveryFilterArgs(p),
+    _limit: p.limit ?? defaultLimit,
+    _offset: p.offset ?? 0,
+  };
+}
+
 export async function discoverEvents(p: DiscoverParams): Promise<DiscoveredEvent[]> {
   const args = discoveryArgs(p, 40);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,6 +232,24 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
   const { data, error } = await (supabase as any).rpc("discover_map_events", args as any);
   if (error) throw error;
   return (data ?? []) as DiscoveredEvent[];
+}
+
+export async function discoverEventStats(
+  p: DiscoverParams,
+  { requireCoordinates = false }: { requireCoordinates?: boolean } = {},
+): Promise<DiscoveryStats> {
+  const args = {
+    ...discoveryFilterArgs(p),
+    _require_coordinates: requireCoordinates,
+  } as Database["public"]["Functions"]["discover_event_stats_v1"]["Args"];
+  const { data, error } = await supabase.rpc("discover_event_stats_v1", args);
+  if (error) throw error;
+  const row = (data?.[0] ?? {}) as Partial<Record<keyof DiscoveryStats, number | string>>;
+  return {
+    total_count: Number(row.total_count ?? 0),
+    free_count: Number(row.free_count ?? 0),
+    verified_count: Number(row.verified_count ?? 0),
+  };
 }
 
 function coordinateOffset(id: string, axis: number) {
