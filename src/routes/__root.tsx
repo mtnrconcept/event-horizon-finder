@@ -94,8 +94,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         as: "image",
         type: "image/png",
       },
-      { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
       // Vercel-protected previews require credentials for manifest requests.
       // Without this, the browser follows the SSO redirect as an anonymous
       // cross-origin fetch and reports a misleading CORS error.

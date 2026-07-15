@@ -55,7 +55,7 @@ export function DesktopHeader() {
           className="group flex shrink-0 items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <span className="relative grid h-11 w-12 place-items-center overflow-visible">
-            <span className="absolute inset-1 rounded-full bg-cyan-300/15 opacity-0 blur-lg transition-opacity group-hover:opacity-100" />
+            <span className="absolute inset-1 rounded-full bg-primary/15 opacity-0 blur-lg transition-opacity group-hover:opacity-100" />
             <BrandLogo variant="mark" className="relative h-10 w-11" />
           </span>
           <span className="hidden leading-none lg:block">
