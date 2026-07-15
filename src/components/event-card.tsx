@@ -39,6 +39,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   expositions: "Exposition",
   theatre: "Spectacle",
   famille: "Famille",
+  "sports-outdoor": "Sport & plein air",
+  heritage: "Visites & patrimoine",
+  gastronomy: "Gastronomie & marchés",
+  activities: "Ateliers & activités",
+  conferences: "Conférences & rencontres",
+  cinema: "Cinéma & projections",
+  leisure: "Jeux & loisirs",
+  other: "Autres événements",
 };
 
 async function fetchViewerId() {
