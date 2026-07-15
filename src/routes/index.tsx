@@ -186,6 +186,14 @@ function Discover() {
         setRegions(data.regions);
         setCities(data.cities);
         setCategories(categoryRows as Category[]);
+        const geneva = data.cities.find((city) => city.slug === "geneve");
+        if (geneva) {
+          setGeography({
+            countryId: geneva.country_id,
+            regionId: geneva.region_id,
+            cityId: geneva.id,
+          });
+        }
       })
       .catch(() => {
         if (current) setError("Les filtres géographiques n'ont pas pu être chargés.");
@@ -368,10 +376,19 @@ function Discover() {
   };
 
   const resetFilters = () => {
+    const geneva = cities.find((city) => city.slug === "geneve");
     setCats(new Set());
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
-    setGeography({ countryId: null, regionId: null, cityId: null });
+    setGeography(
+      geneva
+        ? {
+            countryId: geneva.country_id,
+            regionId: geneva.region_id,
+            cityId: geneva.id,
+          }
+        : { countryId: null, regionId: null, cityId: null },
+    );
     setCoords(null);
     setRange("year");
     setSort("soon");
