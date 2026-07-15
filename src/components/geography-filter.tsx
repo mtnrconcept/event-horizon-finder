@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Building2, Globe2, MapPinned } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Building2, Globe2, LoaderCircle, MapPinned, Search } from "lucide-react";
 import type { CityOption, CountryOption, RegionOption } from "@/lib/queries";
 
 export interface GeographySelection {
@@ -29,6 +29,8 @@ export function GeographyFilter({
   cities,
   value,
   onChange,
+  onCityQuery,
+  cityLoading = false,
   compact = false,
 }: {
   countries: CountryOption[];
@@ -36,8 +38,12 @@ export function GeographyFilter({
   cities: CityOption[];
   value: GeographySelection;
   onChange: (next: GeographySelection) => void;
+  onCityQuery?: (query: string) => void;
+  cityLoading?: boolean;
   compact?: boolean;
 }) {
+  const cityListId = useId();
+  const [cityQuery, setCityQuery] = useState("");
   const selectedCountry = useMemo(
     () => countries.find((country) => country.id === value.countryId),
     [countries, value.countryId],
@@ -59,6 +65,23 @@ export function GeographyFilter({
     [cities, value.countryId, value.regionId],
   );
   const regionLabel = subdivisionLabel(selectedCountry?.code);
+  const selectedCity = useMemo(
+    () => cities.find((city) => city.id === value.cityId) ?? null,
+    [cities, value.cityId],
+  );
+
+  useEffect(() => {
+    setCityQuery(selectedCity?.name ?? "");
+  }, [selectedCity?.id, selectedCity?.name, value.countryId, value.regionId]);
+
+  useEffect(() => {
+    if (!onCityQuery || !value.countryId) return;
+    const timer = window.setTimeout(() => {
+      const normalized = cityQuery.trim();
+      if (!value.cityId || normalized !== selectedCity?.name) onCityQuery(normalized);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [cityQuery, onCityQuery, selectedCity?.name, value.cityId, value.countryId]);
   const selectClass = compact
     ? "h-10 min-w-0 rounded-xl border bg-background/80 px-2 text-xs outline-none focus:border-primary"
     : "h-12 min-w-0 rounded-2xl border bg-surface/70 px-3 text-sm outline-none focus:border-primary";
@@ -111,21 +134,39 @@ export function GeographyFilter({
       </label>
 
       <label className="relative min-w-0">
-        <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <select
+        {cityQuery ? (
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        ) : (
+          <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        )}
+        <input
           aria-label="Ville"
-          value={value.cityId ?? ""}
+          list={cityListId}
+          value={cityQuery}
           disabled={!value.countryId}
-          onChange={(event) => onChange({ ...value, cityId: event.target.value || null })}
-          className={`${selectClass} w-full pl-9 disabled:cursor-not-allowed disabled:opacity-55`}
-        >
-          <option value="">{value.countryId ? "Toutes les villes" : "Choisir un pays"}</option>
+          placeholder={value.countryId ? "Rechercher une ville…" : "Choisir un pays"}
+          autoComplete="off"
+          onFocus={() => {
+            if (!cityQuery && value.countryId) onCityQuery?.("");
+          }}
+          onChange={(event) => {
+            const nextQuery = event.target.value;
+            setCityQuery(nextQuery);
+            const exact = availableCities.find(
+              (city) => city.name.toLocaleLowerCase() === nextQuery.trim().toLocaleLowerCase(),
+            );
+            onChange({ ...value, cityId: exact?.id ?? null });
+          }}
+          className={`${selectClass} w-full pl-9 pr-8 disabled:cursor-not-allowed disabled:opacity-55`}
+        />
+        {cityLoading && (
+          <LoaderCircle className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" />
+        )}
+        <datalist id={cityListId}>
           {availableCities.map((city) => (
-            <option key={city.id} value={city.id}>
-              {city.name}
-            </option>
+            <option key={city.id} value={city.name} />
           ))}
-        </select>
+        </datalist>
       </label>
     </div>
   );

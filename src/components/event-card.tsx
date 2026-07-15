@@ -9,7 +9,7 @@ import {
   Ticket,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { DiscoveredEvent } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
@@ -39,26 +39,42 @@ const CATEGORY_LABELS: Record<string, string> = {
   expositions: "Exposition",
   theatre: "Spectacle",
   famille: "Famille",
+  "sports-outdoor": "Sport & plein air",
+  heritage: "Visites & patrimoine",
+  gastronomy: "Gastronomie & marchés",
+  activities: "Ateliers & activités",
+  conferences: "Conférences & rencontres",
+  cinema: "Cinéma & projections",
+  leisure: "Jeux & loisirs",
+  other: "Autres événements",
 };
 
+async function fetchViewerId() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
+async function fetchFavoriteEventIds(userId: string) {
+  const { data, error } = await supabase.from("favorites").select("event_id").eq("user_id", userId);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.event_id);
+}
+
 export function EventCard({ ev }: { ev: DiscoveredEvent }) {
-  const [fav, setFav] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
-  }, []);
-
-  useEffect(() => {
-    if (!userId) return;
-    supabase
-      .from("favorites")
-      .select("event_id")
-      .eq("user_id", userId)
-      .eq("event_id", ev.event_id)
-      .maybeSingle()
-      .then(({ data }) => setFav(!!data));
-  }, [userId, ev.event_id]);
+  const queryClient = useQueryClient();
+  const viewer = useQuery({
+    queryKey: ["viewer-id"],
+    queryFn: fetchViewerId,
+    staleTime: 60_000,
+  });
+  const userId = viewer.data ?? null;
+  const favorites = useQuery({
+    queryKey: ["favorite-event-ids", userId],
+    queryFn: () => fetchFavoriteEventIds(userId!),
+    enabled: Boolean(userId),
+    staleTime: 30_000,
+  });
+  const fav = favorites.data?.includes(ev.event_id) ?? false;
 
   const toggleFav = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -68,29 +84,42 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
       return;
     }
     if (fav) {
-      await supabase.from("favorites").delete().eq("user_id", userId).eq("event_id", ev.event_id);
-      setFav(false);
+      const { error } = await supabase
+        .from("favorites")
+        .delete()
+        .eq("user_id", userId)
+        .eq("event_id", ev.event_id);
+      if (error) return toast.error("Impossible de retirer ce favori");
     } else {
-      await supabase.from("favorites").insert({ user_id: userId, event_id: ev.event_id });
-      setFav(true);
+      const { error } = await supabase
+        .from("favorites")
+        .insert({ user_id: userId, event_id: ev.event_id });
+      if (error) return toast.error("Impossible d'enregistrer ce favori");
     }
+    queryClient.setQueryData<string[]>(["favorite-event-ids", userId], (current = []) =>
+      fav ? current.filter((id) => id !== ev.event_id) : [...current, ev.event_id],
+    );
   };
 
   const cancelled = ev.status === "cancelled";
   const priceLabel = ev.is_free
     ? "Gratuit"
     : ev.price_from != null
-      ? `Dès CHF ${Number(ev.price_from).toLocaleString("fr-CH")}`
+      ? `Dès ${Number(ev.price_from).toLocaleString("fr-CH")}`
       : ev.has_tickets
         ? "Billets disponibles"
         : null;
 
   return (
-    <Link
-      to="/event/$slug"
-      params={{ slug: ev.slug }}
-      className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]"
-    >
+    <article className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+      <Link
+        to="/event/$slug"
+        params={{ slug: ev.slug }}
+        aria-label={`Ouvrir l'événement ${ev.title}`}
+        className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+      >
+        <span className="sr-only">Ouvrir l'événement {ev.title}</span>
+      </Link>
       <div className="relative aspect-[16/10] overflow-hidden bg-muted">
         <EventArtworkImage
           eventId={ev.event_id}
@@ -143,9 +172,10 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             {cancelled && <Badge variant="destructive">Annulé</Badge>}
           </div>
           <button
+            type="button"
             onClick={toggleFav}
             aria-label={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
-            className="glass flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90"
+            className="glass relative z-20 flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90"
           >
             <Heart
               className="h-4 w-4"
@@ -223,7 +253,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
           </span>
         )}
       </div>
-    </Link>
+    </article>
   );
 }
 

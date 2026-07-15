@@ -9,6 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:mcp": "node --test tests/mcp-server.test.ts",
     "format": "prettier --write ."
   },
   "dependencies": {

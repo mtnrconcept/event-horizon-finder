@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -8,6 +8,7 @@ import {
   fetchCategories,
   fetchGeographies,
   fetchMapVenues,
+  searchGeographyCities,
   type CityOption,
   type CountryOption,
   type DiscoveredEvent,
@@ -84,9 +85,11 @@ function MapPage() {
   const markerRegistryRef = useRef(
     new Map<string, { marker: maplibregl.Marker; signature: string }>(),
   );
+  const lastFittedScopeRef = useRef<string | null>(null);
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
@@ -112,7 +115,36 @@ function MapPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mapReady, setMapReady] = useState(false);
+  const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  const cityRequestVersionRef = useRef(0);
+
+  const searchCities = useCallback(
+    async (cityQuery: string) => {
+      if (!countryId) return;
+      const requestVersion = ++cityRequestVersionRef.current;
+      setCityLoading(true);
+      try {
+        const rows = await searchGeographyCities({
+          countryId,
+          regionId,
+          query: cityQuery,
+          limit: 100,
+        });
+        if (requestVersion !== cityRequestVersionRef.current) return;
+        setCities((current) => {
+          const merged = new Map(current.map((city) => [city.id, city]));
+          rows.forEach((city) => merged.set(city.id, city));
+          return [...merged.values()];
+        });
+      } catch {
+        // Keep country/region discovery available even when suggestions fail.
+      } finally {
+        if (requestVersion === cityRequestVersionRef.current) setCityLoading(false);
+      }
+    },
+    [countryId, regionId],
+  );
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === cityId) ?? null,
@@ -125,15 +157,6 @@ function MapPage() {
   const selectedCountry = useMemo(
     () => countries.find((country) => country.id === countryId) ?? null,
     [countries, countryId],
-  );
-  const scopedCities = useMemo(
-    () =>
-      cities.filter(
-        (city) =>
-          (!countryId || city.country_id === countryId) &&
-          (!regionId || city.region_id === regionId),
-      ),
-    [cities, countryId, regionId],
   );
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
@@ -175,13 +198,30 @@ function MapPage() {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    try {
+      const canvas = document.createElement("canvas");
+      const webgl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      if (!webgl) {
+        setMapUnavailable("La carte interactive nécessite WebGL, indisponible dans ce navigateur.");
+        return;
+      }
+    } catch {
+      setMapUnavailable("La carte interactive ne peut pas démarrer dans ce navigateur.");
+      return;
+    }
     const markerRegistry = markerRegistryRef.current;
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: MAPBOX_STYLE ?? OSM_STYLE,
-      center: GENEVA_CENTER,
-      zoom: 12,
-    });
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: MAPBOX_STYLE ?? OSM_STYLE,
+        center: GENEVA_CENTER,
+        zoom: 12,
+      });
+    } catch {
+      setMapUnavailable("La carte interactive ne peut pas démarrer dans ce navigateur.");
+      return;
+    }
     let switchedToFallback = false;
     const fallbackTimer = window.setTimeout(() => {
       if (!MAPBOX_STYLE || map.isStyleLoaded()) return;
@@ -211,17 +251,22 @@ function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
+    if (lastFittedScopeRef.current === scopeKey) return;
     if (selectedCity?.latitude != null && selectedCity.longitude != null) {
+      lastFittedScopeRef.current = scopeKey;
       map.flyTo({
         center: [selectedCity.longitude, selectedCity.latitude],
         zoom: selectedCity.slug === "geneve" ? 12 : 11,
       });
       return;
     }
-    const locatedCities = scopedCities.filter(
-      (city) => city.latitude != null && city.longitude != null,
+    const locatedEvents = events.filter(
+      (event) => event.latitude != null && event.longitude != null,
     );
-    if (!locatedCities.length) {
+    if ((countryId || regionId) && !locatedEvents.length) return;
+    lastFittedScopeRef.current = scopeKey;
+    if (!locatedEvents.length) {
       map.fitBounds(
         [
           [-170, -55],
@@ -232,9 +277,9 @@ function MapPage() {
       return;
     }
     const bounds = new maplibregl.LngLatBounds();
-    locatedCities.forEach((city) => bounds.extend([city.longitude!, city.latitude!]));
+    locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
     map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [mapReady, regionId, scopedCities, selectedCity]);
+  }, [cityId, countryId, events, mapReady, regionId, selectedCity]);
 
   const mapDiscoveryParams = useMemo(
     () => ({
@@ -482,8 +527,25 @@ function MapPage() {
   return (
     <div className="relative h-[calc(100vh-4rem)] w-full">
       <div className="absolute inset-0">
-        <div ref={containerRef} className="h-full w-full" />
-        {!mapReady && (
+        <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
+        {mapUnavailable && (
+          <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_70%_20%,oklch(0.68_0.22_295_/_0.18),transparent_32%),linear-gradient(135deg,var(--color-background),var(--color-muted))] p-6">
+            <div className="max-w-md text-center md:ml-[30rem]">
+              <MapPin className="mx-auto mb-4 h-10 w-10 text-primary" />
+              <h2 className="text-xl font-black">Carte en mode accessible</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{mapUnavailable}</p>
+              <a
+                href="https://www.openstreetmap.org/#map=12/46.2044/6.1432"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+              >
+                Ouvrir Genève dans OpenStreetMap
+              </a>
+            </div>
+          </div>
+        )}
+        {!mapUnavailable && !mapReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/90">
             <div className="text-center">
               <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -541,6 +603,8 @@ function MapPage() {
             regions={regions}
             cities={cities}
             value={geography}
+            cityLoading={cityLoading}
+            onCityQuery={searchCities}
             onChange={setGeography}
             compact
           />
@@ -645,6 +709,27 @@ function MapPage() {
             >
               Réessayer
             </button>
+          </div>
+        )}
+
+        {mapUnavailable && events.length > 0 && (
+          <div className="mt-3 rounded-2xl border bg-background/75 p-3">
+            <p className="mb-2 text-xs font-bold">Événements accessibles sans WebGL</p>
+            <div className="grid gap-1.5">
+              {events.slice(0, 12).map((event) => (
+                <Link
+                  key={event.occurrence_id}
+                  to="/event/$slug"
+                  params={{ slug: event.slug }}
+                  className="rounded-xl border px-3 py-2 text-xs hover:border-primary hover:bg-accent"
+                >
+                  <span className="block truncate font-semibold">{event.title}</span>
+                  <span className="block truncate text-muted-foreground">
+                    {event.venue_name ?? event.city_name ?? "Lieu à confirmer"}
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
         )}
       </div>

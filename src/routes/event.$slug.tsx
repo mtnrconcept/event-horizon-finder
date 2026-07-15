@@ -49,6 +49,19 @@ export const Route = createFileRoute("/event/$slug")({
   component: EventDetail,
 });
 
+function resolveTimeZone(...candidates: unknown[]) {
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue;
+    try {
+      new Intl.DateTimeFormat("fr-FR", { timeZone: candidate }).format(new Date(0));
+      return candidate;
+    } catch {
+      // Try the city timezone and finally UTC when imported data is malformed.
+    }
+  }
+  return "UTC";
+}
+
 function EventDetail() {
   const e = Route.useLoaderData();
   const [fav, setFav] = useState(false);
@@ -62,8 +75,8 @@ function EventDetail() {
     )[0];
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      const id = data.user?.id ?? null;
+    supabase.auth.getSession().then(({ data }) => {
+      const id = data.session?.user.id ?? null;
       setUid(id);
       if (id)
         supabase
@@ -125,7 +138,17 @@ function EventDetail() {
   const cancelled = e.status === "cancelled";
   const postponed = e.status === "postponed";
   const offer = (e.offers ?? [])[0];
-  const tz = occ?.timezone ?? "Europe/Paris";
+  const tz = resolveTimeZone(occ?.timezone, e.venue?.city?.timezone, "UTC");
+  const bookingUrl = offer?.ticket_url || e.official_url;
+  const priceLabel = (() => {
+    if (offer?.is_free || e.is_free) return "Gratuit";
+    if (!offer || (offer.price_min == null && offer.price_max == null)) return "Prix sur le site";
+    const currency = offer.currency ? ` ${offer.currency}` : "";
+    if (offer.price_min != null && offer.price_max != null && offer.price_min !== offer.price_max) {
+      return `${offer.price_min} – ${offer.price_max}${currency}`;
+    }
+    return `Dès ${offer.price_min ?? offer.price_max}${currency}`;
+  })();
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -141,7 +164,7 @@ function EventDetail() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
       </div>
-      <div className="px-4 pb-16 md:px-6">
+      <div className="px-4 pb-40 md:px-6 md:pb-32">
         {cancelled && (
           <div
             className="glass mb-4 rounded-xl border p-4"
@@ -239,11 +262,7 @@ function EventDetail() {
               <Ticket className="mt-0.5 h-5 w-5" style={{ color: "var(--color-primary)" }} />
               <div>
                 <p className="text-xs uppercase text-muted-foreground">Billets</p>
-                <p className="font-medium">
-                  {offer.is_free
-                    ? "Gratuit"
-                    : `${offer.price_min ?? "?"} – ${offer.price_max ?? "?"} ${offer.currency ?? ""}`}
-                </p>
+                <p className="font-medium">{priceLabel}</p>
                 {offer.ticket_url && !cancelled && (
                   <a
                     href={offer.ticket_url}
@@ -336,6 +355,31 @@ function EventDetail() {
           </Link>
         </div>
       </div>
+
+      {bookingUrl && !cancelled && (
+        <div className="fixed inset-x-3 bottom-[4.75rem] z-30 mx-auto max-w-3xl md:bottom-5">
+          <div className="glass flex items-center justify-between gap-4 rounded-2xl border p-3 shadow-[0_18px_60px_oklch(0_0_0_/_0.45)] md:p-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold">{e.title}</p>
+              <p className="text-xs text-muted-foreground">{priceLabel}</p>
+            </div>
+            <a
+              href={bookingUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                void trackClientEvent("ticket_click", {
+                  entityType: "event",
+                  entityId: e.id,
+                })
+              }
+              className="btn-glow inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground"
+            >
+              <Ticket className="h-4 w-4" /> Réserver
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

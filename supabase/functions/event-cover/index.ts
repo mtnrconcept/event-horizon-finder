@@ -79,11 +79,14 @@ function xml(value: string): string {
 }
 
 function clean(value: string | null | undefined, maxLength: number): string {
-  return (value ?? "")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
+  return (
+    (value ?? "")
+      // eslint-disable-next-line no-control-regex -- strip unsafe XML control bytes
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, maxLength)
+  );
 }
 
 function hash(value: string): number {
@@ -307,7 +310,7 @@ Deno.serve(async (request: Request) => {
   if (!event) return new Response("Event not found", { status: 404 });
 
   const svg = renderSvg(event);
-  const etag = `W/\"${hash(`${event.id}:${event.updated_at}:${svg.length}`).toString(16)}\"`;
+  const etag = `W/"${hash(`${event.id}:${event.updated_at}:${svg.length}`).toString(16)}"`;
   memoryCache.set(eventId, { etag, svg });
   if (memoryCache.size > 250) memoryCache.delete(memoryCache.keys().next().value as string);
 
