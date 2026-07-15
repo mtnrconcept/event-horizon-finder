@@ -78,6 +78,8 @@ export interface DiscoverParams {
   from?: Date;
   to?: Date;
   categorySlugs?: string[] | null;
+  countryId?: string | null;
+  regionId?: string | null;
   cityId?: string | null;
   freeOnly?: boolean;
   query?: string | null;
@@ -139,6 +141,35 @@ export interface DiscoveredVenue {
   location_precision: "exact" | "city";
 }
 
+export interface CountryOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface RegionOption {
+  id: string;
+  country_id: string;
+  name: string;
+}
+
+export interface CityOption {
+  id: string;
+  country_id: string;
+  region_id: string | null;
+  slug: string;
+  name: string;
+  timezone: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface GeographyFilters {
+  countryId?: string | null;
+  regionId?: string | null;
+  cityId?: string | null;
+}
+
 function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, unknown> {
   const args: Record<string, unknown> = {
     _radius_km: p.radiusKm ?? 25,
@@ -157,6 +188,8 @@ function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, 
   if (p.lat != null) args._lat = p.lat;
   if (p.lon != null) args._lon = p.lon;
   if (p.categorySlugs?.length) args._category_slugs = p.categorySlugs;
+  if (p.countryId) args._country_id = p.countryId;
+  if (p.regionId) args._region_id = p.regionId;
   if (p.cityId) args._city_id = p.cityId;
   if (p.query?.trim()) args._query = p.query.trim();
   if (p.genres?.length) args._genres = p.genres;
@@ -192,32 +225,64 @@ function coordinateOffset(id: string, axis: number) {
   return ((hash >>> 0) / 4_294_967_295 - 0.5) * (axis === 0 ? 0.012 : 0.018);
 }
 
-export async function fetchMapVenues(cityId?: string | null): Promise<DiscoveredVenue[]> {
-  let query = supabase
-    .from("venues")
-    .select(
-      "id,slug,name,address,capacity,is_verified,latitude,longitude,city_id,city:cities(id,name,latitude,longitude)",
-    )
-    .eq("is_public", true)
-    .eq("is_demo", false)
-    .order("name")
-    .limit(1000);
-  if (cityId) query = query.eq("city_id", cityId);
-  const { data, error } = await query;
-  if (error) throw error;
+type MapVenueRow = {
+  id: string;
+  slug: string;
+  name: string;
+  address: string | null;
+  capacity: number | null;
+  is_verified: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  city_id: string;
+  city_name: string;
+  city_latitude: number | null;
+  city_longitude: number | null;
+};
 
-  return (data ?? []).flatMap((row) => {
-    const city = Array.isArray(row.city) ? row.city[0] : row.city;
+export async function fetchMapVenues({
+  countryId,
+  regionId,
+  cityId,
+}: GeographyFilters = {}): Promise<DiscoveredVenue[]> {
+  // Avoid downloading the complete worldwide venue catalogue when the map is
+  // intentionally unscoped. Events remain pageable worldwide; venues appear
+  // as soon as a country, subdivision or city is selected.
+  if (!countryId && !regionId && !cityId) return [];
+
+  const rows: MapVenueRow[] = [];
+  const pageSize = 1_000;
+  let offset = 0;
+
+  while (true) {
+    // The generated client types lag behind this migration until the next
+    // schema generation, hence this intentionally narrow cast at the RPC edge.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("discover_venues_geography_v1", {
+      _country_id: countryId ?? null,
+      _region_id: regionId ?? null,
+      _city_id: cityId ?? null,
+      _limit: pageSize,
+      _offset: offset,
+    });
+    if (error) throw error;
+    const page = (data ?? []) as MapVenueRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return rows.flatMap((row) => {
     const exact = row.latitude != null && row.longitude != null;
     const latitude = exact
       ? Number(row.latitude)
-      : city?.latitude != null
-        ? Number(city.latitude) + coordinateOffset(row.id, 0)
+      : row.city_latitude != null
+        ? Number(row.city_latitude) + coordinateOffset(row.id, 0)
         : null;
     const longitude = exact
       ? Number(row.longitude)
-      : city?.longitude != null
-        ? Number(city.longitude) + coordinateOffset(row.id, 1)
+      : row.city_longitude != null
+        ? Number(row.city_longitude) + coordinateOffset(row.id, 1)
         : null;
     if (latitude == null || longitude == null) return [];
     return [
@@ -226,7 +291,7 @@ export async function fetchMapVenues(cityId?: string | null): Promise<Discovered
         slug: row.slug,
         name: row.name,
         address: row.address,
-        city_name: city?.name ?? null,
+        city_name: row.city_name,
         capacity: row.capacity,
         is_verified: row.is_verified,
         latitude,
@@ -244,6 +309,43 @@ export async function fetchCities() {
     .order("name");
   if (error) throw error;
   return data ?? [];
+}
+
+export async function fetchGeographies(): Promise<{
+  countries: CountryOption[];
+  regions: RegionOption[];
+  cities: CityOption[];
+}> {
+  const [countriesResult, regionsResult] = await Promise.all([
+    supabase.from("countries").select("id,code,name").order("name"),
+    supabase.from("regions").select("id,country_id,name").order("name"),
+  ]);
+  const catalogueError = countriesResult.error ?? regionsResult.error;
+  if (catalogueError) throw catalogueError;
+
+  // PostgREST caps table responses, so page through the city catalogue instead
+  // of silently exposing only its first 1,000 rows in the geographic filter.
+  const cities: CityOption[] = [];
+  const pageSize = 1_000;
+  let offset = 0;
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const citiesResult = await (supabase as any).rpc("list_geography_cities", {
+      _limit: pageSize,
+      _offset: offset,
+    });
+    if (citiesResult.error) throw citiesResult.error;
+    const page = (citiesResult.data ?? []) as CityOption[];
+    cities.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return {
+    countries: (countriesResult.data ?? []) as CountryOption[],
+    regions: (regionsResult.data ?? []) as RegionOption[],
+    cities,
+  };
 }
 
 export async function fetchCategories() {

@@ -6,11 +6,14 @@ import {
   computeRange,
   discoverMapEvents,
   fetchCategories,
-  fetchCities,
+  fetchGeographies,
   fetchMapVenues,
+  type CityOption,
+  type CountryOption,
   type DiscoveredEvent,
   type DiscoveredVenue,
   type QuickRange,
+  type RegionOption,
 } from "@/lib/queries";
 import {
   countAdvancedFilters,
@@ -19,6 +22,7 @@ import {
 } from "@/lib/event-filters";
 import { EventCard } from "@/components/event-card";
 import { EventFilterPanel } from "@/components/event-filter-panel";
+import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +32,7 @@ import {
   CalendarDays,
   CircleAlert,
   MapPin,
+  LoaderCircle,
   Navigation,
   RotateCcw,
   Search,
@@ -60,14 +65,8 @@ const OSM_STYLE: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
-type City = {
-  id: string;
-  slug: string;
-  name: string;
-  latitude: number | null;
-  longitude: number | null;
-};
 type Category = { slug: string; name_fr: string; icon: string | null };
+const MAP_EVENT_PAGE_SIZE = 1_000;
 
 const MAP_RANGES: { value: QuickRange; label: string }[] = [
   { value: "tonight", label: "Ce soir" },
@@ -85,9 +84,16 @@ function MapPage() {
   const markerRegistryRef = useRef(
     new Map<string, { marker: maplibregl.Marker; signature: string }>(),
   );
-  const [cities, setCities] = useState<City[]>([]);
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [regions, setRegions] = useState<RegionOption[]>([]);
+  const [cities, setCities] = useState<CityOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [cityId, setCityId] = useState<string | null>(null);
+  const [geography, setGeography] = useState<GeographySelection>({
+    countryId: null,
+    regionId: null,
+    cityId: null,
+  });
+  const { countryId, regionId, cityId } = geography;
   const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -100,16 +106,34 @@ function MapPage() {
   const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<DiscoveredVenue | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreEvents, setHasMoreEvents] = useState(false);
+  const [nextEventOffset, setNextEventOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mapReady, setMapReady] = useState(false);
+  const requestVersionRef = useRef(0);
 
   const selectedCity = useMemo(
-    () =>
-      cities.find((city) => city.id === cityId) ??
-      cities.find((city) => city.slug === "geneve") ??
-      null,
+    () => cities.find((city) => city.id === cityId) ?? null,
     [cities, cityId],
+  );
+  const selectedRegion = useMemo(
+    () => regions.find((region) => region.id === regionId) ?? null,
+    [regions, regionId],
+  );
+  const selectedCountry = useMemo(
+    () => countries.find((country) => country.id === countryId) ?? null,
+    [countries, countryId],
+  );
+  const scopedCities = useMemo(
+    () =>
+      cities.filter(
+        (city) =>
+          (!countryId || city.country_id === countryId) &&
+          (!regionId || city.region_id === regionId),
+      ),
+    [cities, countryId, regionId],
   );
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
@@ -124,12 +148,29 @@ function MapPage() {
   }, [venues, deferredQuery]);
 
   useEffect(() => {
-    Promise.all([fetchCities(), fetchCategories()]).then(([cityRows, categoryRows]) => {
-      const nextCities = cityRows as City[];
-      setCities(nextCities);
-      setCategories(categoryRows as Category[]);
-      setCityId(nextCities.find((city) => city.slug === "geneve")?.id ?? nextCities[0]?.id ?? null);
-    });
+    let current = true;
+    Promise.all([fetchGeographies(), fetchCategories()])
+      .then(([geo, categoryRows]) => {
+        if (!current) return;
+        setCountries(geo.countries);
+        setRegions(geo.regions);
+        setCities(geo.cities);
+        setCategories(categoryRows as Category[]);
+        const geneva = geo.cities.find((city) => city.slug === "geneve");
+        if (geneva) {
+          setGeography({
+            countryId: geneva.country_id,
+            regionId: geneva.region_id,
+            cityId: geneva.id,
+          });
+        }
+      })
+      .catch(() => {
+        if (current) setError("Les filtres géographiques n'ont pas pu être chargés.");
+      });
+    return () => {
+      current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -169,33 +210,68 @@ function MapPage() {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || selectedCity?.latitude == null || selectedCity.longitude == null) return;
-    map.flyTo({
-      center: [selectedCity.longitude, selectedCity.latitude],
-      zoom: selectedCity.slug === "geneve" ? 12 : 11,
-    });
-  }, [mapReady, selectedCity]);
+    if (!map || !mapReady) return;
+    if (selectedCity?.latitude != null && selectedCity.longitude != null) {
+      map.flyTo({
+        center: [selectedCity.longitude, selectedCity.latitude],
+        zoom: selectedCity.slug === "geneve" ? 12 : 11,
+      });
+      return;
+    }
+    const locatedCities = scopedCities.filter(
+      (city) => city.latitude != null && city.longitude != null,
+    );
+    if (!locatedCities.length) {
+      map.fitBounds(
+        [
+          [-170, -55],
+          [170, 75],
+        ],
+        { padding: 40, duration: 700 },
+      );
+      return;
+    }
+    const bounds = new maplibregl.LngLatBounds();
+    locatedCities.forEach((city) => bounds.extend([city.longitude!, city.latitude!]));
+    map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
+  }, [mapReady, regionId, scopedCities, selectedCity]);
+
+  const mapDiscoveryParams = useMemo(
+    () => ({
+      countryId,
+      regionId,
+      cityId,
+      categorySlugs: cats.size ? [...cats] : null,
+      query: deferredQuery,
+      from,
+      to,
+      ...toDiscoveryFilters(advancedFilters),
+    }),
+    [advancedFilters, cats, cityId, countryId, deferredQuery, from, regionId, to],
+  );
 
   useEffect(() => {
     let current = true;
+    const requestVersion = ++requestVersionRef.current;
     setLoading(true);
+    setLoadingMore(false);
+    setHasMoreEvents(false);
+    setNextEventOffset(0);
     setError(null);
     Promise.all([
       discoverMapEvents({
-        cityId,
-        categorySlugs: cats.size ? [...cats] : null,
-        query: deferredQuery,
-        from,
-        to,
-        limit: 1500,
-        ...toDiscoveryFilters(advancedFilters),
+        ...mapDiscoveryParams,
+        limit: MAP_EVENT_PAGE_SIZE,
+        offset: 0,
       }),
-      fetchMapVenues(cityId),
+      fetchMapVenues(geography),
     ])
       .then(([nextEvents, nextVenues]) => {
-        if (!current) return;
+        if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
         setVenues(nextVenues);
+        setNextEventOffset(nextEvents.length);
+        setHasMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
         setSelectedEvent(null);
         setSelectedVenue(null);
       })
@@ -211,7 +287,35 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [cityId, cats, deferredQuery, from, to, advancedFilters, reloadKey]);
+  }, [geography, mapDiscoveryParams, reloadKey]);
+
+  const loadMoreEvents = async () => {
+    if (loading || loadingMore || !hasMoreEvents) return;
+    const requestVersion = requestVersionRef.current;
+    const offset = nextEventOffset;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await discoverMapEvents({
+        ...mapDiscoveryParams,
+        limit: MAP_EVENT_PAGE_SIZE,
+        offset,
+      });
+      if (requestVersion !== requestVersionRef.current) return;
+      setEvents((current) => {
+        const known = new Set(current.map((event) => event.occurrence_id));
+        return [...current, ...page.filter((event) => !known.has(event.occurrence_id))];
+      });
+      setNextEventOffset(offset + page.length);
+      setHasMoreEvents(page.length === MAP_EVENT_PAGE_SIZE);
+    } catch {
+      if (requestVersion === requestVersionRef.current) {
+        setError("Impossible de charger la page suivante de points.");
+      }
+    } finally {
+      if (requestVersion === requestVersionRef.current) setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     const map = mapRef.current;
@@ -352,10 +456,20 @@ function MapPage() {
   };
 
   const resetFilters = () => {
+    const geneva = cities.find((city) => city.slug === "geneve");
     setRange("year");
     setCats(new Set());
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
+    setGeography(
+      geneva
+        ? {
+            countryId: geneva.country_id,
+            regionId: geneva.region_id,
+            cityId: geneva.id,
+          }
+        : { countryId: null, regionId: null, cityId: null },
+    );
     setShowEvents(true);
     setShowVenues(true);
   };
@@ -389,12 +503,16 @@ function MapPage() {
               <MapPin className="mr-1 h-3.5 w-3.5" /> Carte complète
             </Badge>
             <h1 className="text-xl font-black">
-              Sorties et lieux à {selectedCity?.name ?? "proximité"}
+              Sorties et lieux ·{" "}
+              {selectedCity?.name ??
+                selectedRegion?.name ??
+                selectedCountry?.name ??
+                "monde entier"}
             </h1>
             <p className="text-xs text-muted-foreground">
               {loading
-                ? "Chargement de tous les points…"
-                : `${events.length} événements · ${visibleVenues.length} lieux · ${freeCount} gratuits`}
+                ? "Chargement des premiers points…"
+                : `${events.length}${hasMoreEvents ? "+" : ""} événements · ${visibleVenues.length} lieux · ${freeCount} gratuits`}
             </p>
           </div>
           <Button
@@ -417,20 +535,18 @@ function MapPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            value={cityId ?? ""}
-            onChange={(event) => setCityId(event.target.value || null)}
-            aria-label="Ville"
-            className="h-11 rounded-2xl border bg-background/80 px-3 text-sm outline-none focus:border-primary"
-          >
-            <option value="">Toutes les villes</option>
-            {cities.map((city) => (
-              <option key={city.id} value={city.id}>
-                {city.name}
-              </option>
-            ))}
-          </select>
+        <div className="mb-2">
+          <GeographyFilter
+            countries={countries}
+            regions={regions}
+            cities={cities}
+            value={geography}
+            onChange={setGeography}
+            compact
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-2">
           <select
             value={range}
             onChange={(event) => setRange(event.target.value as QuickRange)}
@@ -491,6 +607,20 @@ function MapPage() {
             onClick={() => setShowVenues((value) => !value)}
           />
         </div>
+
+        {hasMoreEvents && (
+          <button
+            type="button"
+            disabled={loadingMore}
+            onClick={() => void loadMoreEvents()}
+            className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/15 disabled:cursor-wait disabled:opacity-70"
+          >
+            {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
+            {loadingMore
+              ? "Chargement des points…"
+              : `Afficher ${MAP_EVENT_PAGE_SIZE.toLocaleString("fr-CH")} événements suivants`}
+          </button>
+        )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
           <span>{approximateCount} positions ville signalées en pointillés</span>
