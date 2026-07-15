@@ -49,6 +49,19 @@ export const Route = createFileRoute("/event/$slug")({
   component: EventDetail,
 });
 
+function resolveTimeZone(...candidates: unknown[]) {
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue;
+    try {
+      new Intl.DateTimeFormat("fr-FR", { timeZone: candidate }).format(new Date(0));
+      return candidate;
+    } catch {
+      // Try the city timezone and finally UTC when imported data is malformed.
+    }
+  }
+  return "UTC";
+}
+
 function EventDetail() {
   const e = Route.useLoaderData();
   const [fav, setFav] = useState(false);
@@ -125,7 +138,7 @@ function EventDetail() {
   const cancelled = e.status === "cancelled";
   const postponed = e.status === "postponed";
   const offer = (e.offers ?? [])[0];
-  const tz = occ?.timezone ?? "Europe/Paris";
+  const tz = resolveTimeZone(occ?.timezone, e.venue?.city?.timezone, "UTC");
   const bookingUrl = offer?.ticket_url || e.official_url;
   const priceLabel = (() => {
     if (offer?.is_free || e.is_free) return "Gratuit";
