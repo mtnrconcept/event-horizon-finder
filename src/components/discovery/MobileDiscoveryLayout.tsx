@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { List, Map as MapIcon, SlidersHorizontal, X } from "lucide-react";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
+import { useTranslation } from "@/lib/i18n";
 import "./mobile-discovery-layout.css";
 
 type MobileDiscoveryView = "map" | "list";
@@ -28,6 +29,7 @@ export function MobileDiscoveryLayout({
   hasSelection = false,
   onMapResizeNeeded,
 }: MobileDiscoveryLayoutProps) {
+  const { t, formatNumber } = useTranslation();
   const [view, setView] = useState<MobileDiscoveryView>("map");
   const [listVisited, setListVisited] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -70,7 +72,7 @@ export function MobileDiscoveryLayout({
           onClick={() => setFiltersOpen(true)}
         >
           <SlidersHorizontal aria-hidden="true" />
-          <span>Filtres</span>
+          <span>{t("common.filters")}</span>
           {activeFilterCount > 0 && (
             <span className="mobile-discovery-filter-count">{activeFilterCount}</span>
           )}
@@ -96,10 +98,10 @@ export function MobileDiscoveryLayout({
         </section>
       </div>
 
-      <nav className="mobile-discovery-switcher" aria-label="Affichage des événements">
+      <nav className="mobile-discovery-switcher" aria-label={t("discovery.display")}>
         <button type="button" aria-pressed={view === "map"} onClick={() => setView("map")}>
           <MapIcon aria-hidden="true" />
-          <span>Carte</span>
+          <span>{t("common.map")}</span>
         </button>
         <button
           type="button"
@@ -110,7 +112,7 @@ export function MobileDiscoveryLayout({
           }}
         >
           <List aria-hidden="true" />
-          <span>Liste</span>
+          <span>{t("common.list")}</span>
           <span className="mobile-discovery-result-count">{resultCount}</span>
         </button>
       </nav>
@@ -124,12 +126,12 @@ export function MobileDiscoveryLayout({
         >
           <header>
             <div>
-              <p>Affiner la découverte</p>
-              <h2 id="mobile-filter-title">Filtres</h2>
+              <p>{t("discovery.refine")}</p>
+              <h2 id="mobile-filter-title">{t("common.filters")}</h2>
             </div>
             <button
               type="button"
-              aria-label="Fermer les filtres"
+              aria-label={t("discovery.closeFilters")}
               onClick={() => setFiltersOpen(false)}
             >
               <X aria-hidden="true" />
@@ -138,7 +140,7 @@ export function MobileDiscoveryLayout({
           <div className="mobile-discovery-filter-scroll">{filters}</div>
           <footer>
             <button type="button" onClick={() => setFiltersOpen(false)}>
-              Voir {resultCount.toLocaleString("fr-CH")} événement{resultCount > 1 ? "s" : ""}
+              {t("discovery.showEvents", { count: formatNumber(resultCount) })}
             </button>
           </footer>
         </div>

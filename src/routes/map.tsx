@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useTranslation } from "@/lib/i18n";
 import {
   buildMapPointCollection,
   type MapPointCollection,
@@ -384,6 +385,7 @@ function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClo
 }
 
 function MapPage() {
+  const { t, formatNumber } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
@@ -923,8 +925,8 @@ function MapPage() {
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Événement, artiste ou lieu…"
-                aria-label="Rechercher un événement"
+                placeholder={t("home.searchPlaceholder")}
+                aria-label={t("home.searchAria")}
                 className="h-11 rounded-2xl bg-surface pl-9 text-sm"
               />
             </div>
@@ -933,7 +935,7 @@ function MapPage() {
                 ? "Chargement des événements…"
                 : statsLoading
                   ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
-                  : `${COUNT_FORMATTER.format(totalEventCount)} événements · ${COUNT_FORMATTER.format(events.length)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? "Monde entier"}`}
+                  : `${formatNumber(totalEventCount)} événements · ${formatNumber(events.length)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? t("home.world")}`}
             </p>
             {error && (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
@@ -943,7 +945,7 @@ function MapPage() {
                   className="min-h-11 shrink-0 font-bold underline"
                   onClick={() => setReloadKey((key) => key + 1)}
                 >
-                  Réessayer
+                  {t("common.retry")}
                 </button>
               </div>
             )}
@@ -965,7 +967,7 @@ function MapPage() {
                   Résultats
                 </p>
                 <h1 className="text-xl font-black">
-                  {statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)} sorties
+                  {statsLoading ? "…" : formatNumber(totalEventCount)} sorties
                 </h1>
               </div>
               <span className="text-[10px] text-muted-foreground">
@@ -1017,7 +1019,7 @@ function MapPage() {
         filters={
           <div className="space-y-5">
             <section>
-              <h3 className="mb-2 text-sm font-black">Destination</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.destination")}</h3>
               <GeographyFilter
                 countries={countries}
                 regions={regions}
@@ -1031,7 +1033,7 @@ function MapPage() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Date</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.date")}</h3>
               <select
                 value={range}
                 onChange={(event) => setRange(event.target.value as QuickRange)}
@@ -1047,7 +1049,7 @@ function MapPage() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Catégories</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.categories")}</h3>
               <div className="flex flex-wrap gap-2">
                 {categories.map((category) => (
                   <button
@@ -1074,7 +1076,7 @@ function MapPage() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Prix, musique, jauge et accès</h3>
+              <h3 className="mb-2 text-sm font-black">{t("home.advanced")}</h3>
               <div className="rounded-2xl border p-3">
                 <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
               </div>
@@ -1107,7 +1109,7 @@ function MapPage() {
                 onClick={resetFilters}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
               >
-                <RotateCcw className="h-4 w-4" /> Réinitialiser
+                <RotateCcw className="h-4 w-4" /> {t("common.reset")}
               </button>
               <button
                 type="button"
@@ -1179,7 +1181,8 @@ function MapPage() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Événement, artiste ou lieu…"
+            placeholder={t("home.searchPlaceholder")}
+            aria-label={t("home.searchAria")}
             className="h-11 rounded-2xl bg-background/80 pl-9"
           />
         </div>
@@ -1235,9 +1238,11 @@ function MapPage() {
         <details className="rounded-2xl border" open={advancedCount > 0}>
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold">
             <span className="inline-flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-primary" /> Filtres avancés
+              <SlidersHorizontal className="h-4 w-4 text-primary" /> {t("home.advanced")}
             </span>
-            <Badge variant={advancedCount ? "default" : "outline"}>{advancedCount || "Tous"}</Badge>
+            <Badge variant={advancedCount ? "default" : "outline"}>
+              {advancedCount || t("common.all")}
+            </Badge>
           </summary>
           <div className="border-t p-3">
             <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
@@ -1280,7 +1285,7 @@ function MapPage() {
             onClick={resetFilters}
             className="inline-flex shrink-0 items-center gap-1 font-semibold hover:text-foreground"
           >
-            <RotateCcw className="h-3 w-3" /> Réinitialiser
+            <RotateCcw className="h-3 w-3" /> {t("common.reset")}
           </button>
         </div>
 
@@ -1294,7 +1299,7 @@ function MapPage() {
               className="font-semibold underline"
               onClick={() => setReloadKey((key) => key + 1)}
             >
-              Réessayer
+              {t("common.retry")}
             </button>
           </div>
         )}

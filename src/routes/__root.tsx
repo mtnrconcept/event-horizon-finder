@@ -13,21 +13,23 @@ import { MobileNav, DesktopHeader } from "@/components/nav";
 import { ClientConsentBanner } from "@/components/client-consent-banner";
 import { ClientJourneyTracker } from "@/components/client-journey-tracker";
 import { BrandArrival } from "@/components/brand/brand-arrival";
+import { LanguageProvider, useTranslation } from "@/lib/i18n";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
         <h1 className="text-gradient text-7xl font-bold">404</h1>
-        <p className="mt-4 text-muted-foreground">Cette page n'existe pas.</p>
+        <p className="mt-4 text-muted-foreground">{t("root.notFound")}</p>
         <a
           href="/"
           className="btn-glow mt-6 inline-flex rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground"
         >
-          Retour à la découverte
+          {t("root.backDiscover")}
         </a>
       </div>
     </div>
@@ -36,13 +38,14 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+  const { t } = useTranslation();
   useEffect(() => {
     reportLovableError(error, { boundary: "root" });
   }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold">Une erreur s'est produite</h1>
+        <h1 className="text-xl font-semibold">{t("root.error")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
         <button
           onClick={() => {
@@ -51,7 +54,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           }}
           className="mt-4 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground"
         >
-          Réessayer
+          {t("common.retry")}
         </button>
       </div>
     </div>
@@ -122,7 +125,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
         <Scripts />
       </body>
     </html>

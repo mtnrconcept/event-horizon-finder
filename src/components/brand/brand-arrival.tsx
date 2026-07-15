@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Volume2, VolumeX, X } from "lucide-react";
+import { useTranslation } from "@/lib/i18n";
 import "./brand-arrival.css";
 
 const INTRO_PLAYBACK_TIMEOUT_MS = 25_000;
@@ -12,6 +13,7 @@ type NavigatorWithConnection = Navigator & {
 };
 
 export function BrandArrival() {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -122,7 +124,7 @@ export function BrandArrival() {
       className={`brand-arrival${isLeaving ? " brand-arrival--leaving" : ""}`}
       role="dialog"
       aria-modal="true"
-      aria-label="Introduction Global Party"
+      aria-label={t("intro.label")}
     >
       <div className="brand-arrival__stage">
         <video
@@ -146,8 +148,8 @@ export function BrandArrival() {
       {!hasStarted && (
         <div className="brand-arrival__launch">
           <div className="brand-arrival__launch-glow" aria-hidden="true" />
-          <p className="brand-arrival__launch-eyebrow">GLOBAL PARTY</p>
-          <p className="brand-arrival__launch-title">Vivre l’expérience avec le son</p>
+          <p className="brand-arrival__launch-eyebrow">{t("intro.eyebrow")}</p>
+          <p className="brand-arrival__launch-title">{t("intro.title")}</p>
           <button
             ref={startButtonRef}
             type="button"
@@ -155,12 +157,10 @@ export function BrandArrival() {
             onClick={() => void startWithSound()}
           >
             <Play aria-hidden="true" fill="currentColor" />
-            <span>Lancer la vidéo</span>
+            <span>{t("intro.launch")}</span>
           </button>
           <p className="brand-arrival__launch-hint">
-            {playbackError
-              ? "Touchez à nouveau pour lancer la vidéo."
-              : "Séquence complète · 9 secondes"}
+            {playbackError ? t("intro.retry") : t("intro.hint")}
           </p>
         </div>
       )}
@@ -171,7 +171,7 @@ export function BrandArrival() {
             ref={soundButtonRef}
             type="button"
             className="brand-arrival__control"
-            aria-label={isMuted ? "Activer le son" : "Couper le son"}
+            aria-label={isMuted ? t("intro.enableSound") : t("intro.disableSound")}
             aria-pressed={!isMuted}
             onClick={() => {
               const video = videoRef.current;
@@ -183,7 +183,7 @@ export function BrandArrival() {
             }}
           >
             {isMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
-            <span>{isMuted ? "Son" : "Son activé"}</span>
+            <span>{isMuted ? t("intro.sound") : t("intro.soundOn")}</span>
           </button>
         )}
         <button
@@ -192,7 +192,7 @@ export function BrandArrival() {
           className="brand-arrival__control brand-arrival__skip"
           onClick={dismiss}
         >
-          <span>Passer</span>
+          <span>{t("intro.skip")}</span>
           <X aria-hidden="true" />
         </button>
       </div>

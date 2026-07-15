@@ -1,32 +1,35 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Calendar, Compass, Heart, Map as MapIcon, Rss, User } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useTranslation, type TranslationKey } from "@/lib/i18n";
 
 const mobileItems = [
-  { to: "/", label: "Découvrir", icon: Compass },
-  { to: "/map", label: "Carte", icon: MapIcon },
-  { to: "/agenda", label: "Agenda", icon: Calendar },
-  { to: "/social", label: "Fil", icon: Rss },
-  { to: "/profile", label: "Profil", icon: User },
+  { to: "/", labelKey: "nav.discover", icon: Compass },
+  { to: "/map", labelKey: "nav.map", icon: MapIcon },
+  { to: "/agenda", labelKey: "nav.agenda", icon: Calendar },
+  { to: "/social", labelKey: "nav.feed", icon: Rss },
+  { to: "/profile", labelKey: "nav.profile", icon: User },
 ] as const;
 
 const desktopItems = [
-  { to: "/", label: "Découvrir", icon: Compass },
-  { to: "/map", label: "Carte", icon: MapIcon },
-  { to: "/social", label: "Fil", icon: Rss },
-  { to: "/agenda", label: "Agenda", icon: Calendar },
-  { to: "/favorites", label: "Favoris", icon: Heart },
-  { to: "/profile", label: "Profil", icon: User },
+  { to: "/", labelKey: "nav.discover", icon: Compass },
+  { to: "/map", labelKey: "nav.map", icon: MapIcon },
+  { to: "/social", labelKey: "nav.feed", icon: Rss },
+  { to: "/agenda", labelKey: "nav.agenda", icon: Calendar },
+  { to: "/favorites", labelKey: "nav.favorites", icon: Heart },
+  { to: "/profile", labelKey: "nav.profile", icon: User },
 ] as const;
 
 export function MobileNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { t } = useTranslation();
   return (
     <nav
-      aria-label="Navigation principale"
+      aria-label={t("nav.main")}
       className="glass fixed bottom-0 left-0 right-0 z-40 flex items-stretch justify-around border-t px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 md:hidden"
     >
-      {mobileItems.map(({ to, label, icon: Icon }) => {
+      {mobileItems.map(({ to, labelKey, icon: Icon }) => {
         const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
         return (
           <Link
@@ -36,22 +39,27 @@ export function MobileNav() {
             style={{ color: active ? "var(--color-primary)" : "var(--color-muted-foreground)" }}
           >
             <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 1.8} />
-            <span className="truncate">{label}</span>
+            <span className="truncate">{t(labelKey as TranslationKey)}</span>
           </Link>
         );
       })}
+      <div className="flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1">
+        <LanguageSwitcher compact />
+        <span className="text-[10px] font-medium text-muted-foreground">{t("nav.language")}</span>
+      </div>
     </nav>
   );
 }
 
 export function DesktopHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { t } = useTranslation();
   return (
     <header className="glass sticky top-0 z-40 hidden border-b md:block">
       <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-2.5 lg:gap-8">
         <Link
           to="/"
-          aria-label="Global Party — accueil"
+          aria-label={t("brand.home")}
           className="group flex shrink-0 items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <span className="relative grid h-11 w-12 place-items-center overflow-visible">
@@ -68,7 +76,7 @@ export function DesktopHeader() {
           </span>
         </Link>
         <nav className="flex min-w-0 items-center gap-1">
-          {desktopItems.map(({ to, label, icon: Icon }) => {
+          {desktopItems.map(({ to, labelKey, icon: Icon }) => {
             const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
             return (
               <Link
@@ -78,11 +86,14 @@ export function DesktopHeader() {
                 style={{ color: active ? "var(--color-primary)" : "var(--color-foreground)" }}
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {t(labelKey as TranslationKey)}
               </Link>
             );
           })}
         </nav>
+        <div className="ml-auto">
+          <LanguageSwitcher />
+        </div>
       </div>
     </header>
   );

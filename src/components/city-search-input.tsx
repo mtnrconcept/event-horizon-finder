@@ -1,18 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Building2, LoaderCircle } from "lucide-react";
 import { searchGeographyCities, type CityOption } from "@/lib/queries";
+import { useTranslation } from "@/lib/i18n";
 
 export function CitySearchInput({
   value,
   onChange,
   initialLabel = "",
-  placeholder = "Commence à écrire une ville…",
+  placeholder,
 }: {
   value: string;
   onChange: (cityId: string) => void;
   initialLabel?: string;
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const listId = useId();
   const [query, setQuery] = useState(initialLabel);
   const [options, setOptions] = useState<CityOption[]>([]);
@@ -66,11 +68,11 @@ export function CitySearchInput({
     <div className="relative">
       <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <input
-        aria-label="Ville principale"
+        aria-label={t("geo.primaryCity")}
         list={listId}
         value={query}
         autoComplete="off"
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("geo.startCity")}
         onChange={(event) => {
           const next = event.target.value;
           setQuery(next);
