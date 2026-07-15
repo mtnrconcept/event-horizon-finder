@@ -19,6 +19,7 @@ import {
   Star,
   Ticket,
   TrendingUp,
+  X,
 } from "lucide-react";
 import {
   discoverEvents,
@@ -43,6 +44,7 @@ import {
   DEFAULT_ADVANCED_FILTERS,
   toDiscoveryFilters,
 } from "@/lib/event-filters";
+import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -145,10 +147,26 @@ function Discover() {
   const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const requestVersionRef = useRef(0);
   const cityRequestVersionRef = useRef(0);
   const deferredQuery = useDeferredValue(query.trim());
   const advancedCount = countAdvancedFilters(advancedFilters);
+  const viewportHeight = useVisualViewportHeight();
+
+  useEffect(() => {
+    if (!mobileFiltersOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileFiltersOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileFiltersOpen]);
 
   const searchCities = useCallback(
     async (cityQuery: string) => {
@@ -435,6 +453,12 @@ function Discover() {
     range === "year" &&
     sort === "soon" &&
     !coords;
+  const mobileFilterCount =
+    advancedCount +
+    cats.size +
+    Number(range !== "year") +
+    Number(sort !== "soon") +
+    Number(Boolean(coords));
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 md:px-6 md:pt-10">
@@ -514,7 +538,216 @@ function Discover() {
         </div>
       </section>
 
-      <div className="glass sticky top-16 z-30 mb-4 rounded-3xl p-3 shadow-[var(--shadow-card)] md:top-20">
+      <div className="glass sticky top-0 z-30 mb-4 rounded-2xl p-2 shadow-[var(--shadow-card)] md:hidden">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Événement, artiste ou lieu…"
+              aria-label="Rechercher un événement"
+              className="h-11 rounded-2xl border-transparent bg-surface/70 pl-9 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={mobileFiltersOpen}
+            onClick={() => setMobileFiltersOpen(true)}
+            className="relative inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl border bg-surface px-3 text-xs font-bold"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-primary" />
+            Filtres
+            {mobileFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-background bg-primary px-1 text-[10px] text-primary-foreground">
+                {mobileFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {mobileFiltersOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="home-mobile-filter-title"
+          className="fixed inset-0 z-[80] flex flex-col bg-background md:hidden"
+          style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
+        >
+          <header
+            className="flex shrink-0 items-center justify-between gap-3 border-b px-4 pb-3"
+            style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
+                Affiner la découverte
+              </p>
+              <h2 id="home-mobile-filter-title" className="text-xl font-black">
+                Filtres
+              </h2>
+            </div>
+            <button
+              type="button"
+              aria-label="Fermer les filtres"
+              onClick={() => setMobileFiltersOpen(false)}
+              className="grid h-11 w-11 place-items-center rounded-full border bg-surface"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </header>
+
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 overscroll-contain">
+            <section>
+              <h3 className="mb-2 text-sm font-black">Destination</h3>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={requestGeo}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
+                  style={
+                    coords
+                      ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
+                      : undefined
+                  }
+                >
+                  <Crosshair className="h-4 w-4" />
+                  {coords ? "Autour de moi" : "Me localiser"}
+                </button>
+                <Link
+                  to="/map"
+                  onClick={() => setMobileFiltersOpen(false)}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-3 text-xs font-bold text-primary-foreground"
+                >
+                  <MapIcon className="h-4 w-4" /> Carte live
+                </Link>
+              </div>
+              <GeographyFilter
+                countries={countries}
+                regions={regions}
+                cities={cities}
+                value={geography}
+                cityLoading={cityLoading}
+                onCityQuery={searchCities}
+                onChange={(next) => {
+                  setCoords(null);
+                  setGeography(next);
+                }}
+                compact
+              />
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Date</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {QUICK.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    aria-pressed={range === item.key}
+                    onClick={() => setRange(item.key)}
+                    className="min-h-11 rounded-2xl border px-3 py-2 text-left text-xs"
+                    style={
+                      range === item.key
+                        ? {
+                            background: "var(--color-accent)",
+                            borderColor: "var(--color-primary)",
+                            color: "var(--color-primary)",
+                          }
+                        : undefined
+                    }
+                  >
+                    <span className="block font-bold">{item.label}</span>
+                    <span className="block text-[10px] opacity-70">{item.helper}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Trier par</h3>
+              <div className="grid grid-cols-3 gap-2">
+                <SortButton
+                  active={sort === "soon"}
+                  onClick={() => setSort("soon")}
+                  icon={TrendingUp}
+                  label="Bientôt"
+                />
+                <SortButton
+                  active={sort === "distance"}
+                  onClick={() => setSort("distance")}
+                  icon={MapPin}
+                  label="Distance"
+                />
+                <SortButton
+                  active={sort === "popular"}
+                  onClick={() => setSort("popular")}
+                  icon={Sparkles}
+                  label="Top"
+                />
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Catégories</h3>
+              <div className="flex flex-wrap gap-2">
+                {categories.map((category) => (
+                  <button
+                    key={category.slug}
+                    type="button"
+                    aria-pressed={cats.has(category.slug)}
+                    onClick={() => toggleCat(category.slug)}
+                    className="min-h-11 rounded-full border px-3 text-xs font-semibold"
+                    style={
+                      cats.has(category.slug)
+                        ? {
+                            background: "var(--color-accent)",
+                            borderColor: "var(--color-primary)",
+                            color: "var(--color-primary)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {category.icon ? `${category.icon} ` : ""}
+                    {category.name_fr}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Prix, musique, jauge et accès</h3>
+              <div className="rounded-2xl border p-3">
+                <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+              </div>
+            </section>
+          </div>
+
+          <footer
+            className="grid shrink-0 grid-cols-[auto_1fr] gap-2 border-t bg-background px-4 pt-3"
+            style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))" }}
+          >
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 text-xs font-bold"
+            >
+              <RotateCcw className="h-4 w-4" /> Réinitialiser
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen(false)}
+              className="min-h-12 rounded-2xl bg-primary px-4 text-sm font-black text-primary-foreground"
+            >
+              Voir {sortedEvents.length.toLocaleString("fr-CH")} sortie
+              {sortedEvents.length > 1 ? "s" : ""}
+            </button>
+          </footer>
+        </div>
+      )}
+
+      <div className="glass sticky top-16 z-30 mb-4 hidden rounded-3xl p-3 shadow-[var(--shadow-card)] md:block md:top-20">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -560,7 +793,7 @@ function Discover() {
         </div>
       </div>
 
-      <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="mb-4 hidden gap-3 md:grid lg:grid-cols-[1fr_auto] lg:items-center">
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           {QUICK.map((q) => (
             <button
@@ -625,7 +858,7 @@ function Discover() {
         </div>
       </div>
 
-      <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto pb-1">
+      <div className="no-scrollbar mb-5 hidden gap-2 overflow-x-auto pb-1 md:flex">
         {categories.map((c) => (
           <button
             key={c.slug}
@@ -647,7 +880,7 @@ function Discover() {
         ))}
       </div>
 
-      <details className="glass mb-5 rounded-3xl border" open={advancedCount > 0}>
+      <details className="glass mb-5 hidden rounded-3xl border md:block" open={advancedCount > 0}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
           <span className="inline-flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-primary" /> Prix, musique, jauge et accès
@@ -861,7 +1094,7 @@ function SortButton({
   return (
     <button
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition-colors hover:bg-accent"
+      className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition-colors hover:bg-accent"
       style={
         active
           ? {
