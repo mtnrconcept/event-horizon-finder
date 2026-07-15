@@ -1,5 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import maplibregl, {
   type GeoJSONSource,
   type MapLayerMouseEvent,
@@ -25,13 +33,15 @@ import {
   DEFAULT_ADVANCED_FILTERS,
   toDiscoveryFilters,
 } from "@/lib/event-filters";
-import { EventCard } from "@/components/event-card";
+import { EventCard, EventCardSkeleton } from "@/components/event-card";
 import { EventFilterPanel } from "@/components/event-filter-panel";
+import { MobileDiscoveryLayout } from "@/components/discovery/MobileDiscoveryLayout";
 import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   buildMapPointCollection,
   type MapPointCollection,
@@ -41,6 +51,7 @@ import {
   Building2,
   CalendarDays,
   CircleAlert,
+  Clock,
   MapPin,
   LoaderCircle,
   Navigation,
@@ -78,6 +89,7 @@ const OSM_STYLE: StyleSpecification = {
 
 type Category = { slug: string; name_fr: string; icon: string | null };
 const MAP_EVENT_PAGE_SIZE = 1_000;
+const MOBILE_LIST_BATCH_SIZE = 24;
 const MAP_POINT_SOURCE_ID = "eventa-map-points";
 const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
 const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
@@ -239,10 +251,129 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
   }
 }
 
+function MapSurface({
+  containerRef,
+  mapReady,
+  mapUnavailable,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  mapReady: boolean;
+  mapUnavailable: string | null;
+}) {
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
+      {mapUnavailable && (
+        <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_70%_20%,oklch(0.68_0.22_295_/_0.18),transparent_32%),linear-gradient(135deg,var(--color-background),var(--color-muted))] p-6">
+          <div className="max-w-md text-center md:ml-[30rem]">
+            <MapPin className="mx-auto mb-4 h-10 w-10 text-primary" />
+            <h2 className="text-xl font-black">Carte en mode accessible</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{mapUnavailable}</p>
+            <a
+              href="https://www.openstreetmap.org/#map=12/46.2044/6.1432"
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
+            >
+              Ouvrir Genève dans OpenStreetMap
+            </a>
+          </div>
+        </div>
+      )}
+      {!mapUnavailable && !mapReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/90">
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm font-medium">Chargement de la carte…</p>
+            <p className="text-xs text-muted-foreground">
+              OpenStreetMap prend automatiquement le relais
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatMobileEventDate(event: DiscoveredEvent): string {
+  try {
+    return new Intl.DateTimeFormat("fr-CH", {
+      timeZone: event.timezone,
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(event.starts_at));
+  } catch {
+    return new Date(event.starts_at).toLocaleString("fr-CH");
+  }
+}
+
+function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClose: () => void }) {
+  return (
+    <aside className="relative p-3 pr-14" aria-label={`Événement sélectionné : ${event.title}`}>
+      <button
+        type="button"
+        aria-label="Fermer la fiche"
+        onClick={onClose}
+        className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
+      >
+        ×
+      </button>
+      <Badge className="mb-1.5 border-transparent bg-primary/15 text-primary">
+        Événement sélectionné
+      </Badge>
+      <h2 className="line-clamp-1 text-base font-black">{event.title}</h2>
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Clock className="h-3.5 w-3.5 shrink-0" /> {formatMobileEventDate(event)}
+      </p>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          {event.venue_name ?? event.city_name ?? "Lieu à confirmer"}
+        </p>
+        <Link
+          to="/event/$slug"
+          params={{ slug: event.slug }}
+          className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-primary px-3 text-xs font-black text-primary-foreground"
+        >
+          Voir la fiche
+        </Link>
+      </div>
+    </aside>
+  );
+}
+
+function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClose: () => void }) {
+  return (
+    <aside className="relative p-3 pr-14" aria-label={`Lieu sélectionné : ${venue.name}`}>
+      <button
+        type="button"
+        aria-label="Fermer la fiche"
+        onClick={onClose}
+        className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
+      >
+        ×
+      </button>
+      <Badge variant="outline" className="mb-1.5">
+        <Building2 className="mr-1 h-3.5 w-3.5" /> Lieu
+      </Badge>
+      <h2 className="line-clamp-1 text-base font-black">{venue.name}</h2>
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span className="line-clamp-2">
+          {venue.address ?? venue.city_name ?? "Adresse non précisée"}
+        </span>
+      </p>
+    </aside>
+  );
+}
+
 function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
+  const isMobile = useMediaQuery("(max-width: 767px)");
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
@@ -269,6 +400,7 @@ function MapPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreEvents, setHasMoreEvents] = useState(false);
   const [nextEventOffset, setNextEventOffset] = useState(0);
+  const [visibleMobileEventCount, setVisibleMobileEventCount] = useState(MOBILE_LIST_BATCH_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mapReady, setMapReady] = useState(false);
@@ -344,6 +476,11 @@ function MapPage() {
     () => new Map(visibleVenues.map((venue) => [venue.id, venue])),
     [visibleVenues],
   );
+  const mobileListEvents = useMemo(
+    () => events.slice(0, visibleMobileEventCount),
+    [events, visibleMobileEventCount],
+  );
+  const requestMapResize = useCallback(() => mapRef.current?.resize(), []);
 
   useEffect(() => {
     let current = true;
@@ -373,6 +510,8 @@ function MapPage() {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    setMapReady(false);
+    setMapUnavailable(null);
     try {
       const canvas = document.createElement("canvas");
       const webgl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
@@ -420,7 +559,7 @@ function MapPage() {
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -476,6 +615,7 @@ function MapPage() {
     setLoadingMore(false);
     setHasMoreEvents(false);
     setNextEventOffset(0);
+    setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
     Promise.all([
       discoverMapEvents({
@@ -534,6 +674,16 @@ function MapPage() {
     } finally {
       if (requestVersion === requestVersionRef.current) setLoadingMore(false);
     }
+  };
+
+  const loadMoreMobileList = async () => {
+    if (visibleMobileEventCount < events.length) {
+      setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
+      return;
+    }
+    if (!hasMoreEvents) return;
+    await loadMoreEvents();
+    setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
   };
 
   useEffect(() => {
@@ -663,39 +813,240 @@ function MapPage() {
   const approximateCount =
     events.filter((event) => event.location_precision === "city").length +
     visibleVenues.filter((venue) => venue.location_precision === "city").length;
+  const mobileActiveFilterCount =
+    advancedCount +
+    cats.size +
+    Number(range !== "year") +
+    Number(!showEvents) +
+    Number(!showVenues);
+
+  if (isMobile) {
+    const hasMoreMobileEvents = visibleMobileEventCount < events.length || hasMoreEvents;
+    const mobileSelection = selectedEvent ? (
+      <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+    ) : selectedVenue ? (
+      <MobileSelectedVenue venue={selectedVenue} onClose={() => setSelectedVenue(null)} />
+    ) : null;
+
+    return (
+      <MobileDiscoveryLayout
+        resultCount={events.length}
+        activeFilterCount={mobileActiveFilterCount}
+        hasSelection={Boolean(mobileSelection)}
+        onMapResizeNeeded={requestMapResize}
+        search={
+          <div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Événement, artiste ou lieu…"
+                aria-label="Rechercher un événement"
+                className="h-11 rounded-2xl bg-surface pl-9 text-sm"
+              />
+            </div>
+            <p className="mt-1 truncate px-1 text-[10px] text-muted-foreground">
+              {loading
+                ? "Chargement des événements…"
+                : `${events.length}${hasMoreEvents ? "+" : ""} événements · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? "Monde entier"}`}
+            </p>
+            {error && (
+              <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+                <span className="truncate">{error}</span>
+                <button
+                  type="button"
+                  className="min-h-11 shrink-0 font-bold underline"
+                  onClick={() => setReloadKey((key) => key + 1)}
+                >
+                  Réessayer
+                </button>
+              </div>
+            )}
+          </div>
+        }
+        map={
+          <MapSurface
+            containerRef={containerRef}
+            mapReady={mapReady}
+            mapUnavailable={mapUnavailable}
+          />
+        }
+        selection={mobileSelection}
+        list={
+          <div className="p-3 pb-5">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-primary">
+                  Résultats
+                </p>
+                <h1 className="text-xl font-black">
+                  {events.length}
+                  {hasMoreEvents ? "+" : ""} sorties
+                </h1>
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {mobileListEvents.length} affichées
+              </span>
+            </div>
+
+            {loading && events.length === 0 ? (
+              <div className="grid gap-3">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <EventCardSkeleton key={index} />
+                ))}
+              </div>
+            ) : mobileListEvents.length > 0 ? (
+              <div className="grid gap-3">
+                {mobileListEvents.map((event) => (
+                  <div
+                    key={event.occurrence_id}
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "0 360px" }}
+                  >
+                    <EventCard ev={event} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border p-6 text-center">
+                <MapPin className="mx-auto mb-3 h-7 w-7 text-primary" />
+                <p className="font-bold">Aucun événement trouvé</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Essaie une autre date, ville ou catégorie.
+                </p>
+              </div>
+            )}
+
+            {hasMoreMobileEvents && (
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={() => void loadMoreMobileList()}
+                className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 text-sm font-black text-primary disabled:opacity-60"
+              >
+                {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                {loadingMore ? "Chargement…" : "Afficher plus de sorties"}
+              </button>
+            )}
+          </div>
+        }
+        filters={
+          <div className="space-y-5">
+            <section>
+              <h3 className="mb-2 text-sm font-black">Destination</h3>
+              <GeographyFilter
+                countries={countries}
+                regions={regions}
+                cities={cities}
+                value={geography}
+                cityLoading={cityLoading}
+                onCityQuery={searchCities}
+                onChange={setGeography}
+                compact
+              />
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Date</h3>
+              <select
+                value={range}
+                onChange={(event) => setRange(event.target.value as QuickRange)}
+                aria-label="Dates"
+                className="h-12 w-full rounded-2xl border bg-surface px-3 text-sm outline-none focus:border-primary"
+              >
+                {MAP_RANGES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Catégories</h3>
+              <div className="flex flex-wrap gap-2">
+                {categories.map((category) => (
+                  <button
+                    key={category.slug}
+                    type="button"
+                    aria-pressed={cats.has(category.slug)}
+                    onClick={() => toggleCategory(category.slug)}
+                    className="min-h-11 rounded-full border px-3 text-xs font-semibold"
+                    style={
+                      cats.has(category.slug)
+                        ? {
+                            borderColor: "var(--color-primary)",
+                            color: "var(--color-primary)",
+                            background: "var(--color-accent)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {category.icon ? `${category.icon} ` : ""}
+                    {category.name_fr}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Prix, musique, jauge et accès</h3>
+              <div className="rounded-2xl border p-3">
+                <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-black">Points sur la carte</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <LayerToggle
+                  active={showEvents}
+                  icon={CalendarDays}
+                  label={`Événements (${events.length})`}
+                  onClick={() => setShowEvents((value) => !value)}
+                />
+                <LayerToggle
+                  active={showVenues}
+                  icon={Building2}
+                  label={`Lieux (${visibleVenues.length})`}
+                  onClick={() => setShowVenues((value) => !value)}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {approximateCount} positions approximatives sont affichées avec une opacité réduite.
+              </p>
+            </section>
+
+            <div className="grid grid-cols-2 gap-2 border-t pt-4">
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
+              >
+                <RotateCcw className="h-4 w-4" /> Réinitialiser
+              </button>
+              <button
+                type="button"
+                onClick={() => mapRef.current?.flyTo({ center: GENEVA_CENTER, zoom: 12 })}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
+              >
+                <Navigation className="h-4 w-4" /> Recentrer
+              </button>
+            </div>
+          </div>
+        }
+      />
+    );
+  }
 
   return (
     <div className="relative h-[calc(100vh-4rem)] w-full">
       <div className="absolute inset-0">
-        <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
-        {mapUnavailable && (
-          <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_70%_20%,oklch(0.68_0.22_295_/_0.18),transparent_32%),linear-gradient(135deg,var(--color-background),var(--color-muted))] p-6">
-            <div className="max-w-md text-center md:ml-[30rem]">
-              <MapPin className="mx-auto mb-4 h-10 w-10 text-primary" />
-              <h2 className="text-xl font-black">Carte en mode accessible</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{mapUnavailable}</p>
-              <a
-                href="https://www.openstreetmap.org/#map=12/46.2044/6.1432"
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
-              >
-                Ouvrir Genève dans OpenStreetMap
-              </a>
-            </div>
-          </div>
-        )}
-        {!mapUnavailable && !mapReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/90">
-            <div className="text-center">
-              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <p className="text-sm font-medium">Chargement de la carte…</p>
-              <p className="text-xs text-muted-foreground">
-                OpenStreetMap prend automatiquement le relais
-              </p>
-            </div>
-          </div>
-        )}
+        <MapSurface
+          containerRef={containerRef}
+          mapReady={mapReady}
+          mapUnavailable={mapUnavailable}
+        />
       </div>
 
       <div className="glass absolute left-3 right-3 top-3 z-10 max-h-[calc(100vh-6.5rem)] overflow-y-auto rounded-3xl p-3 shadow-[var(--shadow-card)] md:left-6 md:right-auto md:w-[30rem]">
@@ -947,7 +1298,7 @@ function LayerToggle({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className="flex h-10 items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-semibold"
+      className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-semibold"
       style={
         active
           ? {

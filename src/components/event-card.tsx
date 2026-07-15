@@ -175,7 +175,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             type="button"
             onClick={toggleFav}
             aria-label={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
-            className="glass relative z-20 flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90"
+            className="glass relative z-20 flex h-11 w-11 items-center justify-center rounded-full transition-transform active:scale-90"
           >
             <Heart
               className="h-4 w-4"
