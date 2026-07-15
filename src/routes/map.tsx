@@ -1,6 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl, {
+  type GeoJSONSource,
+  type MapLayerMouseEvent,
+  type StyleSpecification,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   computeRange,
@@ -29,6 +33,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
 import {
+  buildMapPointCollection,
+  type MapPointCollection,
+  type MapPointProperties,
+} from "@/lib/map-clusters";
+import {
   Building2,
   CalendarDays,
   CircleAlert,
@@ -55,6 +64,7 @@ const MAPBOX_STYLE = MAPBOX_ACCESS_TOKEN
 
 const OSM_STYLE: StyleSpecification = {
   version: 8,
+  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
     osm: {
       type: "raster",
@@ -68,6 +78,13 @@ const OSM_STYLE: StyleSpecification = {
 
 type Category = { slug: string; name_fr: string; icon: string | null };
 const MAP_EVENT_PAGE_SIZE = 1_000;
+const MAP_POINT_SOURCE_ID = "eventa-map-points";
+const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
+const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
+const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
+const MAP_EVENT_LABEL_LAYER_ID = "eventa-map-event-labels";
+const MAP_VENUE_POINT_LAYER_ID = "eventa-map-venue-points";
+const MAP_VENUE_LABEL_LAYER_ID = "eventa-map-venue-labels";
 
 const MAP_RANGES: { value: QuickRange; label: string }[] = [
   { value: "tonight", label: "Ce soir" },
@@ -79,12 +96,152 @@ const MAP_RANGES: { value: QuickRange; label: string }[] = [
   { value: "year", label: "Tout à venir" },
 ];
 
+function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
+  const existingSource = map.getSource(MAP_POINT_SOURCE_ID) as GeoJSONSource | undefined;
+  if (existingSource) {
+    existingSource.setData(points);
+  } else {
+    map.addSource(MAP_POINT_SOURCE_ID, {
+      type: "geojson",
+      data: points,
+      cluster: true,
+      clusterMaxZoom: 14,
+      clusterRadius: 64,
+      maxzoom: 18,
+      clusterProperties: {
+        event_count: ["+", ["case", ["==", ["get", "kind"], "event"], 1, 0]],
+        venue_count: ["+", ["case", ["==", ["get", "kind"], "venue"], 1, 0]],
+        free_count: ["+", ["case", ["==", ["get", "is_free"], 1], 1, 0]],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_CLUSTER_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_CLUSTER_LAYER_ID,
+      type: "circle",
+      source: MAP_POINT_SOURCE_ID,
+      filter: ["has", "point_count"],
+      paint: {
+        "circle-color": [
+          "step",
+          ["get", "point_count"],
+          "#7c3aed",
+          50,
+          "#9333ea",
+          250,
+          "#c026d3",
+          1_000,
+          "#ea580c",
+          5_000,
+          "#dc2626",
+        ],
+        "circle-radius": [
+          "+",
+          ["step", ["get", "point_count"], 18, 10, 21, 50, 25, 250, 31, 1_000, 39, 5_000, 48],
+          ["interpolate", ["linear"], ["zoom"], 0, 6, 6, 3, 12, 0],
+        ],
+        "circle-stroke-color": "rgba(255,255,255,0.92)",
+        "circle-stroke-width": 3,
+        "circle-opacity": 0.94,
+        "circle-blur": 0.02,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_CLUSTER_COUNT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_CLUSTER_COUNT_LAYER_ID,
+      type: "symbol",
+      source: MAP_POINT_SOURCE_ID,
+      filter: ["has", "point_count"],
+      layout: {
+        "text-field": ["get", "point_count_abbreviated"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["step", ["get", "point_count"], 11, 250, 12, 1_000, 13],
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "rgba(38, 10, 61, 0.48)",
+        "text-halo-width": 1,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_EVENT_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_EVENT_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_POINT_SOURCE_ID,
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
+      paint: {
+        "circle-color": ["case", ["==", ["get", "is_free"], 1], "#f97316", "#8b5cf6"],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 9, 16, 13],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 2.5],
+        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.68, 1],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_EVENT_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_EVENT_LABEL_LAYER_ID,
+      type: "symbol",
+      source: MAP_POINT_SOURCE_ID,
+      minzoom: 12,
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
+      layout: {
+        "text-field": ["get", "marker_label"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 9,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.35)" },
+    });
+  }
+
+  if (!map.getLayer(MAP_VENUE_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_VENUE_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_POINT_SOURCE_ID,
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "venue"]],
+      paint: {
+        "circle-color": "#252238",
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 8, 16, 11],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.64, 0.95],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_VENUE_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_VENUE_LABEL_LAYER_ID,
+      type: "symbol",
+      source: MAP_POINT_SOURCE_ID,
+      minzoom: 12,
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "venue"]],
+      layout: {
+        "text-field": "L",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 9,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: { "text-color": "#ffffff" },
+    });
+  }
+}
+
 function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const markerRegistryRef = useRef(
-    new Map<string, { marker: maplibregl.Marker; signature: string }>(),
-  );
   const lastFittedScopeRef = useRef<string | null>(null);
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
@@ -169,6 +326,24 @@ function MapPage() {
       ),
     );
   }, [venues, deferredQuery]);
+  const mapPoints = useMemo(
+    () =>
+      buildMapPointCollection({
+        events,
+        venues: visibleVenues,
+        showEvents,
+        showVenues,
+      }),
+    [events, showEvents, showVenues, visibleVenues],
+  );
+  const eventsByOccurrenceId = useMemo(
+    () => new Map(events.map((event) => [event.occurrence_id, event])),
+    [events],
+  );
+  const venuesById = useMemo(
+    () => new Map(visibleVenues.map((venue) => [venue.id, venue])),
+    [visibleVenues],
+  );
 
   useEffect(() => {
     let current = true;
@@ -209,7 +384,6 @@ function MapPage() {
       setMapUnavailable("La carte interactive ne peut pas démarrer dans ce navigateur.");
       return;
     }
-    const markerRegistry = markerRegistryRef.current;
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
@@ -217,6 +391,7 @@ function MapPage() {
         style: MAPBOX_STYLE ?? OSM_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
+        fadeDuration: 0,
       });
     } catch {
       setMapUnavailable("La carte interactive ne peut pas démarrer dans ce navigateur.");
@@ -242,7 +417,6 @@ function MapPage() {
     mapRef.current = map;
     return () => {
       window.clearTimeout(fallbackTimer);
-      markerRegistry.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -365,131 +539,97 @@ function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const registry = markerRegistryRef.current;
-    const desiredMarkerIds = new Set<string>();
 
-    const removeStaleMarkers = () => {
-      registry.forEach((entry, id) => {
-        if (desiredMarkerIds.has(id)) return;
-        entry.marker.remove();
-        registry.delete(id);
-      });
+    const syncLayers = () => {
+      if (map.isStyleLoaded()) syncClusterLayers(map, mapPoints);
     };
+    const handleClusterClick = async (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature || feature.geometry.type !== "Point") return;
+      const clusterId = Number(feature.properties?.cluster_id);
+      if (!Number.isFinite(clusterId)) return;
+      const source = map.getSource(MAP_POINT_SOURCE_ID) as GeoJSONSource | undefined;
+      if (!source) return;
 
-    const replaceMarker = (
-      id: string,
-      signature: string,
-      longitude: number,
-      latitude: number,
-      createButton: () => HTMLButtonElement,
-    ) => {
-      desiredMarkerIds.add(id);
-      const existing = registry.get(id);
-      if (existing?.signature === signature) return;
-      existing?.marker.remove();
-
-      // MapLibre owns the host transform; visual hover/rotation lives on the
-      // child button so it can never override the marker's geographic position.
-      const host = document.createElement("div");
-      host.className = "eventa-map-marker-host";
-      const button = createButton();
-      const stopMapGesture = (event: Event) => event.stopPropagation();
-      button.addEventListener("pointerdown", stopMapGesture);
-      button.addEventListener("mousedown", stopMapGesture);
-      button.addEventListener("touchstart", stopMapGesture, { passive: true });
-      host.append(button);
-      const marker = new maplibregl.Marker({ element: host, anchor: "center" })
-        .setLngLat([longitude, latitude])
-        .addTo(map);
-      registry.set(id, { marker, signature });
+      try {
+        const expansionZoom = await source.getClusterExpansionZoom(clusterId);
+        const [longitude, latitude] = feature.geometry.coordinates;
+        setSelectedEvent(null);
+        setSelectedVenue(null);
+        map.easeTo({
+          center: [Number(longitude), Number(latitude)],
+          zoom: Math.min(expansionZoom, 17),
+          duration: 450,
+        });
+      } catch {
+        // The style may have switched to the OSM fallback during the async lookup.
+      }
     };
+    const handlePointClick = (event: MapLayerMouseEvent) => {
+      const properties = event.features?.[0]?.properties as Partial<MapPointProperties> | undefined;
+      const entityId = typeof properties?.entity_id === "string" ? properties.entity_id : "";
 
-    if (showEvents) {
-      events.forEach((event) => {
-        if (event.latitude == null || event.longitude == null) return;
-        const id = `event:${event.occurrence_id}`;
-        const signature = [
-          event.longitude,
-          event.latitude,
-          event.title,
-          event.is_free,
-          event.price_from,
-          event.location_precision,
+      if (properties?.kind === "event") {
+        const selected = eventsByOccurrenceId.get(entityId);
+        if (!selected) return;
+        setSelectedVenue(null);
+        setSelectedEvent(selected);
+        void trackClientEvent("map_pin_click", {
+          entityType: "event_occurrence",
+          entityId: selected.occurrence_id,
           cityId,
-        ].join("|");
-        replaceMarker(id, signature, event.longitude, event.latitude, () => {
-          const markerButton = document.createElement("button");
-          markerButton.type = "button";
-          markerButton.className = "eventa-map-event-marker";
-          markerButton.style.background = event.is_free
-            ? "oklch(0.72 0.18 35)"
-            : "oklch(0.68 0.22 295)";
-          markerButton.style.borderStyle = event.location_precision === "city" ? "dashed" : "solid";
-          markerButton.style.opacity = event.location_precision === "city" ? "0.86" : "1";
-          markerButton.textContent = event.is_free
-            ? "0"
-            : event.price_from != null
-              ? `${Math.round(event.price_from)}`
-              : "★";
-          markerButton.title = `${event.title}${event.location_precision === "city" ? " · position approximative" : ""}`;
-          markerButton.setAttribute("aria-label", markerButton.title);
-          markerButton.addEventListener("click", (clickEvent) => {
-            clickEvent.preventDefault();
-            clickEvent.stopPropagation();
-            setSelectedVenue(null);
-            setSelectedEvent(event);
-            void trackClientEvent("map_pin_click", {
-              entityType: "event_occurrence",
-              entityId: event.occurrence_id,
-              cityId,
-              metadata: { precision: event.location_precision },
-            });
-          });
-          return markerButton;
+          metadata: { precision: selected.location_precision },
         });
-      });
-    }
+        return;
+      }
 
-    if (showVenues) {
-      visibleVenues.forEach((venue) => {
-        const id = `venue:${venue.id}`;
-        const signature = [
-          venue.longitude,
-          venue.latitude,
-          venue.name,
-          venue.location_precision,
+      if (properties?.kind === "venue") {
+        const selected = venuesById.get(entityId);
+        if (!selected) return;
+        setSelectedEvent(null);
+        setSelectedVenue(selected);
+        void trackClientEvent("map_pin_click", {
+          entityType: "venue",
+          entityId: selected.id,
           cityId,
-        ].join("|");
-        replaceMarker(id, signature, venue.longitude, venue.latitude, () => {
-          const markerButton = document.createElement("button");
-          markerButton.type = "button";
-          markerButton.className = "eventa-map-venue-marker";
-          markerButton.style.borderStyle = venue.location_precision === "city" ? "dashed" : "solid";
-          markerButton.style.opacity = venue.location_precision === "city" ? "0.8" : "1";
-          const label = document.createElement("span");
-          label.textContent = "L";
-          markerButton.append(label);
-          markerButton.title = `${venue.name}${venue.location_precision === "city" ? " · position approximative" : ""}`;
-          markerButton.setAttribute("aria-label", markerButton.title);
-          markerButton.addEventListener("click", (clickEvent) => {
-            clickEvent.preventDefault();
-            clickEvent.stopPropagation();
-            setSelectedEvent(null);
-            setSelectedVenue(venue);
-            void trackClientEvent("map_pin_click", {
-              entityType: "venue",
-              entityId: venue.id,
-              cityId,
-              metadata: { precision: venue.location_precision },
-            });
-          });
-          return markerButton;
+          metadata: { precision: selected.location_precision },
         });
-      });
-    }
+      }
+    };
+    const showPointerCursor = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const resetCursor = () => {
+      map.getCanvas().style.cursor = "";
+    };
+    const interactiveLayers = [
+      MAP_CLUSTER_LAYER_ID,
+      MAP_EVENT_POINT_LAYER_ID,
+      MAP_VENUE_POINT_LAYER_ID,
+    ] as const;
 
-    removeStaleMarkers();
-  }, [cityId, events, mapReady, visibleVenues, showEvents, showVenues]);
+    syncLayers();
+    map.on("style.load", syncLayers);
+    map.on("click", MAP_CLUSTER_LAYER_ID, handleClusterClick);
+    map.on("click", MAP_EVENT_POINT_LAYER_ID, handlePointClick);
+    map.on("click", MAP_VENUE_POINT_LAYER_ID, handlePointClick);
+    interactiveLayers.forEach((layerId) => {
+      map.on("mouseenter", layerId, showPointerCursor);
+      map.on("mouseleave", layerId, resetCursor);
+    });
+
+    return () => {
+      map.off("style.load", syncLayers);
+      map.off("click", MAP_CLUSTER_LAYER_ID, handleClusterClick);
+      map.off("click", MAP_EVENT_POINT_LAYER_ID, handlePointClick);
+      map.off("click", MAP_VENUE_POINT_LAYER_ID, handlePointClick);
+      interactiveLayers.forEach((layerId) => {
+        map.off("mouseenter", layerId, showPointerCursor);
+        map.off("mouseleave", layerId, resetCursor);
+      });
+      resetCursor();
+    };
+  }, [cityId, eventsByOccurrenceId, mapPoints, mapReady, venuesById]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -562,7 +702,7 @@ function MapPage() {
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
-              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte complète
+              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte clusterisée
             </Badge>
             <h1 className="text-xl font-black">
               Sorties et lieux ·{" "}
@@ -576,6 +716,11 @@ function MapPage() {
                 ? "Chargement des premiers points…"
                 : `${events.length}${hasMoreEvents ? "+" : ""} événements · ${visibleVenues.length} lieux · ${freeCount} gratuits`}
             </p>
+            {!loading && mapReady && mapPoints.features.length > 0 && (
+              <p className="mt-1 text-[11px] font-medium text-primary">
+                Les nombres regroupent les points · clique pour zoomer
+              </p>
+            )}
           </div>
           <Button
             size="icon"
@@ -687,7 +832,7 @@ function MapPage() {
         )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span>{approximateCount} positions ville signalées en pointillés</span>
+          <span>{approximateCount} positions approximatives atténuées</span>
           <button
             type="button"
             onClick={resetFilters}

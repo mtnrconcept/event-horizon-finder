@@ -200,64 +200,6 @@
   }
 }
 
-.eventa-map-marker-host {
-  pointer-events: auto;
-  touch-action: manipulation;
-}
-
-.eventa-map-marker-host:hover,
-.eventa-map-marker-host:focus-within {
-  z-index: 8;
-}
-
-.eventa-map-event-marker,
-.eventa-map-venue-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid white;
-  color: white;
-  box-shadow: 0 8px 22px oklch(0.08 0.03 265 / 0.72);
-  cursor: pointer;
-  user-select: none;
-  transition:
-    scale 140ms ease,
-    filter 140ms ease;
-}
-
-.eventa-map-event-marker {
-  min-width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 9999px;
-  padding-inline: 0.5rem;
-  font-size: 0.625rem;
-  font-weight: 900;
-}
-
-.eventa-map-venue-marker {
-  width: 2.25rem;
-  height: 2.25rem;
-  rotate: 45deg;
-  border-radius: 0.55rem;
-  background: oklch(0.22 0.035 265);
-  font-size: 0.625rem;
-  font-weight: 900;
-}
-
-.eventa-map-venue-marker > span {
-  rotate: -45deg;
-}
-
-.eventa-map-event-marker:hover,
-.eventa-map-event-marker:focus-visible,
-.eventa-map-venue-marker:hover,
-.eventa-map-venue-marker:focus-visible {
-  scale: 1.12;
-  filter: brightness(1.1);
-  outline: 3px solid color-mix(in oklch, var(--color-primary) 45%, transparent);
-  outline-offset: 2px;
-}
-
 /* Hide scrollbars on horizontal chip rows */
 @utility no-scrollbar {
   scrollbar-width: none;
