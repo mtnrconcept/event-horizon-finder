@@ -170,6 +170,11 @@ export interface GeographyFilters {
   cityId?: string | null;
 }
 
+export interface CitySearchFilters extends GeographyFilters {
+  query?: string | null;
+  limit?: number;
+}
+
 function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, unknown> {
   const args: Record<string, unknown> = {
     _radius_km: p.radiusKm ?? 25,
@@ -302,13 +307,44 @@ export async function fetchMapVenues({
   });
 }
 
-export async function fetchCities() {
-  const { data, error } = await supabase
-    .from("cities")
-    .select("id,slug,name,timezone,latitude,longitude,is_demo")
-    .order("name");
+export async function searchGeographyCities({
+  countryId,
+  regionId,
+  query,
+  limit = 80,
+}: CitySearchFilters = {}): Promise<CityOption[]> {
+  // The generated database types intentionally lag behind migrations during
+  // preview builds, so keep the cast at this single RPC boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("search_geography_cities", {
+    _country_id: countryId ?? null,
+    _region_id: regionId ?? null,
+    _query: query?.trim() || null,
+    _limit: Math.min(Math.max(limit, 1), 200),
+  });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as CityOption[];
+}
+
+/**
+ * Complete city catalogue for the organizer's multi-city advertising picker.
+ * Consumer-facing screens use searchGeographyCities and never pay this cost.
+ */
+export async function fetchCities() {
+  const cities: CityOption[] = [];
+  const pageSize = 1_000;
+  for (let offset = 0; ; offset += pageSize) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc("list_geography_cities", {
+      _limit: pageSize,
+      _offset: offset,
+    });
+    if (error) throw error;
+    const page = (data ?? []) as CityOption[];
+    cities.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return cities;
 }
 
 export async function fetchGeographies(): Promise<{
@@ -316,35 +352,18 @@ export async function fetchGeographies(): Promise<{
   regions: RegionOption[];
   cities: CityOption[];
 }> {
-  const [countriesResult, regionsResult] = await Promise.all([
+  const [countriesResult, regionsResult, genevaCities] = await Promise.all([
     supabase.from("countries").select("id,code,name").order("name"),
     supabase.from("regions").select("id,country_id,name").order("name"),
+    searchGeographyCities({ query: "Geneve", limit: 20 }),
   ]);
   const catalogueError = countriesResult.error ?? regionsResult.error;
   if (catalogueError) throw catalogueError;
 
-  // PostgREST caps table responses, so page through the city catalogue instead
-  // of silently exposing only its first 1,000 rows in the geographic filter.
-  const cities: CityOption[] = [];
-  const pageSize = 1_000;
-  let offset = 0;
-  while (true) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const citiesResult = await (supabase as any).rpc("list_geography_cities", {
-      _limit: pageSize,
-      _offset: offset,
-    });
-    if (citiesResult.error) throw citiesResult.error;
-    const page = (citiesResult.data ?? []) as CityOption[];
-    cities.push(...page);
-    if (page.length < pageSize) break;
-    offset += pageSize;
-  }
-
   return {
     countries: (countriesResult.data ?? []) as CountryOption[],
     regions: (regionsResult.data ?? []) as RegionOption[],
-    cities,
+    cities: genevaCities,
   };
 }
 

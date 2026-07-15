@@ -14,9 +14,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCities } from "@/lib/queries";
 import { MUSIC_GENRES } from "@/lib/event-filters";
 import { notifyPrivacyUpdated } from "@/lib/client-analytics";
+import { CitySearchInput } from "@/components/city-search-input";
 
 const profileDb = supabase as unknown as SupabaseClient<any>;
 
@@ -49,7 +49,7 @@ function Profile() {
   const navigate = useNavigate();
   const [session, setSession] = useState<{ email?: string; id: string } | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
-  const [cities, setCities] = useState<Array<{ id: string; name: string }>>([]);
+  const [homeCityLabel, setHomeCityLabel] = useState("");
   const [profile, setProfile] = useState<ProfileState>(EMPTY_PROFILE);
   const [saving, setSaving] = useState(false);
 
@@ -61,18 +61,21 @@ function Profile() {
         return;
       }
       setSession({ email: data.user.email, id: data.user.id });
-      const [{ data: profileRow }, { data: roleRows }, cityRows] = await Promise.all([
+      const [{ data: profileRow }, { data: roleRows }] = await Promise.all([
         profileDb
           .from("profiles")
           .select(
-            "display_name,account_type,home_city_id,birth_year,music_preferences,analytics_consent,personalized_ads_consent",
+            "display_name,account_type,home_city_id,birth_year,music_preferences,analytics_consent,personalized_ads_consent,home_city:cities(name)",
           )
           .eq("id", data.user.id)
           .maybeSingle(),
         profileDb.from("user_roles").select("role").eq("user_id", data.user.id),
-        fetchCities(),
       ]);
       if (profileRow) {
+        const homeCity = Array.isArray(profileRow.home_city)
+          ? profileRow.home_city[0]
+          : profileRow.home_city;
+        setHomeCityLabel(homeCity?.name ?? "");
         setProfile({
           display_name: profileRow.display_name ?? "",
           account_type: profileRow.account_type === "organizer" ? "organizer" : "client",
@@ -84,7 +87,6 @@ function Profile() {
         });
       }
       setRoles((roleRows ?? []).map((row: { role: string }) => row.role));
-      setCities(cityRows as Array<{ id: string; name: string }>);
     })();
   }, []);
 
@@ -189,20 +191,13 @@ function Profile() {
           </label>
           <label className="text-xs font-medium">
             <span className="mb-1.5 block">Ville principale</span>
-            <select
+            <CitySearchInput
               value={profile.home_city_id}
-              onChange={(event) =>
-                setProfile((current) => ({ ...current, home_city_id: event.target.value }))
+              initialLabel={homeCityLabel}
+              onChange={(homeCityId) =>
+                setProfile((current) => ({ ...current, home_city_id: homeCityId }))
               }
-              className="field-control"
-            >
-              <option value="">Non renseignée</option>
-              {cities.map((city) => (
-                <option key={city.id} value={city.id}>
-                  {city.name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           {profile.account_type === "client" && (
             <label className="text-xs font-medium">

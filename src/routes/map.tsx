@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -8,6 +8,7 @@ import {
   fetchCategories,
   fetchGeographies,
   fetchMapVenues,
+  searchGeographyCities,
   type CityOption,
   type CountryOption,
   type DiscoveredEvent,
@@ -84,9 +85,11 @@ function MapPage() {
   const markerRegistryRef = useRef(
     new Map<string, { marker: maplibregl.Marker; signature: string }>(),
   );
+  const lastFittedScopeRef = useRef<string | null>(null);
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
@@ -113,6 +116,34 @@ function MapPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const requestVersionRef = useRef(0);
+  const cityRequestVersionRef = useRef(0);
+
+  const searchCities = useCallback(
+    async (cityQuery: string) => {
+      if (!countryId) return;
+      const requestVersion = ++cityRequestVersionRef.current;
+      setCityLoading(true);
+      try {
+        const rows = await searchGeographyCities({
+          countryId,
+          regionId,
+          query: cityQuery,
+          limit: 100,
+        });
+        if (requestVersion !== cityRequestVersionRef.current) return;
+        setCities((current) => {
+          const merged = new Map(current.map((city) => [city.id, city]));
+          rows.forEach((city) => merged.set(city.id, city));
+          return [...merged.values()];
+        });
+      } catch {
+        // Keep country/region discovery available even when suggestions fail.
+      } finally {
+        if (requestVersion === cityRequestVersionRef.current) setCityLoading(false);
+      }
+    },
+    [countryId, regionId],
+  );
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === cityId) ?? null,
@@ -125,15 +156,6 @@ function MapPage() {
   const selectedCountry = useMemo(
     () => countries.find((country) => country.id === countryId) ?? null,
     [countries, countryId],
-  );
-  const scopedCities = useMemo(
-    () =>
-      cities.filter(
-        (city) =>
-          (!countryId || city.country_id === countryId) &&
-          (!regionId || city.region_id === regionId),
-      ),
-    [cities, countryId, regionId],
   );
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
@@ -211,17 +233,22 @@ function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
+    if (lastFittedScopeRef.current === scopeKey) return;
     if (selectedCity?.latitude != null && selectedCity.longitude != null) {
+      lastFittedScopeRef.current = scopeKey;
       map.flyTo({
         center: [selectedCity.longitude, selectedCity.latitude],
         zoom: selectedCity.slug === "geneve" ? 12 : 11,
       });
       return;
     }
-    const locatedCities = scopedCities.filter(
-      (city) => city.latitude != null && city.longitude != null,
+    const locatedEvents = events.filter(
+      (event) => event.latitude != null && event.longitude != null,
     );
-    if (!locatedCities.length) {
+    if ((countryId || regionId) && !locatedEvents.length) return;
+    lastFittedScopeRef.current = scopeKey;
+    if (!locatedEvents.length) {
       map.fitBounds(
         [
           [-170, -55],
@@ -232,9 +259,9 @@ function MapPage() {
       return;
     }
     const bounds = new maplibregl.LngLatBounds();
-    locatedCities.forEach((city) => bounds.extend([city.longitude!, city.latitude!]));
+    locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
     map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [mapReady, regionId, scopedCities, selectedCity]);
+  }, [cityId, countryId, events, mapReady, regionId, selectedCity]);
 
   const mapDiscoveryParams = useMemo(
     () => ({
@@ -541,6 +568,8 @@ function MapPage() {
             regions={regions}
             cities={cities}
             value={geography}
+            cityLoading={cityLoading}
+            onCityQuery={searchCities}
             onChange={setGeography}
             compact
           />

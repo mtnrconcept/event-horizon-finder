@@ -1,23 +1,24 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Building2, Check, Music2, UserRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCities } from "@/lib/queries";
 import { MUSIC_GENRES } from "@/lib/event-filters";
+import { CitySearchInput } from "@/components/city-search-input";
 import { toast } from "sonner";
 
 type AuthSearch = { redirect?: string };
 type AccountType = "client" | "organizer";
-type City = { id: string; name: string };
 
-const redirectBase = "https://eventa.local";
+// A fixed invalid origin is only used to validate relative redirects. The
+// actual post-authentication destination always uses window.location.origin.
+const redirectValidationOrigin = "https://eventa.invalid";
 
 function safeInternalRedirect(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
     return undefined;
   }
   try {
-    const base = new URL(redirectBase);
+    const base = new URL(redirectValidationOrigin);
     const target = new URL(value, base);
     if (target.origin !== base.origin || target.pathname === "/auth") return undefined;
     return `${target.pathname}${target.search}${target.hash}`;
@@ -48,16 +49,8 @@ function Auth() {
   const [musicPreferences, setMusicPreferences] = useState<string[]>([]);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [adsConsent, setAdsConsent] = useState(false);
-  const [cities, setCities] = useState<City[]>([]);
   const [loading, setLoading] = useState(false);
   const destination = redirect ?? "/";
-
-  useEffect(() => {
-    if (mode !== "signup" || cities.length) return;
-    fetchCities()
-      .then((rows) => setCities(rows as City[]))
-      .catch(() => setCities([]));
-  }, [mode, cities.length]);
 
   const navigateTo = (target: string) => {
     if (target === "/") navigate({ to: "/" });
@@ -219,18 +212,7 @@ function Auth() {
                 </Field>
               )}
               <Field label="Ville principale">
-                <select
-                  value={homeCityId}
-                  onChange={(event) => setHomeCityId(event.target.value)}
-                  className="field-control"
-                >
-                  <option value="">Choisir plus tard</option>
-                  {cities.map((city) => (
-                    <option key={city.id} value={city.id}>
-                      {city.name}
-                    </option>
-                  ))}
-                </select>
+                <CitySearchInput value={homeCityId} onChange={setHomeCityId} />
               </Field>
             </div>
           )}

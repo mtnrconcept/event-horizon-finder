@@ -193,6 +193,10 @@ export async function estimateAdAudience(args: {
 }
 
 export async function fetchEligibleCampaigns(placement: AdPlacement): Promise<EligibleCampaign[]> {
+  // The RPC intentionally requires an authenticated, consenting client. Do
+  // not generate a noisy 401 for every anonymous visitor.
+  const { data: sessionData } = await adDb.auth.getSession();
+  if (!sessionData.session) return [];
   const { data, error } = await adDb.rpc("eligible_ad_campaigns", {
     _placement: placement,
     _limit: 3,

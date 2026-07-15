@@ -1,13 +1,17 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CircleAlert,
   Crosshair,
+  FerrisWheel,
   Flame,
+  Gift,
   Map as MapIcon,
   MapPin,
   LoaderCircle,
+  Music2,
+  PartyPopper,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -20,6 +24,7 @@ import {
   discoverEvents,
   fetchCategories,
   fetchGeographies,
+  searchGeographyCities,
   computeRange,
   type CityOption,
   type CountryOption,
@@ -68,10 +73,56 @@ const QUICK: { key: QuickRange; label: string; helper: string }[] = [
   { key: "year", label: "Tout à venir", helper: "Catalogue sur 12 mois" },
 ];
 
+const VIBES = [
+  {
+    id: "tonight",
+    label: "Ce soir",
+    helper: "Les plans de dernière minute",
+    icon: Flame,
+    range: "tonight" as QuickRange,
+  },
+  {
+    id: "nightlife",
+    label: "Nightlife",
+    helper: "Clubs, DJ sets et rooftops",
+    icon: PartyPopper,
+    categories: ["soirees"],
+  },
+  {
+    id: "live",
+    label: "Live music",
+    helper: "Concerts et scènes locales",
+    icon: Music2,
+    categories: ["concerts"],
+  },
+  {
+    id: "festivals",
+    label: "Festivals",
+    helper: "Les grands rendez-vous",
+    icon: FerrisWheel,
+    categories: ["festivals"],
+  },
+  {
+    id: "free",
+    label: "Gratuit",
+    helper: "Sortir sans dépasser son budget",
+    icon: Gift,
+    freeOnly: true,
+  },
+] as const;
+
+type LandingCollections = {
+  top: DiscoveredEvent[];
+  free: DiscoveredEvent[];
+  nightlife: DiscoveredEvent[];
+  festivals: DiscoveredEvent[];
+};
+
 function Discover() {
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
@@ -86,6 +137,7 @@ function Discover() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [sort, setSort] = useState<SortMode>("soon");
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
+  const [landingCollections, setLandingCollections] = useState<LandingCollections | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -93,8 +145,37 @@ function Discover() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const requestVersionRef = useRef(0);
+  const cityRequestVersionRef = useRef(0);
   const deferredQuery = useDeferredValue(query.trim());
   const advancedCount = countAdvancedFilters(advancedFilters);
+
+  const searchCities = useCallback(
+    async (cityQuery: string) => {
+      if (!countryId) return;
+      const requestVersion = ++cityRequestVersionRef.current;
+      setCityLoading(true);
+      try {
+        const rows = await searchGeographyCities({
+          countryId,
+          regionId,
+          query: cityQuery,
+          limit: 100,
+        });
+        if (requestVersion !== cityRequestVersionRef.current) return;
+        setCities((current) => {
+          const merged = new Map(current.map((city) => [city.id, city]));
+          rows.forEach((city) => merged.set(city.id, city));
+          return [...merged.values()];
+        });
+      } catch {
+        // Event discovery remains usable at country/region level when city
+        // suggestions are temporarily unavailable.
+      } finally {
+        if (requestVersion === cityRequestVersionRef.current) setCityLoading(false);
+      }
+    },
+    [countryId, regionId],
+  );
 
   useEffect(() => {
     let current = true;
@@ -179,6 +260,42 @@ function Discover() {
     };
   }, [discoveryParams, reloadKey]);
 
+  useEffect(() => {
+    let current = true;
+    const landingRange = computeRange("year");
+    const geographyParams = { countryId, regionId, cityId };
+    Promise.all([
+      discoverEvents({
+        ...geographyParams,
+        ...landingRange,
+        verifiedOnly: true,
+        limit: 8,
+      }),
+      discoverEvents({ ...geographyParams, ...landingRange, freeOnly: true, limit: 8 }),
+      discoverEvents({
+        ...geographyParams,
+        ...landingRange,
+        categorySlugs: ["soirees"],
+        limit: 8,
+      }),
+      discoverEvents({
+        ...geographyParams,
+        ...landingRange,
+        categorySlugs: ["festivals"],
+        limit: 8,
+      }),
+    ])
+      .then(([top, free, nightlife, festivals]) => {
+        if (current) setLandingCollections({ top, free, nightlife, festivals });
+      })
+      .catch(() => {
+        if (current) setLandingCollections(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [cityId, countryId, regionId]);
+
   const loadMore = async () => {
     if (loading || loadingMore || !hasMore) return;
     const requestVersion = requestVersionRef.current;
@@ -260,6 +377,27 @@ function Discover() {
     setSort("soon");
   };
 
+  const applyVibe = (vibe: (typeof VIBES)[number]) => {
+    setQuery("");
+    setCoords(null);
+    setCats(new Set("categories" in vibe ? [...vibe.categories] : []));
+    setRange("range" in vibe ? vibe.range : "year");
+    setAdvancedFilters({
+      ...DEFAULT_ADVANCED_FILTERS,
+      genres: [],
+      priceMode: "freeOnly" in vibe && vibe.freeOnly ? "free" : "all",
+    });
+    setSort("soon");
+  };
+
+  const landingMode =
+    !deferredQuery &&
+    cats.size === 0 &&
+    advancedCount === 0 &&
+    range === "year" &&
+    sort === "soon" &&
+    !coords;
+
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 md:px-6 md:pt-10">
       <section className="relative mb-6 overflow-hidden rounded-[2rem] border p-5 md:mb-8 md:p-8">
@@ -267,7 +405,7 @@ function Discover() {
         <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
           <div>
             <Badge className="mb-5 border-transparent bg-primary/15 px-3 py-1 text-primary">
-              <Flame className="mr-1.5 h-3.5 w-3.5" /> Monde entier · catalogue live
+              <Flame className="mr-1.5 h-3.5 w-3.5" /> Catalogue mondial · mis à jour en continu
             </Badge>
             <h1 className="max-w-4xl text-4xl font-black leading-[0.95] md:text-7xl">
               Trouve le bon plan avant qu'il ne disparaisse.
@@ -298,6 +436,45 @@ function Discover() {
       </section>
 
       <TargetedCampaigns placement="discover" />
+
+      <section className="mb-7" aria-labelledby="vibe-title">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              Inspiration instantanée
+            </p>
+            <h2 id="vibe-title" className="mt-1 text-2xl font-black md:text-3xl">
+              Tu cherches quelle ambiance ?
+            </h2>
+          </div>
+          <Link to="/map" className="hidden text-sm font-semibold text-primary sm:inline-flex">
+            Explorer la carte →
+          </Link>
+        </div>
+        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
+          {VIBES.map((vibe, index) => {
+            const Icon = vibe.icon;
+            return (
+              <button
+                key={vibe.id}
+                type="button"
+                onClick={() => applyVibe(vibe)}
+                className="group relative min-h-32 min-w-[13.5rem] overflow-hidden rounded-3xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-card)]"
+              >
+                <div
+                  className="absolute inset-0 -z-10 opacity-90"
+                  style={{
+                    background: `radial-gradient(circle at 85% 15%, oklch(0.72 0.18 ${35 + index * 42} / 0.32), transparent 42%), linear-gradient(145deg, var(--color-surface-2), var(--color-background))`,
+                  }}
+                />
+                <Icon className="mb-7 h-5 w-5 text-primary transition-transform group-hover:scale-110" />
+                <span className="block text-lg font-black">{vibe.label}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{vibe.helper}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <div className="glass sticky top-16 z-30 mb-4 rounded-3xl p-3 shadow-[var(--shadow-card)] md:top-20">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -335,6 +512,8 @@ function Discover() {
             regions={regions}
             cities={cities}
             value={geography}
+            cityLoading={cityLoading}
+            onCityQuery={searchCities}
             onChange={(next) => {
               setCoords(null);
               setGeography(next);
@@ -471,6 +650,41 @@ function Discover() {
         </button>
       </div>
 
+      {landingMode && landingCollections && (
+        <div className="mb-10 space-y-9">
+          <EventCollection
+            title="Les incontournables"
+            eyebrow="Sélection EVENTA"
+            events={landingCollections.top}
+            onSeeAll={() => setSort("popular")}
+          />
+          <EventCollection
+            title="Sortir gratuitement"
+            eyebrow="Petits budgets, grandes idées"
+            events={landingCollections.free}
+            onSeeAll={() => setAdvancedFilters((current) => ({ ...current, priceMode: "free" }))}
+          />
+          <EventCollection
+            title="La nuit t’appartient"
+            eyebrow="Clubs & soirées"
+            events={landingCollections.nightlife}
+            onSeeAll={() => setCats(new Set(["soirees"]))}
+          />
+          <EventCollection
+            title="Festivals à ne pas manquer"
+            eyebrow="Prépare ton prochain week-end"
+            events={landingCollections.festivals}
+            onSeeAll={() => setCats(new Set(["festivals"]))}
+          />
+          <div className="border-t pt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              Catalogue complet
+            </p>
+            <h2 className="mt-1 text-2xl font-black">Tout ce qui arrive bientôt</h2>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <span className="flex items-center gap-2">
@@ -534,6 +748,46 @@ function Discover() {
         </div>
       )}
     </div>
+  );
+}
+
+function EventCollection({
+  title,
+  eyebrow,
+  events,
+  onSeeAll,
+}: {
+  title: string;
+  eyebrow: string;
+  events: DiscoveredEvent[];
+  onSeeAll: () => void;
+}) {
+  if (!events.length) return null;
+  return (
+    <section aria-label={title}>
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            {eyebrow}
+          </p>
+          <h2 className="mt-1 text-2xl font-black md:text-3xl">{title}</h2>
+        </div>
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className="shrink-0 text-sm font-semibold text-primary"
+        >
+          Voir tout →
+        </button>
+      </div>
+      <div className="no-scrollbar flex snap-x gap-4 overflow-x-auto pb-3">
+        {events.map((event) => (
+          <div key={event.occurrence_id} className="w-[17.5rem] shrink-0 snap-start sm:w-[19rem]">
+            <EventCard ev={event} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
