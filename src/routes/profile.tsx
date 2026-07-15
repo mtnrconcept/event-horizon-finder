@@ -21,7 +21,7 @@ import { CitySearchInput } from "@/components/city-search-input";
 const profileDb = supabase as unknown as SupabaseClient<any>;
 
 export const Route = createFileRoute("/profile")({
-  head: () => ({ meta: [{ title: "Mon profil — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Mon profil — Global Party" }] }),
   component: Profile,
 });
 

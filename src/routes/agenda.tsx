@@ -5,7 +5,7 @@ import { Calendar, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/agenda")({
-  head: () => ({ meta: [{ title: "Mon agenda — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Mon agenda — Global Party" }] }),
   component: Agenda,
 });
 
@@ -47,9 +47,13 @@ function toIcs(items: Item[]) {
       ].join("\r\n");
     })
     .join("\r\n");
-  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//EVENTA//FR", events, "END:VCALENDAR"].join(
-    "\r\n",
-  );
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Global Party//FR",
+    events,
+    "END:VCALENDAR",
+  ].join("\r\n");
 }
 
 function Agenda() {
@@ -90,7 +94,7 @@ function Agenda() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "eventa.ics";
+    a.download = "global-party.ics";
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Agenda exporté");

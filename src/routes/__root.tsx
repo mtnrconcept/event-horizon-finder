@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { MobileNav, DesktopHeader } from "@/components/nav";
 import { ClientConsentBanner } from "@/components/client-consent-banner";
 import { ClientJourneyTracker } from "@/components/client-journey-tracker";
+import { BrandArrival } from "@/components/brand/brand-arrival";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -63,28 +64,43 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#1a1830" },
-      { title: "EVENTA — Découvre les événements autour de toi" },
+      { title: "Global Party — Découvre les événements autour de toi" },
       {
         name: "description",
         content:
           "Concerts, soirées, festivals, expositions et bien plus. Trouve les meilleurs événements ce soir, ce week-end ou près de toi.",
       },
-      { property: "og:title", content: "EVENTA — Découvre les événements autour de toi" },
+      { property: "og:title", content: "Global Party — Découvre les événements autour de toi" },
       {
         property: "og:description",
         content: "Découvre en un instant ce qui se passe autour de toi.",
       },
       { property: "og:type", content: "website" },
+      {
+        property: "og:image",
+        content: "https://event-horizon-finder.vercel.app/brand/global-party-logo.png",
+      },
       { name: "twitter:card", content: "summary_large_image" },
+      {
+        name: "twitter:image",
+        content: "https://event-horizon-finder.vercel.app/brand/global-party-logo.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      {
+        rel: "preload",
+        href: "/brand/global-party-logo.png",
+        as: "image",
+        type: "image/png",
+      },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
       // Vercel-protected previews require credentials for manifest requests.
       // Without this, the browser follows the SSO redirect as an anonymous
       // cross-origin fetch and reports a misleading CORS error.
       { rel: "manifest", href: "/manifest.webmanifest", crossOrigin: "use-credentials" },
-      { rel: "apple-touch-icon", href: "/favicon.ico" },
+      { rel: "apple-touch-icon", href: "/brand/global-party-logo.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -112,6 +128,7 @@ function RootComponent() {
   const isMapRoute = useRouterState({ select: (state) => state.location.pathname === "/map" });
   return (
     <QueryClientProvider client={queryClient}>
+      <BrandArrival />
       <ClientJourneyTracker />
       <DesktopHeader />
       <main className={isMapRoute ? "pb-0 md:pb-8" : "pb-24 md:pb-8"}>

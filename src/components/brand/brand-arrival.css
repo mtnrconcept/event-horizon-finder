@@ -1,0 +1,227 @@
+.brand-arrival {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+  contain: layout paint;
+  background:
+    radial-gradient(circle at 50% 48%, oklch(0.24 0.09 235 / 0.34), transparent 34%),
+    linear-gradient(145deg, oklch(0.075 0.025 265 / 0.96), oklch(0.11 0.04 275 / 0.9));
+  animation: brand-arrival-shell 1.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.brand-arrival__aurora {
+  position: absolute;
+  width: min(110vw, 72rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 120deg,
+    transparent 0deg,
+    oklch(0.76 0.16 205 / 0.2) 75deg,
+    oklch(0.68 0.22 295 / 0.22) 145deg,
+    transparent 230deg
+  );
+  filter: blur(48px);
+  opacity: 0;
+  animation: brand-arrival-aurora 1.7s ease-out both;
+}
+
+.brand-arrival__stage {
+  position: relative;
+  width: min(78vw, 36rem);
+  aspect-ratio: 938 / 768;
+  animation: brand-arrival-stage 1.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.brand-arrival__halo {
+  position: absolute;
+  z-index: -1;
+  inset: 10% 2% 8%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    oklch(0.88 0.12 205 / 0.32),
+    oklch(0.68 0.22 295 / 0.18) 38%,
+    transparent 72%
+  );
+  filter: blur(28px);
+  animation: brand-arrival-halo 1.7s ease-out both;
+}
+
+.brand-arrival__logo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter:
+    drop-shadow(0 0 14px oklch(0.94 0.09 205 / 0.4))
+    drop-shadow(0 0 42px oklch(0.68 0.22 295 / 0.24));
+}
+
+.brand-arrival__trace-crop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.brand-arrival__trace-mask {
+  position: absolute;
+  top: -29.6%;
+  left: -17.6%;
+  width: 133.7%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  mask: url("/brand/global-party-logo.png") center / contain no-repeat;
+  -webkit-mask: url("/brand/global-party-logo.png") center / contain no-repeat;
+}
+
+.brand-arrival__trace-mask::before {
+  content: "";
+  position: absolute;
+  top: -18%;
+  bottom: -18%;
+  left: -28%;
+  width: 18%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.84 0.14 205 / 0.35),
+    white,
+    oklch(0.78 0.17 205 / 0.5),
+    transparent
+  );
+  transform: skewX(-12deg);
+  mix-blend-mode: screen;
+  animation: brand-arrival-sweep 1.7s cubic-bezier(0.2, 0.7, 0.25, 1) both;
+}
+
+.brand-arrival__floor {
+  position: absolute;
+  right: 15%;
+  bottom: -1.5%;
+  left: 15%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, oklch(0.9 0.12 205), transparent);
+  box-shadow: 0 0 18px 3px oklch(0.78 0.17 205 / 0.38);
+  transform-origin: center;
+  animation: brand-arrival-floor 1.7s ease-out both;
+}
+
+@keyframes brand-arrival-shell {
+  0% {
+    opacity: 0;
+  }
+  9%,
+  74% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes brand-arrival-stage {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.94);
+  }
+  24%,
+  76% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-5px) scale(1.015);
+  }
+}
+
+@keyframes brand-arrival-aurora {
+  0% {
+    opacity: 0;
+    transform: scale(0.72) rotate(-8deg);
+  }
+  35%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08) rotate(10deg);
+  }
+}
+
+@keyframes brand-arrival-halo {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  36%,
+  72% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes brand-arrival-sweep {
+  0%,
+  22% {
+    opacity: 0;
+    transform: translateX(0) skewX(-12deg);
+  }
+  30% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 0.95;
+    transform: translateX(740%) skewX(-12deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(740%) skewX(-12deg);
+  }
+}
+
+@keyframes brand-arrival-floor {
+  0%,
+  22% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  42%,
+  72% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1.08);
+  }
+}
+
+@media (max-width: 767px) {
+  .brand-arrival,
+  .brand-arrival__aurora,
+  .brand-arrival__stage,
+  .brand-arrival__halo,
+  .brand-arrival__trace-mask::before,
+  .brand-arrival__floor {
+    animation-duration: 1.35s;
+  }
+
+  .brand-arrival__stage {
+    width: min(86vw, 28rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-arrival {
+    display: none;
+  }
+}

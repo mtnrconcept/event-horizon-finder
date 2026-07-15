@@ -17,7 +17,7 @@ import { fetchAdCampaigns, type AdCampaign } from "@/lib/ad-queries";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/organizer/")({
-  head: () => ({ meta: [{ title: "Dashboard organisateur — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Dashboard organisateur — Global Party" }] }),
   component: OrganizerHome,
 });
 

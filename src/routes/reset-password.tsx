@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/reset-password")({
-  head: () => ({ meta: [{ title: "Réinitialiser le mot de passe — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Réinitialiser le mot de passe — Global Party" }] }),
   component: ResetPassword,
 });
 

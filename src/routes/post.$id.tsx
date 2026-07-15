@@ -17,7 +17,7 @@ export const Route = createFileRoute("/post/$id")({
     if (!loaderData) {
       return {
         meta: [
-          { title: "Publication introuvable — EVENTA" },
+          { title: "Publication introuvable — Global Party" },
           { name: "robots", content: "noindex" },
         ],
       };
@@ -30,12 +30,12 @@ export const Route = createFileRoute("/post/$id")({
     const description =
       loaderData.body?.slice(0, 180) ??
       loaderData.event?.short_description ??
-      `Une publication de ${loaderData.organizer.name} sur EVENTA.`;
+      `Une publication de ${loaderData.organizer.name} sur Global Party.`;
     return {
       meta: [
-        { title: `${loaderData.organizer.name} — EVENTA` },
+        { title: `${loaderData.organizer.name} — Global Party` },
         { name: "description", content: description },
-        { property: "og:title", content: `${loaderData.organizer.name} sur EVENTA` },
+        { property: "og:title", content: `${loaderData.organizer.name} sur Global Party` },
         { property: "og:description", content: description },
         { property: "og:type", content: "article" },
         ...(image ? [{ property: "og:image", content: image }] : []),

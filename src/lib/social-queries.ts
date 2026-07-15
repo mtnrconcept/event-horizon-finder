@@ -299,7 +299,7 @@ export async function fetchSocialComments(postId: string): Promise<SocialComment
     post_id: String(row.post_id),
     body: String(row.body),
     status: String(row.status),
-    author_display_name: String(row.author_display_name || "Membre EVENTA"),
+    author_display_name: String(row.author_display_name || "Membre Global Party"),
     author_avatar_url: row.author_avatar_url ? String(row.author_avatar_url) : null,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
@@ -499,7 +499,7 @@ export async function createSocialComment(
     post_id: String(data.post_id),
     body: String(data.body),
     status: String(data.status),
-    author_display_name: String(data.author_display_name || "Membre EVENTA"),
+    author_display_name: String(data.author_display_name || "Membre Global Party"),
     author_avatar_url: data.author_avatar_url ? String(data.author_avatar_url) : null,
     created_at: String(data.created_at),
     updated_at: String(data.updated_at),
@@ -511,8 +511,8 @@ export async function shareSocialPost(
 ): Promise<"shared" | "copied" | "cancelled"> {
   if (typeof window === "undefined") return "cancelled";
   const url = `${window.location.origin}/post/${post.id}`;
-  const title = `${post.organizer.name} sur EVENTA`;
-  const text = post.body?.slice(0, 180) || "Découvre cette publication sur EVENTA.";
+  const title = `${post.organizer.name} sur Global Party`;
+  const text = post.body?.slice(0, 180) || "Découvre cette publication sur Global Party.";
 
   if (navigator.share) {
     try {

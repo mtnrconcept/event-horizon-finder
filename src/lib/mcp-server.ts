@@ -82,9 +82,9 @@ const TOOL_ANNOTATIONS = {
 const TOOLS = [
   {
     name: "search",
-    title: "Rechercher dans EVENTA",
+    title: "Rechercher dans Global Party",
     description:
-      "Use this when the user wants to search EVENTA's public event catalogue by keywords. Returns canonical EVENTA result URLs for citations and follow-up fetches.",
+      "Use this when the user wants to search Global Party's public event catalogue by keywords. Returns canonical Global Party result URLs for citations and follow-up fetches.",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string", minLength: 1, description: "Search query" } },
@@ -95,12 +95,14 @@ const TOOLS = [
   },
   {
     name: "fetch",
-    title: "Lire une fiche EVENTA",
+    title: "Lire une fiche Global Party",
     description:
-      "Use this when the user wants the full, authoritative details of one EVENTA event returned by search. Accepts an EVENTA event id or slug.",
+      "Use this when the user wants the full, authoritative details of one Global Party event returned by search. Accepts a Global Party event id or slug.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", minLength: 1, description: "EVENTA event id or slug" } },
+      properties: {
+        id: { type: "string", minLength: 1, description: "Global Party event id or slug" },
+      },
       required: ["id"],
       additionalProperties: false,
     },
@@ -144,7 +146,7 @@ const TOOLS = [
 function publicConfig() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) throw new Error("EVENTA public catalogue is temporarily unavailable.");
+  if (!url || !key) throw new Error("Global Party public catalogue is temporarily unavailable.");
   return { url: url.replace(/\/$/, ""), key };
 }
 
@@ -162,7 +164,7 @@ async function postgrest<T>(path: string, init?: RequestInit): Promise<T> {
     headers: supabaseHeaders(key, Boolean(init?.body)),
   });
   if (!response.ok) {
-    throw new Error(`EVENTA catalogue request failed (${response.status}).`);
+    throw new Error(`Global Party catalogue request failed (${response.status}).`);
   }
   return (await response.json()) as T;
 }
@@ -443,9 +445,9 @@ async function processMessage(request: Request, message: JsonRpcRequest) {
             ? requested
             : DEFAULT_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "eventa", title: "EVENTA", version: "1.0.0" },
+          serverInfo: { name: "eventa", title: "Global Party", version: "1.0.0" },
           instructions:
-            "Search and recommend public events from EVENTA. Prefer search then fetch for cited research, and discover_events for filtered recommendations.",
+            "Search and recommend public events from Global Party. Prefer search then fetch for cited research, and discover_events for filtered recommendations.",
         },
       };
     }
@@ -499,7 +501,7 @@ export async function handleMcpRequest(request: Request) {
   }
   if (request.method !== "POST") {
     return new Response(
-      JSON.stringify({ name: "EVENTA MCP", endpoint: "/mcp", transport: "streamable-http" }),
+      JSON.stringify({ name: "Global Party MCP", endpoint: "/mcp", transport: "streamable-http" }),
       { status: 405, headers: { ...RESPONSE_HEADERS, Allow: "POST, OPTIONS" } },
     );
   }

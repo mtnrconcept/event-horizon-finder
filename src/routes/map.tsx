@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/map")({
-  head: () => ({ meta: [{ title: "Carte complète des événements et lieux — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Carte complète des événements et lieux — Global Party" }] }),
   component: MapPage,
 });
 

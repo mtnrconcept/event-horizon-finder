@@ -47,11 +47,12 @@ import {
   toDiscoveryFilters,
 } from "@/lib/event-filters";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "EVENTA — Découvre les événements ce soir, ce week-end, près de toi" },
+      { title: "Global Party — Découvre les événements ce soir, ce week-end, près de toi" },
       {
         name: "description",
         content:
@@ -492,6 +493,13 @@ function Discover() {
     <div className="mx-auto max-w-7xl px-4 pt-2 md:px-6 md:pt-10">
       <div className="glass sticky top-0 z-30 mb-4 rounded-2xl p-2 shadow-[var(--shadow-card)] md:hidden">
         <div className="flex items-center gap-2">
+          <Link
+            to="/"
+            aria-label="Global Party — accueil"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-surface/70 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <BrandLogo variant="mark" className="h-9 w-10" />
+          </Link>
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -520,9 +528,19 @@ function Discover() {
         </div>
       </div>
 
-      <section className="relative mb-6 overflow-hidden rounded-[2rem] border p-5 md:mb-8 md:p-8">
+      <section className="global-party-hero relative mb-6 overflow-hidden rounded-[2rem] border p-5 md:mb-8 md:p-8">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,oklch(0.68_0.22_295_/_0.35),transparent_32%),radial-gradient(circle_at_82%_18%,oklch(0.72_0.18_35_/_0.22),transparent_30%),linear-gradient(135deg,oklch(0.19_0.03_265_/_0.92),oklch(0.12_0.03_265_/_0.86))]" />
-        <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
+        <div className="global-party-hero__beam" aria-hidden="true" />
+        <div className="grid gap-6 lg:grid-cols-[0.7fr_1.25fr_0.58fr] lg:items-center lg:gap-8">
+          <div className="global-party-hero__brand">
+            <div className="global-party-hero__brand-halo" aria-hidden="true" />
+            <BrandLogo
+              variant="lockup"
+              className="global-party-hero__logo"
+              label="Global Party — Clubbing & Festivals"
+            />
+            <div className="global-party-hero__brand-line" aria-hidden="true" />
+          </div>
           <div>
             <Badge className="mb-5 border-transparent bg-primary/15 px-3 py-1 text-primary">
               <Flame className="mr-1.5 h-3.5 w-3.5" /> Catalogue mondial · mis à jour en continu
@@ -531,8 +549,8 @@ function Discover() {
               Trouve le bon plan avant qu'il ne disparaisse.
             </h1>
             <p className="mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
-              EVENTA transforme le monde en radar culturel : clubs, concerts, festivals et sorties
-              réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
+              Global Party transforme le monde en radar culturel : clubs, concerts, festivals et
+              sorties réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
@@ -956,7 +974,7 @@ function Discover() {
         <div className="mb-10 space-y-9">
           <EventCollection
             title="Les incontournables"
-            eyebrow="Sélection EVENTA"
+            eyebrow="Sélection Global Party"
             events={landingCollections.top}
             onSeeAll={() => setSort("popular")}
           />

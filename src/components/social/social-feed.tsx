@@ -67,7 +67,7 @@ export function SocialFeed({
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   return (
-    <section aria-label="Fil social EVENTA">
+    <section aria-label="Fil social Global Party">
       <div className="no-scrollbar sticky top-0 z-20 mb-4 flex gap-2 overflow-x-auto rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-xl md:top-[4.25rem]">
         {filters.map(({ value, label, icon: Icon }) => (
           <button

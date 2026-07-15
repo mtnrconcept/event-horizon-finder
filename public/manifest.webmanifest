@@ -1,6 +1,6 @@
 {
-  "name": "EVENTA",
-  "short_name": "EVENTA",
+  "name": "Global Party",
+  "short_name": "Global Party",
   "description": "Découvre les événements autour de toi",
   "start_url": "/",
   "display": "standalone",
@@ -8,6 +8,11 @@
   "theme_color": "#1a1830",
   "orientation": "portrait",
   "icons": [
-    { "src": "/favicon.ico", "sizes": "64x64", "type": "image/x-icon" }
+    {
+      "src": "/brand/global-party-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }
