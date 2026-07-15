@@ -31,7 +31,7 @@ export function MobileNav() {
           <Link
             key={to}
             to={to}
-            className="flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors"
+            className="flex min-h-11 min-w-0 flex-1 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors"
             style={{ color: active ? "var(--color-primary)" : "var(--color-muted-foreground)" }}
           >
             <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 1.8} />
