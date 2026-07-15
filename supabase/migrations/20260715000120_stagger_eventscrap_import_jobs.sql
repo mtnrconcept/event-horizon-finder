@@ -5,6 +5,11 @@ DECLARE
   events_job_id BIGINT;
   occurrences_job_id BIGINT;
 BEGIN
+  IF to_regclass('cron.job') IS NULL THEN
+    RAISE NOTICE 'pg_cron is unavailable; skipping eventscrap job staggering';
+    RETURN;
+  END IF;
+
   SELECT jobid INTO events_job_id
   FROM cron.job
   WHERE jobname = 'eventscrap-events-import';
@@ -14,7 +19,8 @@ BEGIN
   WHERE jobname = 'eventscrap-occurrences-import';
 
   IF events_job_id IS NULL OR occurrences_job_id IS NULL THEN
-    RAISE EXCEPTION 'eventscrap import cron jobs are missing';
+    RAISE NOTICE 'eventscrap import cron jobs are missing; skipping job staggering';
+    RETURN;
   END IF;
 
   PERFORM cron.alter_job(
