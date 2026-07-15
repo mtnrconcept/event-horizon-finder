@@ -79,7 +79,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
+      // Vercel-protected previews require credentials for manifest requests.
+      // Without this, the browser follows the SSO redirect as an anonymous
+      // cross-origin fetch and reports a misleading CORS error.
+      { rel: "manifest", href: "/manifest.webmanifest", crossOrigin: "use-credentials" },
       { rel: "apple-touch-icon", href: "/favicon.ico" },
     ],
   }),
