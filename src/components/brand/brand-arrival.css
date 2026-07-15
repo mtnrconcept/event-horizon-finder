@@ -67,6 +67,102 @@
   background: #000;
 }
 
+.brand-arrival__launch {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  background: radial-gradient(circle at 50% 50%, rgb(10 24 42 / 22%), rgb(0 2 7 / 72%));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.brand-arrival__launch-glow {
+  position: absolute;
+  z-index: -1;
+  width: min(72vw, 24rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgb(69 213 255 / 20%),
+    rgb(124 84 255 / 12%) 42%,
+    transparent 70%
+  );
+  filter: blur(28px);
+}
+
+.brand-arrival__launch-eyebrow {
+  margin: 0 0 0.625rem;
+  color: rgb(164 232 255 / 88%);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+}
+
+.brand-arrival__launch-title {
+  max-width: 20rem;
+  margin: 0 0 1.25rem;
+  font-size: clamp(1.25rem, 5vw, 2rem);
+  font-weight: 800;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+.brand-arrival__launch-button {
+  display: inline-flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1.3rem;
+  border: 1px solid rgb(159 232 255 / 52%);
+  border-radius: 999px;
+  color: #02040a;
+  background: linear-gradient(135deg, #f7fdff, #8cddff 54%, #b39bff);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 16%) inset,
+    0 0 2.5rem rgb(62 202 255 / 28%);
+  font-size: 0.9375rem;
+  font-weight: 850;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.brand-arrival__launch-button svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.brand-arrival__launch-button:hover {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 22%) inset,
+    0 0 3.5rem rgb(62 202 255 / 42%);
+  transform: translateY(-1px) scale(1.015);
+}
+
+.brand-arrival__launch-button:active {
+  transform: scale(0.98);
+}
+
+.brand-arrival__launch-button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 4px;
+}
+
+.brand-arrival__launch-hint {
+  margin: 0.8rem 0 0;
+  color: rgb(221 232 245 / 66%);
+  font-size: 0.75rem;
+}
+
 .brand-arrival__controls {
   position: absolute;
   z-index: 2;
