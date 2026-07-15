@@ -12,12 +12,12 @@ import { TargetedCampaigns } from "@/components/targeted-campaigns";
 export const Route = createFileRoute("/social")({
   head: () => ({
     meta: [
-      { title: "Communauté — EVENTA" },
+      { title: "Communauté — Global Party" },
       {
         name: "description",
         content: "Découvre les annonces des organisateurs et échange autour des événements.",
       },
-      { property: "og:title", content: "Communauté EVENTA" },
+      { property: "og:title", content: "Communauté Global Party" },
       {
         property: "og:description",
         content: "Le fil des organisateurs et de la communauté événementielle.",
@@ -37,7 +37,7 @@ function SocialPage() {
       <section className="relative mb-6 overflow-hidden rounded-[2rem] border p-5 sm:p-7">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,oklch(0.68_0.22_295_/_0.32),transparent_35%),radial-gradient(circle_at_90%_20%,oklch(0.72_0.18_35_/_0.20),transparent_30%),linear-gradient(135deg,oklch(0.19_0.03_265_/_0.95),oklch(0.12_0.03_265_/_0.9))]" />
         <Badge className="mb-4 border-transparent bg-primary/15 text-primary">
-          <Radio className="mr-1.5 h-3.5 w-3.5" /> Le réseau EVENTA
+          <Radio className="mr-1.5 h-3.5 w-3.5" /> Le réseau Global Party
         </Badge>
         <h1 className="max-w-3xl text-3xl font-black leading-tight sm:text-5xl">
           Les événements commencent bien avant l'ouverture des portes.

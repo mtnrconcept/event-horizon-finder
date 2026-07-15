@@ -33,7 +33,7 @@ import {
 } from "@/lib/ad-queries";
 
 export const Route = createFileRoute("/organizer/ads")({
-  head: () => ({ meta: [{ title: "Publicité et ciblage — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Publicité et ciblage — Global Party" }] }),
   component: OrganizerAds,
 });
 

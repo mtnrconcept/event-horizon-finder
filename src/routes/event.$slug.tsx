@@ -28,13 +28,16 @@ export const Route = createFileRoute("/event/$slug")({
   head: ({ loaderData }) => {
     if (!loaderData)
       return {
-        meta: [{ title: "Événement introuvable — EVENTA" }, { name: "robots", content: "noindex" }],
+        meta: [
+          { title: "Événement introuvable — Global Party" },
+          { name: "robots", content: "noindex" },
+        ],
       };
     const e = loaderData;
     const artworkUrl = getEventArtworkUrl(e.id, e.cover_image_url);
     return {
       meta: [
-        { title: `${e.title} — EVENTA` },
+        { title: `${e.title} — Global Party` },
         { name: "description", content: e.short_description ?? e.title },
         { property: "og:title", content: e.title },
         { property: "og:description", content: e.short_description ?? "" },
@@ -349,7 +352,7 @@ function EventDetail() {
         </div>
 
         <div className="mt-6 text-xs text-muted-foreground">
-          {e.is_demo ? "Données de démonstration EVENTA · " : ""}
+          {e.is_demo ? "Données de démonstration Global Party · " : ""}
           <Link to="/" className="underline">
             ← Retour à la découverte
           </Link>

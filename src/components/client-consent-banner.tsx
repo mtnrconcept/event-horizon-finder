@@ -63,8 +63,8 @@ export function ClientConsentBanner() {
         <div className="min-w-0 flex-1">
           <p className="font-semibold">Une expérience adaptée à tes sorties</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            Avec ton accord, EVENTA enregistre ton parcours dans l'application et utilise ta ville,
-            ta tranche d'âge et tes goûts musicaux pour personnaliser les recommandations et
+            Avec ton accord, Global Party enregistre ton parcours dans l'application et utilise ta
+            ville, ta tranche d'âge et tes goûts musicaux pour personnaliser les recommandations et
             publicités. Les organisateurs ne voient que des statistiques agrégées.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">

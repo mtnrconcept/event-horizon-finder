@@ -8,7 +8,7 @@ type EventArtworkImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | 
 };
 
 /**
- * Keeps a real event image when one exists, then falls back to EVENTA's
+ * Keeps a real event image when one exists, then falls back to Global Party's
  * data-driven poster if the source image is absent or no longer available.
  */
 export function EventArtworkImage({

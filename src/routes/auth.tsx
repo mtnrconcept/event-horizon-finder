@@ -31,7 +31,7 @@ export const Route = createFileRoute("/auth")({
   validateSearch: (search: Record<string, unknown>): AuthSearch => ({
     redirect: safeInternalRedirect(search.redirect),
   }),
-  head: () => ({ meta: [{ title: "Connexion ou inscription — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Connexion ou inscription — Global Party" }] }),
   component: Auth,
 });
 
@@ -142,7 +142,7 @@ function Auth() {
       <div className="glass w-full rounded-[2rem] p-5 md:p-8">
         <h1 className="text-3xl font-black">
           {mode === "signin"
-            ? "Bienvenue sur EVENTA"
+            ? "Bienvenue sur Global Party"
             : mode === "signup"
               ? "Crée ton espace"
               : "Mot de passe oublié"}

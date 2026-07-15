@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import type { DiscoveredEvent } from "@/lib/queries";
 
 export const Route = createFileRoute("/favorites")({
-  head: () => ({ meta: [{ title: "Mes favoris — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Mes favoris — Global Party" }] }),
   component: Favorites,
 });
 

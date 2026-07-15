@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Activity, CheckCircle2, Database, TriangleAlert } from "lucide-react";
 
 export const Route = createFileRoute("/admin/")({
-  head: () => ({ meta: [{ title: "Administration — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Administration — Global Party" }] }),
   component: AdminHome,
 });
 

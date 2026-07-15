@@ -6,7 +6,7 @@ import { MUSIC_GENRES } from "@/lib/event-filters";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/organizer/new")({
-  head: () => ({ meta: [{ title: "Nouvel événement — EVENTA" }] }),
+  head: () => ({ meta: [{ title: "Nouvel événement — Global Party" }] }),
   component: NewEvent,
 });
 

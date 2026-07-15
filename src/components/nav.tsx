@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Calendar, Compass, Heart, Map as MapIcon, Rss, User } from "lucide-react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 const mobileItems = [
   { to: "/", label: "Découvrir", icon: Compass },
@@ -47,11 +48,26 @@ export function DesktopHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <header className="glass sticky top-0 z-40 hidden border-b md:block">
-      <div className="mx-auto flex max-w-7xl items-center gap-8 px-6 py-3">
-        <Link to="/" className="text-xl font-bold tracking-tight">
-          <span className="text-gradient">EVENTA</span>
+      <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-2.5 lg:gap-8">
+        <Link
+          to="/"
+          aria-label="Global Party — accueil"
+          className="group flex shrink-0 items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <span className="relative grid h-11 w-12 place-items-center overflow-visible">
+            <span className="absolute inset-1 rounded-full bg-cyan-300/15 opacity-0 blur-lg transition-opacity group-hover:opacity-100" />
+            <BrandLogo variant="mark" className="relative h-10 w-11" />
+          </span>
+          <span className="hidden leading-none lg:block">
+            <span className="block text-sm font-black tracking-[0.18em] text-foreground">
+              GLOBAL PARTY
+            </span>
+            <span className="mt-1 block text-[8px] font-semibold uppercase tracking-[0.27em] text-muted-foreground">
+              Clubbing &amp; Festivals
+            </span>
+          </span>
         </Link>
-        <nav className="flex items-center gap-1">
+        <nav className="flex min-w-0 items-center gap-1">
           {desktopItems.map(({ to, label, icon: Icon }) => {
             const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
             return (
