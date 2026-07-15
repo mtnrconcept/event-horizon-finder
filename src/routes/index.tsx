@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CircleAlert,
@@ -7,6 +7,7 @@ import {
   Flame,
   Map as MapIcon,
   MapPin,
+  LoaderCircle,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -18,16 +19,20 @@ import {
 import {
   discoverEvents,
   fetchCategories,
-  fetchCities,
+  fetchGeographies,
   computeRange,
+  type CityOption,
+  type CountryOption,
   type DiscoveredEvent,
   type QuickRange,
+  type RegionOption,
 } from "@/lib/queries";
 import { EventCard, EventCardSkeleton } from "@/components/event-card";
 import { EventFilterPanel } from "@/components/event-filter-panel";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TargetedCampaigns } from "@/components/targeted-campaigns";
+import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import {
   countAdvancedFilters,
   DEFAULT_ADVANCED_FILTERS,
@@ -48,16 +53,9 @@ export const Route = createFileRoute("/")({
   component: Discover,
 });
 
-type City = {
-  id: string;
-  slug: string;
-  name: string;
-  timezone: string;
-  latitude: number | null;
-  longitude: number | null;
-};
 type Category = { slug: string; name_fr: string; icon: string | null };
 type SortMode = "soon" | "distance" | "popular";
+const EVENT_PAGE_SIZE = 48;
 
 const QUICK: { key: QuickRange; label: string; helper: string }[] = [
   { key: "now", label: "Maintenant", helper: "2 prochaines heures" },
@@ -71,9 +69,16 @@ const QUICK: { key: QuickRange; label: string; helper: string }[] = [
 ];
 
 function Discover() {
-  const [cities, setCities] = useState<City[]>([]);
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [regions, setRegions] = useState<RegionOption[]>([]);
+  const [cities, setCities] = useState<CityOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [cityId, setCityId] = useState<string | null>(null);
+  const [geography, setGeography] = useState<GeographySelection>({
+    countryId: null,
+    regionId: null,
+    cityId: null,
+  });
+  const { countryId, regionId, cityId } = geography;
   const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -82,46 +87,84 @@ function Discover() {
   const [sort, setSort] = useState<SortMode>("soon");
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const requestVersionRef = useRef(0);
   const deferredQuery = useDeferredValue(query.trim());
   const advancedCount = countAdvancedFilters(advancedFilters);
 
   useEffect(() => {
-    fetchCities().then((c) => {
-      setCities(c as City[]);
-      const geneva = (c as City[]).find((city) => city.slug === "geneve");
-      if (!cityId && c.length) setCityId(geneva?.id ?? (c[0] as City).id);
-    });
-    fetchCategories().then((c) => setCategories(c as Category[]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let current = true;
+    Promise.all([fetchGeographies(), fetchCategories()])
+      .then(([data, categoryRows]) => {
+        if (!current) return;
+        setCountries(data.countries);
+        setRegions(data.regions);
+        setCities(data.cities);
+        setCategories(categoryRows as Category[]);
+      })
+      .catch(() => {
+        if (current) setError("Les filtres géographiques n'ont pas pu être chargés.");
+      });
+    return () => {
+      current = false;
+    };
   }, []);
 
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const selectedCity = useMemo(() => cities.find((c) => c.id === cityId) ?? null, [cities, cityId]);
+  const selectedRegion = useMemo(
+    () => regions.find((region) => region.id === regionId) ?? null,
+    [regions, regionId],
+  );
+  const selectedCountry = useMemo(
+    () => countries.find((country) => country.id === countryId) ?? null,
+    [countries, countryId],
+  );
   const activeCategoryNames = useMemo(
     () => categories.filter((c) => cats.has(c.slug)).map((c) => c.name_fr),
     [categories, cats],
   );
 
-  useEffect(() => {
-    let current = true;
-    setLoading(true);
-    setError(null);
-    discoverEvents({
+  const discoveryParams = useMemo(
+    () => ({
       lat: coords?.lat ?? null,
       lon: coords?.lon ?? null,
       radiusKm: coords ? 25 : 500,
+      countryId,
+      regionId,
       cityId,
       categorySlugs: cats.size ? [...cats] : null,
       query: deferredQuery,
       from,
       to,
-      limit: 300,
       ...toDiscoveryFilters(advancedFilters),
+    }),
+    [advancedFilters, cats, cityId, coords, countryId, deferredQuery, from, regionId, to],
+  );
+
+  useEffect(() => {
+    let current = true;
+    const requestVersion = ++requestVersionRef.current;
+    setLoading(true);
+    setLoadingMore(false);
+    setEvents(null);
+    setNextOffset(0);
+    setHasMore(false);
+    setError(null);
+    discoverEvents({
+      ...discoveryParams,
+      limit: EVENT_PAGE_SIZE,
+      offset: 0,
     })
       .then((data) => {
-        if (current) setEvents(data);
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setEvents(data);
+        setNextOffset(data.length);
+        setHasMore(data.length === EVENT_PAGE_SIZE);
       })
       .catch(() => {
         if (!current) return;
@@ -134,7 +177,35 @@ function Discover() {
     return () => {
       current = false;
     };
-  }, [cityId, cats, advancedFilters, deferredQuery, from, to, coords, reloadKey]);
+  }, [discoveryParams, reloadKey]);
+
+  const loadMore = async () => {
+    if (loading || loadingMore || !hasMore) return;
+    const requestVersion = requestVersionRef.current;
+    const offset = nextOffset;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await discoverEvents({
+        ...discoveryParams,
+        limit: EVENT_PAGE_SIZE,
+        offset,
+      });
+      if (requestVersion !== requestVersionRef.current) return;
+      setEvents((current) => {
+        const known = new Set((current ?? []).map((event) => event.occurrence_id));
+        return [...(current ?? []), ...page.filter((event) => !known.has(event.occurrence_id))];
+      });
+      setNextOffset(offset + page.length);
+      setHasMore(page.length === EVENT_PAGE_SIZE);
+    } catch {
+      if (requestVersion === requestVersionRef.current) {
+        setError("La page suivante n'a pas pu être chargée. Réessaie dans un instant.");
+      }
+    } finally {
+      if (requestVersion === requestVersionRef.current) setLoadingMore(false);
+    }
+  };
 
   const sortedEvents = useMemo(() => {
     const list = [...(events ?? [])];
@@ -160,7 +231,10 @@ function Discover() {
   const requestGeo = () => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (p) => setCoords({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      (p) => {
+        setGeography({ countryId: null, regionId: null, cityId: null });
+        setCoords({ lat: p.coords.latitude, lon: p.coords.longitude });
+      },
       () => {},
       { enableHighAccuracy: false, timeout: 6000 },
     );
@@ -180,6 +254,7 @@ function Discover() {
     setCats(new Set());
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
+    setGeography({ countryId: null, regionId: null, cityId: null });
     setCoords(null);
     setRange("year");
     setSort("soon");
@@ -192,21 +267,21 @@ function Discover() {
         <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
           <div>
             <Badge className="mb-5 border-transparent bg-primary/15 px-3 py-1 text-primary">
-              <Flame className="mr-1.5 h-3.5 w-3.5" /> Genève & Suisse romande · catalogue live
+              <Flame className="mr-1.5 h-3.5 w-3.5" /> Monde entier · catalogue live
             </Badge>
             <h1 className="max-w-4xl text-4xl font-black leading-[0.95] md:text-7xl">
               Trouve le bon plan avant qu'il ne disparaisse.
             </h1>
             <p className="mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
-              EVENTA transforme la région en radar culturel : clubs, concerts, festivals et sorties
-              gratuites réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
+              EVENTA transforme le monde en radar culturel : clubs, concerts, festivals et sorties
+              réunis depuis les agendas officiels, puis vérifiés et dédupliqués.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
             <HeroStat
               icon={CalendarDays}
-              label="événements"
-              value={loading ? "…" : stats.total.toString()}
+              label="chargés"
+              value={loading ? "…" : `${stats.total}${hasMore ? "+" : ""}`}
             />
             <HeroStat
               icon={Ticket}
@@ -235,18 +310,6 @@ function Discover() {
               className="h-12 rounded-2xl border-transparent bg-surface/70 pl-11 text-base"
             />
           </div>
-          <select
-            value={cityId ?? ""}
-            onChange={(e) => setCityId(e.target.value || null)}
-            className="h-12 rounded-2xl border bg-surface/70 px-4 text-sm outline-none focus:border-primary"
-          >
-            <option value="">Toutes les villes</option>
-            {cities.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
           <button
             onClick={requestGeo}
             className="flex h-12 items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-medium hover:bg-accent"
@@ -265,6 +328,18 @@ function Discover() {
           >
             <MapIcon className="h-4 w-4" /> Carte live
           </Link>
+        </div>
+        <div className="mt-3 border-t pt-3">
+          <GeographyFilter
+            countries={countries}
+            regions={regions}
+            cities={cities}
+            value={geography}
+            onChange={(next) => {
+              setCoords(null);
+              setGeography(next);
+            }}
+          />
         </div>
       </div>
 
@@ -372,10 +447,17 @@ function Discover() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold">
-            {loading ? "Recherche des meilleurs plans…" : `${sortedEvents.length} sorties trouvées`}
+            {loading
+              ? "Recherche des meilleurs plans…"
+              : `${sortedEvents.length} sorties chargées${hasMore ? " · d'autres sont disponibles" : ""}`}
           </p>
           <p className="text-xs text-muted-foreground">
-            {selectedCity ? selectedCity.name : "Toutes les villes"}
+            {coords
+              ? "Autour de moi"
+              : (selectedCity?.name ??
+                selectedRegion?.name ??
+                selectedCountry?.name ??
+                "Monde entier")}
             {activeCategoryNames.length
               ? ` · ${activeCategoryNames.join(", ")}`
               : " · Toutes catégories"}
@@ -410,11 +492,31 @@ function Discover() {
           ))}
         </div>
       ) : sortedEvents.length ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {sortedEvents.map((e) => (
-            <EventCard key={e.occurrence_id} ev={e} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {sortedEvents.map((e) => (
+              <EventCard key={e.occurrence_id} ev={e} />
+            ))}
+          </div>
+          {hasMore && (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="btn-glow inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 text-sm font-semibold text-primary-foreground disabled:cursor-wait disabled:opacity-70"
+              >
+                {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                {loadingMore
+                  ? "Chargement…"
+                  : `Charger ${EVENT_PAGE_SIZE} événements supplémentaires`}
+              </button>
+              <p className="text-xs text-muted-foreground">
+                Aucun plafond global : continue jusqu'au dernier événement correspondant.
+              </p>
+            </div>
+          )}
+        </>
       ) : (
         <div className="glass flex flex-col items-center justify-center rounded-3xl p-12 text-center">
           <SlidersHorizontal className="mb-3 h-10 w-10 text-muted-foreground" />
