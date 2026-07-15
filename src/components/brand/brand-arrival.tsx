@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX, X } from "lucide-react";
+import { Play, Volume2, VolumeX, X } from "lucide-react";
 import "./brand-arrival.css";
 
-const INTRO_STARTUP_TIMEOUT_MS = 6_000;
-const INTRO_PLAYBACK_TIMEOUT_MS = 11_500;
+const INTRO_PLAYBACK_TIMEOUT_MS = 25_000;
 const INTRO_EXIT_DURATION_MS = 280;
-const INTRO_STORAGE_KEY = "global-party.brand-arrival-video-v1-seen";
 
 type NavigatorWithConnection = Navigator & {
   connection?: {
@@ -16,8 +14,11 @@ type NavigatorWithConnection = Navigator & {
 export function BrandArrival() {
   const [visible, setVisible] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const startButtonRef = useRef<HTMLButtonElement>(null);
   const soundButtonRef = useRef<HTMLButtonElement>(null);
   const skipButtonRef = useRef<HTMLButtonElement>(null);
   const exitTimeoutRef = useRef<number | undefined>(undefined);
@@ -41,16 +42,6 @@ export function BrandArrival() {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const saveData = (window.navigator as NavigatorWithConnection).connection?.saveData === true;
 
-    try {
-      if (window.sessionStorage.getItem(INTRO_STORAGE_KEY)) {
-        return;
-      }
-      window.sessionStorage.setItem(INTRO_STORAGE_KEY, "1");
-    } catch {
-      // Storage can be unavailable in privacy-focused browsing modes. The
-      // intro still works and simply replays on the next full page load.
-    }
-
     if (reducedMotion || saveData) return;
 
     setVisible(true);
@@ -63,9 +54,8 @@ export function BrandArrival() {
 
     const previousBodyOverflow = document.body.style.overflow;
     const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    watchdogTimeoutRef.current = window.setTimeout(dismiss, INTRO_STARTUP_TIMEOUT_MS);
     document.body.style.overflow = "hidden";
-    skipButtonRef.current?.focus({ preventScroll: true });
+    startButtonRef.current?.focus({ preventScroll: true });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -75,7 +65,7 @@ export function BrandArrival() {
 
       if (event.key !== "Tab") return;
 
-      const firstControl = soundButtonRef.current;
+      const firstControl = hasStarted ? soundButtonRef.current : startButtonRef.current;
       const lastControl = skipButtonRef.current;
       if (!firstControl || !lastControl) return;
 
@@ -100,7 +90,30 @@ export function BrandArrival() {
       window.removeEventListener("keydown", handleKeyDown);
       motionPreference.removeEventListener("change", handleMotionPreference);
     };
-  }, [dismiss, visible]);
+  }, [dismiss, hasStarted, visible]);
+
+  useEffect(() => {
+    if (hasStarted) soundButtonRef.current?.focus({ preventScroll: true });
+  }, [hasStarted]);
+
+  const startWithSound = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    window.clearTimeout(watchdogTimeoutRef.current);
+    video.currentTime = 0;
+    video.muted = false;
+    video.volume = 1;
+    setIsMuted(false);
+    setPlaybackError(false);
+
+    try {
+      await video.play();
+      setHasStarted(true);
+    } catch {
+      setPlaybackError(true);
+    }
+  }, []);
 
   if (!visible) return null;
 
@@ -115,7 +128,6 @@ export function BrandArrival() {
         <video
           ref={videoRef}
           className="brand-arrival__video"
-          autoPlay
           muted={isMuted}
           playsInline
           preload="auto"
@@ -123,10 +135,6 @@ export function BrandArrival() {
           disablePictureInPicture
           controlsList="nodownload noplaybackrate noremoteplayback"
           aria-hidden="true"
-          onCanPlay={(event) => {
-            const playback = event.currentTarget.play();
-            if (playback) void playback.catch(dismiss);
-          }}
           onPlaying={armPlaybackWatchdog}
           onEnded={dismiss}
           onError={dismiss}
@@ -135,27 +143,49 @@ export function BrandArrival() {
         </video>
       </div>
 
+      {!hasStarted && (
+        <div className="brand-arrival__launch">
+          <div className="brand-arrival__launch-glow" aria-hidden="true" />
+          <p className="brand-arrival__launch-eyebrow">GLOBAL PARTY</p>
+          <p className="brand-arrival__launch-title">Vivre l’expérience avec le son</p>
+          <button
+            ref={startButtonRef}
+            type="button"
+            className="brand-arrival__launch-button"
+            onClick={() => void startWithSound()}
+          >
+            <Play aria-hidden="true" fill="currentColor" />
+            <span>Lancer la vidéo</span>
+          </button>
+          <p className="brand-arrival__launch-hint">
+            {playbackError
+              ? "Touchez à nouveau pour lancer la vidéo."
+              : "Séquence complète · 9 secondes"}
+          </p>
+        </div>
+      )}
+
       <div className="brand-arrival__controls">
-        <button
-          ref={soundButtonRef}
-          type="button"
-          className="brand-arrival__control"
-          aria-label={isMuted ? "Activer le son" : "Couper le son"}
-          aria-pressed={!isMuted}
-          onClick={() => {
-            const video = videoRef.current;
-            if (!video) return;
+        {hasStarted && (
+          <button
+            ref={soundButtonRef}
+            type="button"
+            className="brand-arrival__control"
+            aria-label={isMuted ? "Activer le son" : "Couper le son"}
+            aria-pressed={!isMuted}
+            onClick={() => {
+              const video = videoRef.current;
+              if (!video) return;
 
-            const nextMuted = !video.muted;
-            video.muted = nextMuted;
-            setIsMuted(nextMuted);
-
-            if (video.paused) void video.play().catch(dismiss);
-          }}
-        >
-          {isMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
-          <span>{isMuted ? "Son" : "Son activé"}</span>
-        </button>
+              const nextMuted = !video.muted;
+              video.muted = nextMuted;
+              setIsMuted(nextMuted);
+            }}
+          >
+            {isMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+            <span>{isMuted ? "Son" : "Son activé"}</span>
+          </button>
+        )}
         <button
           ref={skipButtonRef}
           type="button"
