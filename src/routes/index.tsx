@@ -124,6 +124,7 @@ function Discover() {
   const [cities, setCities] = useState<CityOption[]>([]);
   const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [geographyReady, setGeographyReady] = useState(false);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
     regionId: null,
@@ -194,9 +195,15 @@ function Discover() {
             cityId: geneva.id,
           });
         }
+        setGeographyReady(true);
       })
       .catch(() => {
-        if (current) setError("Les filtres géographiques n'ont pas pu être chargés.");
+        if (current) {
+          setError("Les filtres géographiques n'ont pas pu être chargés.");
+          // Keep worldwide discovery available when the geography catalogue
+          // is temporarily unavailable.
+          setGeographyReady(true);
+        }
       });
     return () => {
       current = false;
@@ -236,6 +243,7 @@ function Discover() {
   );
 
   useEffect(() => {
+    if (!geographyReady) return;
     let current = true;
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
@@ -266,43 +274,56 @@ function Discover() {
     return () => {
       current = false;
     };
-  }, [discoveryParams, reloadKey]);
+  }, [discoveryParams, geographyReady, reloadKey]);
 
   useEffect(() => {
+    if (!geographyReady) return;
     let current = true;
     const landingRange = computeRange("year");
     const geographyParams = { countryId, regionId, cityId };
-    Promise.all([
-      discoverEvents({
+    setLandingCollections(null);
+
+    // Load editorial rails in sequence. Four simultaneous worldwide scans,
+    // on top of the main catalogue request, can exhaust PostgREST's short
+    // statement budget on a cold cache even though every query is fast alone.
+    const loadCollections = async () => {
+      const top = await discoverEvents({
         ...geographyParams,
         ...landingRange,
         verifiedOnly: true,
         limit: 8,
-      }),
-      discoverEvents({ ...geographyParams, ...landingRange, freeOnly: true, limit: 8 }),
-      discoverEvents({
+      });
+      if (!current) return;
+      const free = await discoverEvents({
+        ...geographyParams,
+        ...landingRange,
+        freeOnly: true,
+        limit: 8,
+      });
+      if (!current) return;
+      const nightlife = await discoverEvents({
         ...geographyParams,
         ...landingRange,
         categorySlugs: ["soirees"],
         limit: 8,
-      }),
-      discoverEvents({
+      });
+      if (!current) return;
+      const festivals = await discoverEvents({
         ...geographyParams,
         ...landingRange,
         categorySlugs: ["festivals"],
         limit: 8,
-      }),
-    ])
-      .then(([top, free, nightlife, festivals]) => {
-        if (current) setLandingCollections({ top, free, nightlife, festivals });
-      })
-      .catch(() => {
-        if (current) setLandingCollections(null);
       });
+      if (current) setLandingCollections({ top, free, nightlife, festivals });
+    };
+
+    void loadCollections().catch(() => {
+      if (current) setLandingCollections(null);
+    });
     return () => {
       current = false;
     };
-  }, [cityId, countryId, regionId]);
+  }, [cityId, countryId, geographyReady, regionId]);
 
   const loadMore = async () => {
     if (loading || loadingMore || !hasMore) return;
