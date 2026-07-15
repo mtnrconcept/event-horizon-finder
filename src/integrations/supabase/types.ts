@@ -2032,6 +2032,7 @@ export type Database = {
           _capacity_unknown?: boolean;
           _category_slugs?: string[];
           _city_id?: string;
+          _country_id?: string;
           _free_only?: boolean;
           _from?: string;
           _genres?: string[];
@@ -2044,6 +2045,7 @@ export type Database = {
           _priced_only?: boolean;
           _query?: string;
           _radius_km?: number;
+          _region_id?: string;
           _tickets_only?: boolean;
           _to?: string;
           _venue_only?: boolean;
@@ -2077,6 +2079,38 @@ export type Database = {
           wheelchair: boolean;
         }[];
       };
+      discover_event_stats_v1: {
+        Args: {
+          _accessible_only?: boolean;
+          _capacity_max?: number;
+          _capacity_min?: number;
+          _capacity_unknown?: boolean;
+          _category_slugs?: string[];
+          _city_id?: string;
+          _country_id?: string;
+          _free_only?: boolean;
+          _from?: string;
+          _genres?: string[];
+          _lat?: number;
+          _lon?: number;
+          _price_max?: number;
+          _price_min?: number;
+          _priced_only?: boolean;
+          _query?: string;
+          _radius_km?: number;
+          _region_id?: string;
+          _require_coordinates?: boolean;
+          _tickets_only?: boolean;
+          _to?: string;
+          _venue_only?: boolean;
+          _verified_only?: boolean;
+        };
+        Returns: {
+          free_count: number;
+          total_count: number;
+          verified_count: number;
+        }[];
+      };
       discover_map_events: {
         Args: {
           _accessible_only?: boolean;
@@ -2085,6 +2119,7 @@ export type Database = {
           _capacity_unknown?: boolean;
           _category_slugs?: string[];
           _city_id?: string;
+          _country_id?: string;
           _free_only?: boolean;
           _from?: string;
           _genres?: string[];
@@ -2097,6 +2132,7 @@ export type Database = {
           _priced_only?: boolean;
           _query?: string;
           _radius_km?: number;
+          _region_id?: string;
           _tickets_only?: boolean;
           _to?: string;
           _venue_only?: boolean;

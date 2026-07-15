@@ -19,14 +19,12 @@ export function useVisualViewportHeight(): number | null {
     window.addEventListener("resize", update, { passive: true });
     window.addEventListener("orientationchange", update, { passive: true });
     window.visualViewport?.addEventListener("resize", update, { passive: true });
-    window.visualViewport?.addEventListener("scroll", update, { passive: true });
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
       window.visualViewport?.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("scroll", update);
     };
   }, []);
 

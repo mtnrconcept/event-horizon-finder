@@ -37,11 +37,7 @@ export function MobileDiscoveryLayout({
   useEffect(() => {
     if (view !== "map") return;
     const animationFrame = window.requestAnimationFrame(resizeMap);
-    const settledResize = window.setTimeout(resizeMap, 180);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.clearTimeout(settledResize);
-    };
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [hasSelection, resizeMap, view, viewportHeight]);
 
   useEffect(() => {

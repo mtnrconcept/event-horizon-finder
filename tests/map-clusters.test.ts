@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildMapPointCollection } from "../src/lib/map-clusters.ts";
+import { selectNearestMapHit } from "../src/lib/map-interactions.ts";
 import type { DiscoveredEvent, DiscoveredVenue } from "../src/lib/queries.ts";
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
@@ -107,4 +108,34 @@ test("abbreviates unusually large price labels", () => {
   });
 
   assert.equal(points.features[0]?.properties.marker_label, "1.3k");
+});
+
+test("selects one nearby map hit by distance, then by marker priority", () => {
+  const nearest = selectNearestMapHit(
+    [
+      { kind: "cluster", x: 18, y: 10, value: "far-cluster" },
+      { kind: "venue", x: 11, y: 10, value: "near-venue" },
+    ],
+    { x: 10, y: 10 },
+    24,
+  );
+  assert.equal(nearest?.value, "near-venue");
+
+  const sharedPosition = selectNearestMapHit(
+    [
+      { kind: "venue", x: 10, y: 10, value: "venue" },
+      { kind: "event", x: 10, y: 10, value: "event" },
+      { kind: "cluster", x: 10, y: 10, value: "cluster" },
+    ],
+    { x: 10, y: 10 },
+    24,
+  );
+  assert.equal(sharedPosition?.value, "cluster");
+
+  const outsideHitArea = selectNearestMapHit(
+    [{ kind: "event", x: 40, y: 40, value: "outside" }],
+    { x: 10, y: 10 },
+    24,
+  );
+  assert.equal(outsideHitArea, null);
 });
