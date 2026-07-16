@@ -734,11 +734,7 @@ function MapPage() {
       return;
     }
     const locatedEvents = events.filter((event) =>
-      isMapCoordinatePlausibleForCountry(
-        selectedCountryCode,
-        event.latitude,
-        event.longitude,
-      ),
+      isMapCoordinatePlausibleForCountry(selectedCountryCode, event.latitude, event.longitude),
     );
     if ((countryId || regionId) && !locatedEvents.length) return;
     lastFittedScopeRef.current = scopeKey;
@@ -755,15 +751,7 @@ function MapPage() {
     const bounds = new maplibregl.LngLatBounds();
     locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
     map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [
-    cityId,
-    countryId,
-    events,
-    mapReady,
-    regionId,
-    selectedCity,
-    selectedCountryCode,
-  ]);
+  }, [cityId, countryId, events, mapReady, regionId, selectedCity, selectedCountryCode]);
 
   const mapDiscoveryParams = useMemo(
     () => ({
