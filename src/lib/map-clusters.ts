@@ -38,8 +38,7 @@ export function isMapCoordinatePlausibleForCountry(
 
   const isMainlandOrBalearic =
     latitude >= 35 && latitude <= 44.5 && longitude >= -10 && longitude <= 5;
-  const isCanaryIsland =
-    latitude >= 27 && latitude <= 30 && longitude >= -19 && longitude <= -13;
+  const isCanaryIsland = latitude >= 27 && latitude <= 30 && longitude >= -19 && longitude <= -13;
 
   return isMainlandOrBalearic || isCanaryIsland;
 }
