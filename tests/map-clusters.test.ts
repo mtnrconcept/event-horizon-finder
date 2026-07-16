@@ -106,6 +106,63 @@ test("respects layer toggles and drops invalid world coordinates", () => {
   assert.equal(points.features[0]?.properties.approximate, 1);
 });
 
+test("keeps Spain points in Spain and rejects proven coordinate inversions", () => {
+  const points = buildMapPointCollection({
+    events: [
+      event({
+        occurrence_id: "barcelona",
+        latitude: 41.3874,
+        longitude: 2.1686,
+      }),
+      event({
+        occurrence_id: "barcelona-swapped",
+        latitude: 2.1686,
+        longitude: 41.3874,
+      }),
+      event({
+        occurrence_id: "madrid",
+        latitude: 40.4168,
+        longitude: -3.7038,
+      }),
+      event({
+        occurrence_id: "tenerife",
+        latitude: 28.2916,
+        longitude: -16.6291,
+      }),
+    ],
+    venues: [
+      venue({
+        id: "venue-swapped",
+        latitude: 2.1686,
+        longitude: 41.3874,
+      }),
+    ],
+    showEvents: true,
+    showVenues: true,
+    countryCode: "ES",
+  });
+
+  assert.deepEqual(
+    points.features.map((feature) => feature.id),
+    ["event:barcelona", "event:madrid", "event:tenerife"],
+  );
+  assert.deepEqual(points.features[0]?.geometry.coordinates, [2.1686, 41.3874]);
+
+  const unscopedWorldPoint = buildMapPointCollection({
+    events: [
+      event({
+        occurrence_id: "world-point",
+        latitude: 2.1686,
+        longitude: 41.3874,
+      }),
+    ],
+    venues: [],
+    showEvents: true,
+    showVenues: false,
+  });
+  assert.equal(unscopedWorldPoint.features.length, 1);
+});
+
 test("abbreviates unusually large price labels", () => {
   const points = buildMapPointCollection({
     events: [event({ price_from: 1_250 })],
