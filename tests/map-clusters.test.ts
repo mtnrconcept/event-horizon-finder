@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildMapPointCollection } from "../src/lib/map-clusters.ts";
-import { selectNearestMapHit } from "../src/lib/map-interactions.ts";
+import {
+  EVENT_CLUSTER_MAX_ZOOM,
+  EVENT_CLUSTER_RADIUS,
+  clusterExpansionTargetZoom,
+  eventClusterCircleRadius,
+  eventClusterTextSize,
+} from "../src/lib/map-cluster-config.ts";
+import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
 import type { DiscoveredEvent, DiscoveredVenue } from "../src/lib/queries.ts";
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
@@ -138,4 +145,39 @@ test("selects one nearby map hit by distance, then by marker priority", () => {
     24,
   );
   assert.equal(outsideHitArea, null);
+});
+
+test("uses large, readable event clusters that grow monotonically", () => {
+  const counts = [1, 10, 50, 250, 1_000, 5_000, 20_000];
+  const radii = counts.map(eventClusterCircleRadius);
+  const textSizes = counts.map(eventClusterTextSize);
+
+  assert.ok(EVENT_CLUSTER_RADIUS >= 72);
+  assert.ok(EVENT_CLUSTER_MAX_ZOOM >= 17);
+  assert.ok(radii[0] >= 26);
+  assert.ok(textSizes[0] >= 14);
+  assert.deepEqual(
+    radii,
+    [...radii].sort((left, right) => left - right),
+  );
+  assert.deepEqual(
+    textSizes,
+    [...textSizes].sort((left, right) => left - right),
+  );
+});
+
+test("cluster expansion always zooms in and remains within the supported source zoom", () => {
+  assert.equal(clusterExpansionTargetZoom(4, 6), 6.35);
+  assert.equal(clusterExpansionTargetZoom(12, 12), 13.25);
+  assert.equal(clusterExpansionTargetZoom(20, 22), 20.75);
+});
+
+test("accepts a rendered cluster at the edge of its painted circle", () => {
+  const selected = selectHighestPriorityMapHit([
+    { kind: "venue", x: 100, y: 100, value: "venue" },
+    { kind: "event", x: 100, y: 100, value: "event" },
+    { kind: "cluster", x: 48, y: 100, value: "large-cluster" },
+  ]);
+
+  assert.equal(selected?.value, "large-cluster");
 });
