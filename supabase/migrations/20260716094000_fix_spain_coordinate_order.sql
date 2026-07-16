@@ -65,6 +65,48 @@ $$;
 COMMENT ON FUNCTION private.normalize_coordinate_pair(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) IS
   'Validates an atomic coordinate pair and repairs proven latitude/longitude inversions for Spain, including the Canary Islands.';
 
+-- Existing location-sync triggers call this function after the country-aware
+-- guard. Resolve the extension schema dynamically because production keeps
+-- PostGIS in public while clean preview projects may keep it in extensions.
+CREATE OR REPLACE FUNCTION public.sync_location_from_latlon()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_postgis_schema TEXT;
+BEGIN
+  IF NEW.latitude IS NULL OR NEW.longitude IS NULL THEN
+    NEW.latitude := NULL;
+    NEW.longitude := NULL;
+    NEW.location := NULL;
+    RETURN NEW;
+  END IF;
+
+  SELECT namespace.nspname
+    INTO v_postgis_schema
+  FROM pg_catalog.pg_extension AS extension
+  JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+  WHERE extension.extname = 'postgis';
+
+  IF v_postgis_schema IS NULL THEN
+    RAISE EXCEPTION 'postgis extension is required to synchronize catalog coordinates';
+  END IF;
+
+  EXECUTE format(
+    'SELECT %1$I.st_setsrid(%1$I.st_makepoint($1, $2), 4326)::%1$I.geography',
+    v_postgis_schema
+  )
+  INTO NEW.location
+  USING NEW.longitude, NEW.latitude;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.sync_location_from_latlon() IS
+  'Atomically synchronizes latitude/longitude columns with a PostGIS geography point across extension schemas.';
+
 CREATE OR REPLACE FUNCTION private.normalize_catalog_coordinate_order()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -285,6 +327,10 @@ BEGIN
   FROM pg_catalog.pg_extension AS extension
   JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = extension.extnamespace
   WHERE extension.extname = 'postgis';
+
+  IF postgis_schema IS NULL THEN
+    RAISE EXCEPTION 'postgis extension is required by upsert_ingested_event_v2';
+  END IF;
 
   SELECT pg_catalog.pg_get_functiondef(
            to_regprocedure('public.upsert_ingested_event_v2_catalog_core(uuid,jsonb)')
@@ -625,6 +671,10 @@ BEGIN
   FROM pg_catalog.pg_extension AS extension
   JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = extension.extnamespace
   WHERE extension.extname = 'postgis';
+
+  IF postgis_schema IS NULL THEN
+    RAISE EXCEPTION 'postgis extension is required to audit Spanish coordinates';
+  END IF;
 
   EXECUTE format(
     $location_audit$
