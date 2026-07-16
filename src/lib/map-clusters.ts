@@ -32,7 +32,7 @@ export function isMapCoordinatePlausibleForCountry(
   countryCode: string | null | undefined,
   latitude: number | null | undefined,
   longitude: number | null | undefined,
-): latitude is number {
+): boolean {
   if (!validLatitude(latitude) || !validLongitude(longitude)) return false;
   if (countryCode?.trim().toUpperCase() !== "ES") return true;
 
@@ -62,6 +62,8 @@ export function buildMapPointCollection({
   if (showEvents) {
     for (const event of events) {
       if (
+        !validLongitude(event.longitude) ||
+        !validLatitude(event.latitude) ||
         !isMapCoordinatePlausibleForCountry(countryCode, event.latitude, event.longitude)
       ) {
         continue;
@@ -85,6 +87,8 @@ export function buildMapPointCollection({
   if (showVenues) {
     for (const venue of venues) {
       if (
+        !validLongitude(venue.longitude) ||
+        !validLatitude(venue.latitude) ||
         !isMapCoordinatePlausibleForCountry(countryCode, venue.latitude, venue.longitude)
       ) {
         continue;
