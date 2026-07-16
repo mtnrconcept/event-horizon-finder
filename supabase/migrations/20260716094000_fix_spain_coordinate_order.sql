@@ -231,8 +231,23 @@ REVOKE ALL ON FUNCTION private.normalize_eventscrap_coordinate_order()
   FROM PUBLIC, anon, authenticated;
 
 DO $$
+DECLARE
+  staging_table REGCLASS := to_regclass('public.eventscrap');
+  staging_column_count INTEGER := 0;
 BEGIN
-  IF to_regclass('public.eventscrap') IS NOT NULL THEN
+  IF staging_table IS NOT NULL THEN
+    SELECT count(*)
+      INTO staging_column_count
+    FROM pg_catalog.pg_attribute
+    WHERE attrelid = staging_table
+      AND attnum > 0
+      AND NOT attisdropped
+      AND attname = ANY (ARRAY[
+        'source', 'country_code', 'latitude', 'longitude', 'data_warnings'
+      ]);
+  END IF;
+
+  IF staging_column_count = 5 THEN
     EXECUTE 'DROP TRIGGER IF EXISTS a00_normalize_coordinate_order ON public.eventscrap';
     EXECUTE $trigger$
       CREATE TRIGGER a00_normalize_coordinate_order
@@ -248,6 +263,9 @@ $$;
 -- city. Renaming the existing implementation keeps this migration small and
 -- preserves its complete organizer/ticket/media behavior behind the wrapper.
 DO $$
+DECLARE
+  core_definition TEXT;
+  postgis_schema TEXT;
 BEGIN
   IF to_regprocedure('public.upsert_ingested_event_v2(uuid,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'upsert_ingested_event_v2(uuid,jsonb) is required';
@@ -258,6 +276,36 @@ BEGIN
 
   ALTER FUNCTION public.upsert_ingested_event_v2(UUID, JSONB)
     RENAME TO upsert_ingested_event_v2_catalog_core;
+
+  -- The live project keeps PostGIS in public while clean preview projects may
+  -- keep it in extensions. Repair only the PostGIS references in the preserved
+  -- core; pgcrypto's extensions.digest reference must remain unchanged.
+  SELECT namespace.nspname
+    INTO postgis_schema
+  FROM pg_catalog.pg_extension AS extension
+  JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+  WHERE extension.extname = 'postgis';
+
+  SELECT pg_catalog.pg_get_functiondef(
+           to_regprocedure('public.upsert_ingested_event_v2_catalog_core(uuid,jsonb)')
+         )
+    INTO core_definition;
+  core_definition := replace(
+    core_definition,
+    'extensions.st_setsrid',
+    format('%I.st_setsrid', postgis_schema)
+  );
+  core_definition := replace(
+    core_definition,
+    'extensions.st_makepoint',
+    format('%I.st_makepoint', postgis_schema)
+  );
+  core_definition := replace(
+    core_definition,
+    '::extensions.geography',
+    format('::%I.geography', postgis_schema)
+  );
+  EXECUTE core_definition;
 END;
 $$;
 
@@ -325,11 +373,9 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.upsert_ingested_event_v2_catalog_core(UUID, JSONB)
-  FROM PUBLIC, anon, authenticated;
+  FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.upsert_ingested_event_v2(UUID, JSONB)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.upsert_ingested_event_v2_catalog_core(UUID, JSONB)
-  TO service_role;
 GRANT EXECUTE ON FUNCTION public.upsert_ingested_event_v2(UUID, JSONB)
   TO service_role;
 
@@ -340,8 +386,23 @@ COMMENT ON FUNCTION public.upsert_ingested_event_v2(UUID, JSONB) IS
 -- source-aware conversion and leaves already-correct OpenAgenda/Wikidata rows
 -- unchanged.
 DO $$
+DECLARE
+  staging_table REGCLASS := to_regclass('public.eventscrap');
+  staging_column_count INTEGER := 0;
 BEGIN
-  IF to_regclass('public.eventscrap') IS NOT NULL THEN
+  IF staging_table IS NOT NULL THEN
+    SELECT count(*)
+      INTO staging_column_count
+    FROM pg_catalog.pg_attribute
+    WHERE attrelid = staging_table
+      AND attnum > 0
+      AND NOT attisdropped
+      AND attname = ANY (ARRAY[
+        'source', 'country_code', 'latitude', 'longitude', 'data_warnings', 'venue_name'
+      ]);
+  END IF;
+
+  IF staging_column_count = 6 THEN
     EXECUTE $repair$
       UPDATE public.eventscrap
       SET latitude = latitude,
@@ -459,6 +520,7 @@ DO $$
 DECLARE
   normalized RECORD;
   invalid_count BIGINT;
+  postgis_schema TEXT;
 BEGIN
   SELECT * INTO normalized
   FROM private.normalize_coordinate_pair('ES', 2.1734, 41.3851);
@@ -556,6 +618,57 @@ BEGIN
     );
   IF invalid_count <> 0 THEN
     RAISE EXCEPTION '% invalid Spanish occurrence coordinate rows remain', invalid_count;
+  END IF;
+
+  SELECT namespace.nspname
+    INTO postgis_schema
+  FROM pg_catalog.pg_extension AS extension
+  JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+  WHERE extension.extname = 'postgis';
+
+  EXECUTE format(
+    $location_audit$
+      SELECT count(*)
+      FROM (
+        SELECT city.latitude, city.longitude, city.location
+        FROM public.cities AS city
+        JOIN public.countries AS country ON country.id = city.country_id
+        WHERE upper(country.code) = 'ES'
+
+        UNION ALL
+
+        SELECT venue.latitude, venue.longitude, venue.location
+        FROM public.venues AS venue
+        LEFT JOIN public.cities AS city ON city.id = venue.city_id
+        JOIN public.countries AS country
+          ON country.id = coalesce(city.country_id, venue.country_id)
+        WHERE upper(country.code) = 'ES'
+
+        UNION ALL
+
+        SELECT occurrence.latitude, occurrence.longitude, occurrence.location
+        FROM public.event_occurrences AS occurrence
+        JOIN public.events AS event ON event.id = occurrence.event_id
+        LEFT JOIN public.venues AS venue ON venue.id = event.venue_id
+        LEFT JOIN public.cities AS city ON city.id = coalesce(venue.city_id, event.city_id)
+        JOIN public.countries AS country
+          ON country.id = coalesce(city.country_id, venue.country_id)
+        WHERE upper(country.code) = 'ES'
+      ) AS coordinate
+      WHERE (coordinate.latitude IS NULL AND coordinate.location IS NOT NULL)
+         OR (
+           coordinate.latitude IS NOT NULL
+           AND (
+             coordinate.location IS NULL
+             OR abs(%1$I.st_y(coordinate.location::%1$I.geometry) - coordinate.latitude) > 1e-9
+             OR abs(%1$I.st_x(coordinate.location::%1$I.geometry) - coordinate.longitude) > 1e-9
+           )
+         )
+    $location_audit$,
+    postgis_schema
+  ) INTO invalid_count;
+  IF invalid_count <> 0 THEN
+    RAISE EXCEPTION '% Spanish PostGIS locations are missing or out of sync', invalid_count;
   END IF;
 END;
 $$;
