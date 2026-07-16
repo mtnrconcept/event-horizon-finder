@@ -49,6 +49,7 @@ import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
   buildMapPointCollection,
+  isMapCoordinatePlausibleForCountry,
   type MapPointCollection,
   type MapPointProperties,
 } from "@/lib/map-clusters";
@@ -553,6 +554,7 @@ function MapPage() {
     () => countries.find((country) => country.id === countryId) ?? null,
     [countries, countryId],
   );
+  const selectedCountryCode = selectedCountry?.code ?? null;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
   const visibleVenues = useMemo(() => {
@@ -571,8 +573,9 @@ function MapPage() {
         venues: [],
         showEvents,
         showVenues: false,
+        countryCode: selectedCountryCode,
       }),
-    [events, showEvents],
+    [events, selectedCountryCode, showEvents],
   );
   const venueMapPoints = useMemo(
     () =>
@@ -581,8 +584,9 @@ function MapPage() {
         venues: visibleVenues,
         showEvents: false,
         showVenues,
+        countryCode: selectedCountryCode,
       }),
-    [showVenues, visibleVenues],
+    [selectedCountryCode, showVenues, visibleVenues],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -713,7 +717,15 @@ function MapPage() {
     if (!map || !mapReady) return;
     const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
     if (lastFittedScopeRef.current === scopeKey) return;
-    if (selectedCity?.latitude != null && selectedCity.longitude != null) {
+    if (
+      selectedCity?.latitude != null &&
+      selectedCity.longitude != null &&
+      isMapCoordinatePlausibleForCountry(
+        selectedCountryCode,
+        selectedCity.latitude,
+        selectedCity.longitude,
+      )
+    ) {
       lastFittedScopeRef.current = scopeKey;
       map.flyTo({
         center: [selectedCity.longitude, selectedCity.latitude],
@@ -721,8 +733,8 @@ function MapPage() {
       });
       return;
     }
-    const locatedEvents = events.filter(
-      (event) => event.latitude != null && event.longitude != null,
+    const locatedEvents = events.filter((event) =>
+      isMapCoordinatePlausibleForCountry(selectedCountryCode, event.latitude, event.longitude),
     );
     if ((countryId || regionId) && !locatedEvents.length) return;
     lastFittedScopeRef.current = scopeKey;
@@ -739,7 +751,7 @@ function MapPage() {
     const bounds = new maplibregl.LngLatBounds();
     locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
     map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [cityId, countryId, events, mapReady, regionId, selectedCity]);
+  }, [cityId, countryId, events, mapReady, regionId, selectedCity, selectedCountryCode]);
 
   const mapDiscoveryParams = useMemo(
     () => ({
