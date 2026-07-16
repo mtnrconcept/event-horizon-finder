@@ -28,22 +28,44 @@ function validLatitude(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value) && value >= -90 && value <= 90;
 }
 
+export function isMapCoordinatePlausibleForCountry(
+  countryCode: string | null | undefined,
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+): latitude is number {
+  if (!validLatitude(latitude) || !validLongitude(longitude)) return false;
+  if (countryCode?.trim().toUpperCase() !== "ES") return true;
+
+  const isMainlandOrBalearic =
+    latitude >= 35 && latitude <= 44.5 && longitude >= -10 && longitude <= 5;
+  const isCanaryIsland =
+    latitude >= 27 && latitude <= 30 && longitude >= -19 && longitude <= -13;
+
+  return isMainlandOrBalearic || isCanaryIsland;
+}
+
 export function buildMapPointCollection({
   events,
   venues,
   showEvents,
   showVenues,
+  countryCode = null,
 }: {
   events: DiscoveredEvent[];
   venues: DiscoveredVenue[];
   showEvents: boolean;
   showVenues: boolean;
+  countryCode?: string | null;
 }): MapPointCollection {
   const features: Array<Feature<Point, MapPointProperties>> = [];
 
   if (showEvents) {
     for (const event of events) {
-      if (!validLongitude(event.longitude) || !validLatitude(event.latitude)) continue;
+      if (
+        !isMapCoordinatePlausibleForCountry(countryCode, event.latitude, event.longitude)
+      ) {
+        continue;
+      }
       features.push({
         type: "Feature",
         id: `event:${event.occurrence_id}`,
@@ -62,7 +84,11 @@ export function buildMapPointCollection({
 
   if (showVenues) {
     for (const venue of venues) {
-      if (!validLongitude(venue.longitude) || !validLatitude(venue.latitude)) continue;
+      if (
+        !isMapCoordinatePlausibleForCountry(countryCode, venue.latitude, venue.longitude)
+      ) {
+        continue;
+      }
       features.push({
         type: "Feature",
         id: `venue:${venue.id}`,
