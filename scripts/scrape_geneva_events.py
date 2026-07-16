@@ -100,20 +100,40 @@ class Event:
     def rpc_payload(self, source_id: str) -> dict[str, Any]:
         return {
             "_data_source_id": source_id,
-            "_source_url": self.source_url,
-            "_title": self.title,
-            "_description": self.description,
-            "_starts_at": self.starts_at,
-            "_ends_at": self.ends_at,
-            "_venue_name": self.venue_name,
-            "_address": self.address,
-            "_latitude": self.latitude,
-            "_longitude": self.longitude,
-            "_category": self.category,
-            "_ticket_url": self.ticket_url,
-            "_image_url": self.image_url,
-            "_is_free": self.is_free,
-            "_external_identifier": self.external_identifier,
+            "_payload": {
+                "source_url": self.source_url,
+                "title": self.title,
+                "description": self.description,
+                "starts_at": self.starts_at,
+                "ends_at": self.ends_at,
+                "venue_name": self.venue_name,
+                "address": self.address,
+                "latitude": self.latitude,
+                "longitude": self.longitude,
+                "category": self.category,
+                "ticket_url": self.ticket_url,
+                "image_url": self.image_url,
+                "is_free": self.is_free,
+                "external_identifier": self.external_identifier,
+                "timezone": self.timezone,
+                "time_precision": self.time_precision,
+                "all_day": self.all_day,
+                "city": self.city,
+                "region": self.region,
+                "country_code": self.country_code,
+                "organizer_name": self.organizer_name,
+                "organizer_url": self.organizer_url,
+                "status": self.status,
+                "language": self.language,
+                "genres": list(self.genres),
+                "capacity": self.capacity,
+                "price_min": self.price_min,
+                "price_max": self.price_max,
+                "currency": self.currency,
+                "ticket_status": "free" if self.is_free else "available" if self.ticket_url else "unknown",
+                "quality_score": self.quality_score,
+                "warnings": list(self.warnings),
+            },
         }
 
 
@@ -759,14 +779,7 @@ class SupabaseREST:
         self.headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
         self.timeout = timeout
 
-    def sources(self, source_ids: Sequence[str], city_slug: str = "geneve") -> list[Source]:
-        city_rows = _request_json(
-            f"{self.url}/rest/v1/cities?slug=eq.{city_slug}&select=id&limit=1",
-            headers=self.headers,
-            timeout=self.timeout,
-        )
-        if not city_rows:
-            raise CollectorError(f"The {city_slug!r} city row is missing in Supabase")
+    def sources(self, source_ids: Sequence[str], city_slug: str | None = None) -> list[Source]:
         query = {
             "select": (
                 "id,name,base_url,category_slug,page_count,metadata,"
@@ -775,9 +788,17 @@ class SupabaseREST:
             "status": "eq.active",
             "is_authorized": "eq.true",
             "is_verified": "eq.true",
-            "city_id": f"eq.{city_rows[0]['id']}",
             "order": "priority.asc,name.asc",
         }
+        if city_slug:
+            city_rows = _request_json(
+                f"{self.url}/rest/v1/cities?slug=eq.{city_slug}&select=id&limit=1",
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+            if not city_rows:
+                raise CollectorError(f"The {city_slug!r} city row is missing in Supabase")
+            query["city_id"] = f"eq.{city_rows[0]['id']}"
         if source_ids:
             query["id"] = f"in.({','.join(source_ids)})"
         rows = _request_json(
@@ -787,6 +808,10 @@ class SupabaseREST:
         )
         sources: list[Source] = []
         for row in rows:
+            if (row.get("metadata") or {}).get("derived_city_source") is True:
+                continue
+            if (row.get("metadata") or {}).get("import_only") is True:
+                continue
             city = row.get("city") if isinstance(row.get("city"), Mapping) else {}
             country = city.get("country") if isinstance(city.get("country"), Mapping) else {}
             sources.append(Source(
@@ -796,7 +821,7 @@ class SupabaseREST:
                 category=row.get("category_slug") or "concerts",
                 page_count=max(1, min(int(row.get("page_count") or 1), 40)),
                 metadata=row.get("metadata") or {},
-                city=_first_text(city.get("name")) or city_slug,
+                city=_first_text(city.get("name")) or city_slug or "",
                 timezone=_first_text(city.get("timezone")) or "UTC",
                 latitude=_number(city.get("latitude")),
                 longitude=_number(city.get("longitude")),
@@ -806,7 +831,7 @@ class SupabaseREST:
 
     def upsert(self, source_id: str, event: Event) -> Mapping[str, Any]:
         result = _request_json(
-            f"{self.url}/rest/v1/rpc/upsert_ingested_event",
+            f"{self.url}/rest/v1/rpc/upsert_ingested_event_v2",
             method="POST",
             headers=self.headers,
             payload=event.rpc_payload(source_id),
@@ -1085,8 +1110,6 @@ def run_direct(args: argparse.Namespace) -> int:
                     raise CollectorError("A registered data source is required when using --write")
                 outcome = database.upsert(source.id, event) if database else {}
                 action = str(outcome.get("action") or "updated")
-                if database and outcome.get("event_id"):
-                    database.enrich(str(outcome["event_id"]), event)
                 summary["created" if action == "created" else "updated"] += 1
             else:
                 print(json.dumps(event.__dict__, ensure_ascii=False, sort_keys=True))
@@ -1112,7 +1135,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-batches", type=int, default=100)
     parser.add_argument("--url", help="Direct-mode URL for an unregistered local dry run")
     parser.add_argument("--venue", help="Venue name used with --url")
-    parser.add_argument("--city-slug", default="geneve", help="Registered city slug used in direct mode")
+    parser.add_argument(
+        "--city-slug",
+        default=None,
+        help="Optional registered city slug in direct mode; omitted means every active world source",
+    )
     parser.add_argument("--city-name", default="Genève", help="City hint used with --url")
     parser.add_argument("--country-code", default="CH", help="ISO country hint used with --url")
     parser.add_argument("--timezone", default="Europe/Zurich", help="IANA timezone used with --url")
