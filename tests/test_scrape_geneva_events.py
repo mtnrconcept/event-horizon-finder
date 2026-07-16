@@ -175,9 +175,11 @@ class GenevaScraperTests(unittest.TestCase):
             source_url="https://venue.example/events/test",
         )
         payload = event.rpc_payload("00000000-0000-0000-0000-000000000000")
-        self.assertEqual(payload["_title"], "Concert Test")
         self.assertEqual(payload["_data_source_id"], "00000000-0000-0000-0000-000000000000")
-        self.assertIn("_external_identifier", payload)
+        self.assertEqual(payload["_payload"]["title"], "Concert Test")
+        self.assertIn("external_identifier", payload["_payload"])
+        self.assertIn("timezone", payload["_payload"])
+        self.assertIn("genres", payload["_payload"])
 
     def test_edge_mode_prefers_normalized_function_url(self):
         args = SimpleNamespace(
