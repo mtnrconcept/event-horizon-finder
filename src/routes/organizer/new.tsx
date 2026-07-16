@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { MUSIC_GENRES } from "@/lib/event-filters";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/organizer/new")({
   head: () => ({ meta: [{ title: "Nouvel événement — Global Party" }] }),
@@ -33,10 +34,13 @@ const INITIAL_FORM = {
 };
 
 function NewEvent() {
+  const { tr, t, categoryLabel, genreLabel } = useTranslation();
   const navigate = useNavigate();
   const [orgs, setOrgs] = useState<Array<{ id: string; name: string }>>([]);
   const [venues, setVenues] = useState<Array<{ id: string; name: string }>>([]);
-  const [categories, setCategories] = useState<Array<{ id: string; name_fr: string }>>([]);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; slug: string; name_fr: string }>
+  >([]);
   const [cities, setCities] = useState<Array<{ id: string; name: string; timezone: string }>>([]);
   const [form, setForm] = useState(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
@@ -54,7 +58,7 @@ function NewEvent() {
           .select("organizer:organizers(id,name)")
           .eq("user_id", data.user.id),
         supabase.from("venues").select("id,name").order("name").limit(500),
-        supabase.from("event_categories").select("id,name_fr").order("sort_order"),
+        supabase.from("event_categories").select("id,slug,name_fr").order("sort_order"),
         supabase.from("cities").select("id,name,timezone").order("name").limit(500),
       ]);
       const nextOrganizations = (memberships.data ?? [])
@@ -62,7 +66,9 @@ function NewEvent() {
         .filter(Boolean) as Array<{ id: string; name: string }>;
       setOrgs(nextOrganizations);
       setVenues((venueRows.data ?? []) as Array<{ id: string; name: string }>);
-      setCategories((categoryRows.data ?? []) as Array<{ id: string; name_fr: string }>);
+      setCategories(
+        (categoryRows.data ?? []) as Array<{ id: string; slug: string; name_fr: string }>,
+      );
       setCities((cityRows.data ?? []) as Array<{ id: string; name: string; timezone: string }>);
       setForm((current) => ({
         ...current,
@@ -86,13 +92,13 @@ function NewEvent() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!form.organizer_id || saving) {
-      if (!form.organizer_id) toast.error("Choisis une organisation.");
+      if (!form.organizer_id) toast.error(tr("Choisis une organisation."));
       return;
     }
     setSaving(true);
     try {
       const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) throw new Error("Session expirée");
+      if (!authData.user) throw new Error(tr("Session expirée"));
       const slugRoot =
         form.title
           .normalize("NFD")
@@ -152,10 +158,10 @@ function NewEvent() {
           toast.warning(`Événement créé, mais billetterie incomplète : ${ticketError.message}`);
         }
       }
-      toast.success("Événement envoyé pour vérification");
+      toast.success(tr("Événement envoyé pour vérification"));
       navigate({ to: "/organizer" });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de créer l'événement");
+      toast.error(error instanceof Error ? error.message : tr("Impossible de créer l'événement"));
     } finally {
       setSaving(false);
     }
@@ -167,12 +173,12 @@ function NewEvent() {
         to="/organizer"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ChevronLeft className="h-4 w-4" /> Dashboard organisateur
+        <ChevronLeft className="h-4 w-4" /> {tr("Dashboard organisateur")}
       </Link>
-      <p className="text-xs font-semibold uppercase text-primary">Programmation</p>
-      <h1 className="mb-6 text-3xl font-black">Créer un événement</h1>
+      <p className="text-xs font-semibold uppercase text-primary">{tr("Programmation")}</p>
+      <h1 className="mb-6 text-3xl font-black">{tr("Créer un événement")}</h1>
       <form onSubmit={submit} className="glass space-y-5 rounded-[2rem] p-5 md:p-7">
-        <FormField label="Titre *">
+        <FormField label={`${tr("Titre")} *`}>
           <input
             required
             maxLength={180}
@@ -183,14 +189,14 @@ function NewEvent() {
         </FormField>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField label="Organisation *">
+          <FormField label={`${tr("Organisation")} *`}>
             <select
               required
               value={form.organizer_id}
               onChange={(event) => set("organizer_id", event.target.value)}
               className="field-control"
             >
-              <option value="">Sélectionner</option>
+              <option value="">{tr("Sélectionner")}</option>
               {orgs.map((organizer) => (
                 <option key={organizer.id} value={organizer.id}>
                   {organizer.name}
@@ -198,27 +204,27 @@ function NewEvent() {
               ))}
             </select>
           </FormField>
-          <FormField label="Catégorie">
+          <FormField label={tr("Catégorie")}>
             <select
               value={form.category_id}
               onChange={(event) => set("category_id", event.target.value)}
               className="field-control"
             >
-              <option value="">Non précisée</option>
+              <option value="">{tr("Non précisée")}</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
-                  {category.name_fr}
+                  {categoryLabel(category.slug, category.name_fr)}
                 </option>
               ))}
             </select>
           </FormField>
-          <FormField label="Lieu existant">
+          <FormField label={tr("Lieu existant")}>
             <select
               value={form.venue_id}
               onChange={(event) => set("venue_id", event.target.value)}
               className="field-control"
             >
-              <option value="">À confirmer</option>
+              <option value="">{tr("À confirmer")}</option>
               {venues.map((venue) => (
                 <option key={venue.id} value={venue.id}>
                   {venue.name}
@@ -226,7 +232,7 @@ function NewEvent() {
               ))}
             </select>
           </FormField>
-          <FormField label="Ville">
+          <FormField label={t("common.city")}>
             <select
               value={form.city_id}
               onChange={(event) => {
@@ -236,7 +242,7 @@ function NewEvent() {
               }}
               className="field-control"
             >
-              <option value="">Non précisée</option>
+              <option value="">{tr("Non précisée")}</option>
               {cities.map((city) => (
                 <option key={city.id} value={city.id}>
                   {city.name}
@@ -244,7 +250,7 @@ function NewEvent() {
               ))}
             </select>
           </FormField>
-          <FormField label="Début *">
+          <FormField label={`${tr("Début")} *`}>
             <input
               type="datetime-local"
               required
@@ -253,7 +259,7 @@ function NewEvent() {
               className="field-control"
             />
           </FormField>
-          <FormField label="Fin">
+          <FormField label={tr("Fin")}>
             <input
               type="datetime-local"
               value={form.ends_at}
@@ -261,7 +267,7 @@ function NewEvent() {
               className="field-control"
             />
           </FormField>
-          <FormField label="Fuseau horaire">
+          <FormField label={tr("Fuseau horaire")}>
             <input
               required
               value={form.timezone}
@@ -269,7 +275,7 @@ function NewEvent() {
               className="field-control"
             />
           </FormField>
-          <FormField label="Capacité">
+          <FormField label={tr("Capacité")}>
             <input
               type="number"
               min={1}
@@ -280,7 +286,7 @@ function NewEvent() {
           </FormField>
         </div>
 
-        <FormField label="Description courte">
+        <FormField label={tr("Description courte")}>
           <input
             maxLength={240}
             value={form.short_description}
@@ -288,7 +294,7 @@ function NewEvent() {
             className="field-control"
           />
         </FormField>
-        <FormField label="Description complète">
+        <FormField label={tr("Description complète")}>
           <textarea
             value={form.description}
             onChange={(event) => set("description", event.target.value)}
@@ -298,7 +304,7 @@ function NewEvent() {
         </FormField>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField label="Image de couverture (URL https)">
+          <FormField label={tr("Image de couverture (URL https)")}>
             <input
               type="url"
               value={form.cover_image_url}
@@ -306,7 +312,7 @@ function NewEvent() {
               className="field-control"
             />
           </FormField>
-          <FormField label="Lien officiel">
+          <FormField label={tr("Lien officiel")}>
             <input
               type="url"
               value={form.official_url}
@@ -314,7 +320,7 @@ function NewEvent() {
               className="field-control"
             />
           </FormField>
-          <FormField label="Restriction d'âge">
+          <FormField label={tr("Restriction d'âge")}>
             <input
               value={form.age_restriction}
               onChange={(event) => set("age_restriction", event.target.value)}
@@ -332,11 +338,11 @@ function NewEvent() {
               onChange={(event) => set("is_free", event.target.checked)}
               className="h-4 w-4 accent-[var(--color-primary)]"
             />{" "}
-            Événement gratuit
+            {tr("Événement gratuit")}
           </label>
           {!form.is_free && (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FormField label="Prix dès CHF">
+              <FormField label={tr("Prix dès CHF")}>
                 <input
                   type="number"
                   min={0}
@@ -346,7 +352,7 @@ function NewEvent() {
                   className="field-control"
                 />
               </FormField>
-              <FormField label="Prix maximum CHF">
+              <FormField label={tr("Prix maximum CHF")}>
                 <input
                   type="number"
                   min={0}
@@ -357,7 +363,7 @@ function NewEvent() {
                 />
               </FormField>
               <div className="md:col-span-2">
-                <FormField label="Lien de billetterie">
+                <FormField label={tr("Lien de billetterie")}>
                   <input
                     type="url"
                     value={form.ticket_url}
@@ -371,7 +377,7 @@ function NewEvent() {
         </div>
 
         <div>
-          <p className="text-xs font-medium">Styles musicaux</p>
+          <p className="text-xs font-medium">{tr("Styles musicaux")}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {MUSIC_GENRES.map(([value, label]) => (
               <button
@@ -386,7 +392,7 @@ function NewEvent() {
                     : undefined
                 }
               >
-                {label}
+                {genreLabel(value, label)}
               </button>
             ))}
           </div>
@@ -397,7 +403,7 @@ function NewEvent() {
           disabled={saving}
           className="btn-glow w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
-          {saving ? "Création…" : "Créer et envoyer pour vérification"}
+          {saving ? tr("Création…") : tr("Créer et envoyer pour vérification")}
         </button>
       </form>
     </div>

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Activity, CheckCircle2, Database, TriangleAlert } from "lucide-react";
+import { useTranslation } from "@/lib/i18n";
+import type { UiTranslationPhrase } from "@/lib/ui-translations";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({ meta: [{ title: "Administration — Global Party" }] }),
@@ -28,6 +30,7 @@ type JobRow = {
 };
 
 function AdminHome() {
+  const { tr } = useTranslation();
   const navigate = useNavigate();
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -110,29 +113,29 @@ function AdminHome() {
       .eq("id", id);
     if (error) return toast.error(error.message);
     setPending((p) => p.filter((e) => e.id !== id));
-    toast.success("Publié");
+    toast.success(tr("Publié"));
   };
 
   if (allowed === false)
     return (
       <div className="p-10 text-center text-muted-foreground">
-        Accès réservé aux modérateurs et administrateurs.
+        {tr("Accès réservé aux modérateurs et administrateurs.")}
       </div>
     );
 
   return (
     <div className="mx-auto max-w-5xl px-4 pt-8 md:px-6">
-      <h1 className="mb-6 text-3xl font-bold">Administration</h1>
+      <h1 className="mb-6 text-3xl font-bold">{tr("Administration")}</h1>
       {stats && (
         <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            { label: "Événements", v: stats.events },
-            { label: "À vérifier", v: stats.pending },
-            { label: "Signalements", v: stats.reports },
-            { label: "Importations", v: stats.ingestion },
+            { label: "Événements" as UiTranslationPhrase, v: stats.events },
+            { label: "À vérifier" as UiTranslationPhrase, v: stats.pending },
+            { label: "Signalements" as UiTranslationPhrase, v: stats.reports },
+            { label: "Importations" as UiTranslationPhrase, v: stats.ingestion },
           ].map((s) => (
             <div key={s.label} className="glass rounded-2xl p-4">
-              <p className="text-xs uppercase text-muted-foreground">{s.label}</p>
+              <p className="text-xs uppercase text-muted-foreground">{tr(s.label)}</p>
               <p className="mt-1 text-2xl font-bold">{s.v}</p>
             </div>
           ))}
@@ -143,16 +146,20 @@ function AdminHome() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="flex items-center gap-2 font-semibold">
-                <Activity className="h-4 w-4 text-primary" /> Santé des importations
+                <Activity className="h-4 w-4 text-primary" /> {tr("Santé des importations")}
               </p>
               <p className="text-xs text-muted-foreground">
-                Les 8 derniers lots du catalogue régional
+                {tr("Les 8 derniers lots du catalogue régional")}
               </p>
             </div>
-            <span className="rounded-full border px-2.5 py-1 text-xs">{jobs.length} lots</span>
+            <span className="rounded-full border px-2.5 py-1 text-xs">
+              {tr("{count} lots", { count: jobs.length })}
+            </span>
           </div>
           {jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucune synchronisation enregistrée.</p>
+            <p className="text-sm text-muted-foreground">
+              {tr("Aucune synchronisation enregistrée.")}
+            </p>
           ) : (
             <div className="space-y-2">
               {jobs.map((job) => {
@@ -170,8 +177,11 @@ function AdminHome() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{job.status.replaceAll("_", " ")}</p>
                       <p className="text-xs text-muted-foreground">
-                        {job.pages_success ?? 0} pages · +{job.events_created ?? 0} créés ·{" "}
-                        {job.events_updated ?? 0} actualisés
+                        {tr("{pages} pages · +{created} créés · {updated} actualisés", {
+                          pages: job.pages_success ?? 0,
+                          created: job.events_created ?? 0,
+                          updated: job.events_updated ?? 0,
+                        })}
                       </p>
                     </div>
                     <time className="text-[11px] text-muted-foreground">
@@ -194,10 +204,10 @@ function AdminHome() {
         <section className="glass rounded-2xl p-4">
           <div className="mb-4">
             <p className="flex items-center gap-2 font-semibold">
-              <Database className="h-4 w-4 text-primary" /> Sources actives
+              <Database className="h-4 w-4 text-primary" /> {tr("Sources actives")}
             </p>
             <p className="text-xs text-muted-foreground">
-              {sources.length} agendas officiels et partenaires
+              {tr("{count} agendas officiels et partenaires", { count: sources.length })}
             </p>
           </div>
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
@@ -223,10 +233,10 @@ function AdminHome() {
           </div>
         </section>
       </div>
-      <h2 className="mb-3 text-xl font-semibold">Événements à vérifier</h2>
+      <h2 className="mb-3 text-xl font-semibold">{tr("Événements à vérifier")}</h2>
       <div className="glass overflow-hidden rounded-2xl">
         {pending.length === 0 ? (
-          <p className="p-6 text-sm text-muted-foreground">Rien en attente.</p>
+          <p className="p-6 text-sm text-muted-foreground">{tr("Rien en attente.")}</p>
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
             {pending.map((e) => (
@@ -236,7 +246,7 @@ function AdminHome() {
                   onClick={() => publish(e.id)}
                   className="rounded-full bg-primary px-4 py-1.5 text-xs text-primary-foreground"
                 >
-                  Publier
+                  {tr("Publier")}
                 </button>
               </li>
             ))}

@@ -46,6 +46,7 @@ import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
+import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
   buildMapPointCollection,
   type MapPointCollection,
@@ -106,7 +107,7 @@ const MAP_VENUE_LABEL_LAYER_ID = "eventa-map-venue-labels";
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
 
-const MAP_RANGES: { value: QuickRange; label: string }[] = [
+const MAP_RANGES: { value: QuickRange; label: UiTranslationPhrase }[] = [
   { value: "tonight", label: "Ce soir" },
   { value: "today", label: "Aujourd'hui" },
   { value: "tomorrow", label: "Demain" },
@@ -275,6 +276,7 @@ function MapSurface({
   mapReady: boolean;
   mapUnavailable: string | null;
 }) {
+  const { tr } = useTranslation();
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
@@ -282,7 +284,7 @@ function MapSurface({
         <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_70%_20%,oklch(0.68_0.22_295_/_0.18),transparent_32%),linear-gradient(135deg,var(--color-background),var(--color-muted))] p-6">
           <div className="max-w-md text-center md:ml-[30rem]">
             <MapPin className="mx-auto mb-4 h-10 w-10 text-primary" />
-            <h2 className="text-xl font-black">Carte en mode accessible</h2>
+            <h2 className="text-xl font-black">{tr("Carte en mode accessible")}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{mapUnavailable}</p>
             <a
               href="https://www.openstreetmap.org/#map=12/46.2044/6.1432"
@@ -290,7 +292,7 @@ function MapSurface({
               rel="noreferrer"
               className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
             >
-              Ouvrir Genève dans OpenStreetMap
+              {tr("Ouvrir Genève dans OpenStreetMap")}
             </a>
           </div>
         </div>
@@ -299,9 +301,9 @@ function MapSurface({
         <div className="absolute inset-0 flex items-center justify-center bg-background/90">
           <div className="text-center">
             <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <p className="text-sm font-medium">Chargement de la carte…</p>
+            <p className="text-sm font-medium">{tr("Chargement de la carte…")}</p>
             <p className="text-xs text-muted-foreground">
-              OpenStreetMap prend automatiquement le relais
+              {tr("OpenStreetMap prend automatiquement le relais")}
             </p>
           </div>
         </div>
@@ -310,9 +312,9 @@ function MapSurface({
   );
 }
 
-function formatMobileEventDate(event: DiscoveredEvent): string {
+function formatMobileEventDate(event: DiscoveredEvent, locale: string): string {
   try {
-    return new Intl.DateTimeFormat("fr-CH", {
+    return new Intl.DateTimeFormat(locale, {
       timeZone: event.timezone,
       weekday: "short",
       day: "numeric",
@@ -321,38 +323,39 @@ function formatMobileEventDate(event: DiscoveredEvent): string {
       minute: "2-digit",
     }).format(new Date(event.starts_at));
   } catch {
-    return new Date(event.starts_at).toLocaleString("fr-CH");
+    return new Date(event.starts_at).toLocaleString(locale);
   }
 }
 
 function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClose: () => void }) {
+  const { tr, localeTag } = useTranslation();
   return (
     <aside className="relative p-3 pr-14" aria-label={`Événement sélectionné : ${event.title}`}>
       <button
         type="button"
-        aria-label="Fermer la fiche"
+        aria-label={tr("Fermer la fiche")}
         onClick={onClose}
         className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
       >
         ×
       </button>
       <Badge className="mb-1.5 border-transparent bg-primary/15 text-primary">
-        Événement sélectionné
+        {tr("Événement sélectionné")}
       </Badge>
       <h2 className="line-clamp-1 text-base font-black">{event.title}</h2>
       <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Clock className="h-3.5 w-3.5 shrink-0" /> {formatMobileEventDate(event)}
+        <Clock className="h-3.5 w-3.5 shrink-0" /> {formatMobileEventDate(event, localeTag)}
       </p>
       <div className="mt-2 flex items-center justify-between gap-3">
         <p className="min-w-0 truncate text-xs text-muted-foreground">
-          {event.venue_name ?? event.city_name ?? "Lieu à confirmer"}
+          {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
         </p>
         <Link
           to="/event/$slug"
           params={{ slug: event.slug }}
           className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-primary px-3 text-xs font-black text-primary-foreground"
         >
-          Voir la fiche
+          {tr("Voir la fiche")}
         </Link>
       </div>
     </aside>
@@ -360,24 +363,25 @@ function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClo
 }
 
 function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClose: () => void }) {
+  const { tr } = useTranslation();
   return (
     <aside className="relative p-3 pr-14" aria-label={`Lieu sélectionné : ${venue.name}`}>
       <button
         type="button"
-        aria-label="Fermer la fiche"
+        aria-label={tr("Fermer la fiche")}
         onClick={onClose}
         className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
       >
         ×
       </button>
       <Badge variant="outline" className="mb-1.5">
-        <Building2 className="mr-1 h-3.5 w-3.5" /> Lieu
+        <Building2 className="mr-1 h-3.5 w-3.5" /> {tr("Lieu")}
       </Badge>
       <h2 className="line-clamp-1 text-base font-black">{venue.name}</h2>
       <p className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
         <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span className="line-clamp-2">
-          {venue.address ?? venue.city_name ?? "Adresse non précisée"}
+          {venue.address ?? venue.city_name ?? tr("Adresse non précisée")}
         </span>
       </p>
     </aside>
@@ -385,7 +389,7 @@ function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClo
 }
 
 function MapPage() {
-  const { t, formatNumber } = useTranslation();
+  const { t, tr, categoryLabel, formatNumber } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
@@ -964,15 +968,19 @@ function MapPage() {
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-primary">
-                  Résultats
+                  {tr("Résultats")}
                 </p>
                 <h1 className="text-xl font-black">
-                  {statsLoading ? "…" : formatNumber(totalEventCount)} sorties
+                  {tr("{count} sorties", {
+                    count: statsLoading ? "…" : formatNumber(totalEventCount),
+                  })}
                 </h1>
               </div>
               <span className="text-[10px] text-muted-foreground">
-                {COUNT_FORMATTER.format(mobileListEvents.length)} affichées ·{" "}
-                {COUNT_FORMATTER.format(events.length)} points chargés
+                {tr("{shown} affichées · {loaded} points chargés", {
+                  shown: COUNT_FORMATTER.format(mobileListEvents.length),
+                  loaded: COUNT_FORMATTER.format(events.length),
+                })}
               </span>
             </div>
 
@@ -996,9 +1004,9 @@ function MapPage() {
             ) : (
               <div className="rounded-3xl border p-6 text-center">
                 <MapPin className="mx-auto mb-3 h-7 w-7 text-primary" />
-                <p className="font-bold">Aucun événement trouvé</p>
+                <p className="font-bold">{tr("Aucun événement trouvé")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Essaie une autre date, ville ou catégorie.
+                  {tr("Essaie une autre date, ville ou catégorie.")}
                 </p>
               </div>
             )}
@@ -1011,7 +1019,7 @@ function MapPage() {
                 className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 text-sm font-black text-primary disabled:opacity-60"
               >
                 {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                {loadingMore ? "Chargement…" : "Afficher plus de sorties"}
+                {loadingMore ? t("common.loading") : tr("Afficher plus de sorties")}
               </button>
             )}
           </div>
@@ -1037,12 +1045,12 @@ function MapPage() {
               <select
                 value={range}
                 onChange={(event) => setRange(event.target.value as QuickRange)}
-                aria-label="Dates"
+                aria-label={t("home.date")}
                 className="h-12 w-full rounded-2xl border bg-surface px-3 text-sm outline-none focus:border-primary"
               >
                 {MAP_RANGES.map((item) => (
                   <option key={item.value} value={item.value}>
-                    {item.label}
+                    {tr(item.label)}
                   </option>
                 ))}
               </select>
@@ -1069,7 +1077,7 @@ function MapPage() {
                     }
                   >
                     {category.icon ? `${category.icon} ` : ""}
-                    {category.name_fr}
+                    {categoryLabel(category.slug, category.name_fr)}
                   </button>
                 ))}
               </div>
@@ -1083,7 +1091,7 @@ function MapPage() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black">Points sur la carte</h3>
+              <h3 className="mb-2 text-sm font-black">{tr("Points sur la carte")}</h3>
               <div className="grid grid-cols-2 gap-2">
                 <LayerToggle
                   active={showEvents}
@@ -1099,7 +1107,9 @@ function MapPage() {
                 />
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                {approximateCount} positions approximatives sont affichées avec une opacité réduite.
+                {tr("{count} positions approximatives sont affichées avec une opacité réduite.", {
+                  count: approximateCount,
+                })}
               </p>
             </section>
 
@@ -1116,7 +1126,7 @@ function MapPage() {
                 onClick={() => mapRef.current?.flyTo({ center: GENEVA_CENTER, zoom: 12 })}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
               >
-                <Navigation className="h-4 w-4" /> Recentrer
+                <Navigation className="h-4 w-4" /> {tr("Recentrer")}
               </button>
             </div>
           </div>
@@ -1139,10 +1149,10 @@ function MapPage() {
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
-              <MapPin className="mr-1 h-3.5 w-3.5" /> Carte clusterisée
+              <MapPin className="mr-1 h-3.5 w-3.5" /> {tr("Carte clusterisée")}
             </Badge>
             <h1 className="text-xl font-black">
-              Sorties et lieux ·{" "}
+              {tr("Sorties et lieux")} ·{" "}
               {selectedCity?.name ??
                 selectedRegion?.name ??
                 selectedCountry?.name ??
@@ -1157,19 +1167,21 @@ function MapPage() {
             </p>
             {!loading && (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {COUNT_FORMATTER.format(events.length)} points d’événements chargés sur la carte
+                {tr("{count} points d’événements chargés sur la carte", {
+                  count: COUNT_FORMATTER.format(events.length),
+                })}
               </p>
             )}
             {!loading && mapReady && mapPoints.features.length > 0 && (
               <p className="mt-1 text-[11px] font-medium text-primary">
-                Les nombres regroupent les points · clique pour zoomer
+                {tr("Les nombres regroupent les points · clique pour zoomer")}
               </p>
             )}
           </div>
           <Button
             size="icon"
             variant="secondary"
-            aria-label="Recentrer sur Genève"
+            aria-label={tr("Recentrer sur Genève")}
             onClick={() => mapRef.current?.flyTo({ center: GENEVA_CENTER, zoom: 12 })}
           >
             <Navigation className="h-4 w-4" />
@@ -1204,12 +1216,12 @@ function MapPage() {
           <select
             value={range}
             onChange={(event) => setRange(event.target.value as QuickRange)}
-            aria-label="Dates"
+            aria-label={t("home.date")}
             className="h-11 rounded-2xl border bg-background/80 px-3 text-sm outline-none focus:border-primary"
           >
             {MAP_RANGES.map((item) => (
               <option key={item.value} value={item.value}>
-                {item.label}
+                {tr(item.label)}
               </option>
             ))}
           </select>
@@ -1230,7 +1242,7 @@ function MapPage() {
               }
             >
               {category.icon ? `${category.icon} ` : ""}
-              {category.name_fr}
+              {categoryLabel(category.slug, category.name_fr)}
             </button>
           ))}
         </div>
@@ -1279,7 +1291,9 @@ function MapPage() {
         )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span>{approximateCount} positions approximatives atténuées</span>
+          <span>
+            {tr("{count} positions approximatives atténuées", { count: approximateCount })}
+          </span>
           <button
             type="button"
             onClick={resetFilters}
@@ -1306,7 +1320,7 @@ function MapPage() {
 
         {mapUnavailable && events.length > 0 && (
           <div className="mt-3 rounded-2xl border bg-background/75 p-3">
-            <p className="mb-2 text-xs font-bold">Événements accessibles sans WebGL</p>
+            <p className="mb-2 text-xs font-bold">{tr("Événements accessibles sans WebGL")}</p>
             <div className="grid gap-1.5">
               {events.slice(0, 12).map((event) => (
                 <Link
@@ -1317,7 +1331,7 @@ function MapPage() {
                 >
                   <span className="block truncate font-semibold">{event.title}</span>
                   <span className="block truncate text-muted-foreground">
-                    {event.venue_name ?? event.city_name ?? "Lieu à confirmer"}
+                    {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
                   </span>
                 </Link>
               ))}
@@ -1331,7 +1345,7 @@ function MapPage() {
           <div className="relative">
             <button
               type="button"
-              aria-label="Fermer la fiche"
+              aria-label={tr("Fermer la fiche")}
               onClick={() => setSelectedEvent(null)}
               className="glass absolute -top-3 right-2 z-20 h-7 w-7 rounded-full text-xs"
             >
@@ -1346,30 +1360,33 @@ function MapPage() {
         <div className="glass absolute inset-x-3 bottom-20 z-10 rounded-3xl p-5 shadow-[var(--shadow-card)] md:inset-x-auto md:bottom-6 md:left-[32rem] md:w-80">
           <button
             type="button"
-            aria-label="Fermer la fiche"
+            aria-label={tr("Fermer la fiche")}
             onClick={() => setSelectedVenue(null)}
             className="absolute right-3 top-3 h-7 w-7 rounded-full border text-xs"
           >
             ×
           </button>
           <Badge variant="outline" className="mb-3">
-            <Building2 className="mr-1 h-3.5 w-3.5" /> Lieu
+            <Building2 className="mr-1 h-3.5 w-3.5" /> {tr("Lieu")}
           </Badge>
           <h2 className="pr-8 text-xl font-black">{selectedVenue.name}</h2>
           <p className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
             <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-            {selectedVenue.address ?? selectedVenue.city_name ?? "Adresse non précisée"}
+            {selectedVenue.address ?? selectedVenue.city_name ?? tr("Adresse non précisée")}
           </p>
           {selectedVenue.capacity != null && (
             <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-              <Users className="h-4 w-4" /> Jusqu'à {selectedVenue.capacity.toLocaleString("fr-CH")}{" "}
-              personnes
+              <Users className="h-4 w-4" />
+              {tr("Jusqu'à {count} personnes", {
+                count: formatNumber(selectedVenue.capacity),
+              })}
             </p>
           )}
           {selectedVenue.location_precision === "city" && (
             <p className="mt-3 rounded-2xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              Position approximative au niveau de la ville — l'adresse exacte n'est pas encore
-              renseignée.
+              {tr(
+                "Position approximative au niveau de la ville — l'adresse exacte n'est pas encore renseignée.",
+              )}
             </p>
           )}
         </div>

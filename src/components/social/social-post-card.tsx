@@ -9,10 +9,11 @@ import { SocialEventAttachment } from "@/components/social/social-event-attachme
 import { SocialMediaGrid } from "@/components/social/social-media-grid";
 import { useToggleSocialLike } from "@/hooks/use-social-feed";
 import { shareSocialPost, type SocialPost } from "@/lib/social-queries";
+import { useTranslation } from "@/lib/i18n";
 
-function relativeDate(value: string) {
+function relativeDate(value: string, locale: string) {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat("fr", { numeric: "auto" });
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
   const minutes = Math.round(seconds / 60);
   if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
@@ -20,15 +21,15 @@ function relativeDate(value: string) {
   if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 8) return formatter.format(days, "day");
-  return new Intl.DateTimeFormat("fr-CH", {
+  return new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "short",
     year: new Date(value).getFullYear() === new Date().getFullYear() ? undefined : "numeric",
   }).format(new Date(value));
 }
 
-function compactCount(value: number) {
-  return new Intl.NumberFormat("fr", { notation: "compact", maximumFractionDigits: 1 }).format(
+function compactCount(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(
     value,
   );
 }
@@ -42,6 +43,7 @@ export function SocialPostCard({
   currentUserId: string | null;
   standalone?: boolean;
 }) {
+  const { tr, localeTag } = useTranslation();
   const toggleLike = useToggleSocialLike();
   const [commentsExpanded, setCommentsExpanded] = useState(standalone);
   const [authPrompt, setAuthPrompt] = useState(false);
@@ -58,9 +60,9 @@ export function SocialPostCard({
   const share = async () => {
     try {
       const result = await shareSocialPost(post);
-      if (result === "copied") toast.success("Lien copié");
+      if (result === "copied") toast.success(tr("Lien copié"));
     } catch {
-      toast.error("Impossible de partager cette publication");
+      toast.error(tr("Impossible de partager cette publication"));
     }
   };
 
@@ -83,19 +85,21 @@ export function SocialPostCard({
             {post.organizer.is_verified && (
               <BadgeCheck
                 className="h-4 w-4 shrink-0 text-primary"
-                aria-label="Organisateur vérifié"
+                aria-label={tr("Organisateur vérifié")}
               />
             )}
           </div>
           {standalone ? (
-            <time className="text-xs text-muted-foreground">{relativeDate(post.published_at)}</time>
+            <time className="text-xs text-muted-foreground">
+              {relativeDate(post.published_at, localeTag)}
+            </time>
           ) : (
             <Link
               to="/post/$id"
               params={{ id: post.id }}
               className="text-xs text-muted-foreground hover:text-foreground hover:underline"
             >
-              {relativeDate(post.published_at)}
+              {relativeDate(post.published_at, localeTag)}
             </Link>
           )}
         </div>
@@ -118,7 +122,7 @@ export function SocialPostCard({
               onClick={() => setBodyExpanded(true)}
               className="mt-1 text-sm font-medium text-primary hover:underline"
             >
-              Voir plus
+              {tr("Voir plus")}
             </button>
           )}
         </div>
@@ -143,8 +147,8 @@ export function SocialPostCard({
           }
         >
           <Heart className="h-4 w-4" fill={post.liked_by_viewer ? "currentColor" : "none"} />
-          <span className="hidden sm:inline">J'aime</span>
-          {post.like_count > 0 && <span>{compactCount(post.like_count)}</span>}
+          <span className="hidden sm:inline">{tr("J'aime")}</span>
+          {post.like_count > 0 && <span>{compactCount(post.like_count, localeTag)}</span>}
         </Button>
         <Button
           type="button"
@@ -153,8 +157,8 @@ export function SocialPostCard({
           className="rounded-xl text-muted-foreground"
         >
           <MessageCircle className="h-4 w-4" />
-          <span className="hidden sm:inline">Commenter</span>
-          {post.comment_count > 0 && <span>{compactCount(post.comment_count)}</span>}
+          <span className="hidden sm:inline">{tr("Commenter")}</span>
+          {post.comment_count > 0 && <span>{compactCount(post.comment_count, localeTag)}</span>}
         </Button>
         <Button
           type="button"
@@ -163,23 +167,27 @@ export function SocialPostCard({
           className="rounded-xl text-muted-foreground"
         >
           <Share2 className="h-4 w-4" />
-          <span className="hidden sm:inline">Partager</span>
+          <span className="hidden sm:inline">{tr("Partager")}</span>
         </Button>
       </div>
 
       {authPrompt && !currentUserId && (
         <div className="flex items-center justify-between gap-3 border-t bg-primary/5 px-4 py-3">
-          <p className="text-xs text-muted-foreground">Connecte-toi pour aimer et commenter.</p>
+          <p className="text-xs text-muted-foreground">
+            {tr("Connecte-toi pour aimer et commenter.")}
+          </p>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setAuthPrompt(false)}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              Plus tard
+              {tr("Plus tard")}
             </button>
             <Button asChild size="sm" className="rounded-full">
-              <a href={`/auth?redirect=${encodeURIComponent(`/post/${post.id}`)}`}>Se connecter</a>
+              <a href={`/auth?redirect=${encodeURIComponent(`/post/${post.id}`)}`}>
+                {tr("Se connecter")}
+              </a>
             </Button>
           </div>
         </div>

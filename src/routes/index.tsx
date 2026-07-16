@@ -49,6 +49,7 @@ import {
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { useTranslation } from "@/lib/i18n";
+import type { UiTranslationPhrase } from "@/lib/ui-translations";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -69,7 +70,7 @@ type SortMode = "soon" | "distance" | "popular";
 const EVENT_PAGE_SIZE = 48;
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 
-const QUICK: { key: QuickRange; label: string; helper: string }[] = [
+const QUICK: { key: QuickRange; label: UiTranslationPhrase; helper: UiTranslationPhrase }[] = [
   { key: "now", label: "Maintenant", helper: "2 prochaines heures" },
   { key: "tonight", label: "Ce soir", helper: "18h → 6h" },
   { key: "today", label: "Aujourd'hui", helper: "Jusqu'à minuit" },
@@ -126,7 +127,7 @@ type LandingCollections = {
 };
 
 function Discover() {
-  const { t, formatNumber } = useTranslation();
+  const { t, tr, categoryLabel, formatNumber } = useTranslation();
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
@@ -247,8 +248,8 @@ function Discover() {
     [countries, countryId],
   );
   const activeCategoryNames = useMemo(
-    () => categories.filter((c) => cats.has(c.slug)).map((c) => c.name_fr),
-    [categories, cats],
+    () => categories.filter((c) => cats.has(c.slug)).map((c) => categoryLabel(c.slug, c.name_fr)),
+    [categories, categoryLabel, cats],
   );
 
   const discoveryParams = useMemo(
@@ -607,8 +608,8 @@ function Discover() {
                   }}
                 />
                 <Icon className="mb-7 h-5 w-5 text-primary transition-transform group-hover:scale-110" />
-                <span className="block text-lg font-black">{vibe.label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{vibe.helper}</span>
+                <span className="block text-lg font-black">{tr(vibe.label)}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{tr(vibe.helper)}</span>
               </button>
             );
           })}
@@ -705,8 +706,8 @@ function Discover() {
                         : undefined
                     }
                   >
-                    <span className="block font-bold">{item.label}</span>
-                    <span className="block text-[10px] opacity-70">{item.helper}</span>
+                    <span className="block font-bold">{tr(item.label)}</span>
+                    <span className="block text-[10px] opacity-70">{tr(item.helper)}</span>
                   </button>
                 ))}
               </div>
@@ -757,7 +758,7 @@ function Discover() {
                     }
                   >
                     {category.icon ? `${category.icon} ` : ""}
-                    {category.name_fr}
+                    {categoryLabel(category.slug, category.name_fr)}
                   </button>
                 ))}
               </div>
@@ -859,8 +860,8 @@ function Discover() {
                   : {}
               }
             >
-              <span className="block text-sm font-semibold">{q.label}</span>
-              <span className="block text-[11px] opacity-70">{q.helper}</span>
+              <span className="block text-sm font-semibold">{tr(q.label)}</span>
+              <span className="block text-[11px] opacity-70">{tr(q.helper)}</span>
             </button>
           ))}
           <button
@@ -882,7 +883,7 @@ function Discover() {
                 : {}
             }
           >
-            <Ticket className="mb-1 h-4 w-4" /> Gratuit
+            <Ticket className="mb-1 h-4 w-4" /> {t("common.free")}
           </button>
         </div>
         <div className="flex gap-2">
@@ -890,19 +891,19 @@ function Discover() {
             active={sort === "soon"}
             onClick={() => setSort("soon")}
             icon={TrendingUp}
-            label="Bientôt"
+            label={t("home.soon")}
           />
           <SortButton
             active={sort === "distance"}
             onClick={() => setSort("distance")}
             icon={MapPin}
-            label="Distance"
+            label={t("home.distance")}
           />
           <SortButton
             active={sort === "popular"}
             onClick={() => setSort("popular")}
             icon={Sparkles}
-            label="Top"
+            label={t("home.top")}
           />
         </div>
       </div>
@@ -924,7 +925,7 @@ function Discover() {
             }
           >
             {c.icon ? `${c.icon} ` : ""}
-            {c.name_fr}
+            {categoryLabel(c.slug, c.name_fr)}
           </button>
         ))}
       </div>
@@ -932,10 +933,10 @@ function Discover() {
       <details className="glass mb-5 hidden rounded-3xl border md:block" open={advancedCount > 0}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
           <span className="inline-flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-primary" /> Prix, musique, jauge et accès
+            <SlidersHorizontal className="h-4 w-4 text-primary" /> {t("home.advanced")}
           </span>
           <Badge variant={advancedCount ? "default" : "outline"}>
-            {advancedCount ? `${advancedCount} actifs` : "Tous"}
+            {advancedCount ? advancedCount : t("common.all")}
           </Badge>
         </summary>
         <div className="border-t p-3">
@@ -947,7 +948,7 @@ function Discover() {
         <div>
           <p className="text-sm font-semibold">
             {loading
-              ? "Recherche des meilleurs plans…"
+              ? t("home.searching")
               : statsLoading
                 ? `${COUNT_FORMATTER.format(sortedEvents.length)} sorties chargées · calcul du total…`
                 : `${COUNT_FORMATTER.format(stats.total_count)} sorties au total · ${COUNT_FORMATTER.format(sortedEvents.length)} chargées`}
@@ -958,51 +959,51 @@ function Discover() {
               : (selectedCity?.name ??
                 selectedRegion?.name ??
                 selectedCountry?.name ??
-                "Monde entier")}
+                t("home.world"))}
             {activeCategoryNames.length
               ? ` · ${activeCategoryNames.join(", ")}`
-              : " · Toutes catégories"}
+              : ` · ${t("home.allCategories")}`}
           </p>
         </div>
         <button
           onClick={resetFilters}
           className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
+          <RotateCcw className="h-3.5 w-3.5" /> {t("common.reset")}
         </button>
       </div>
 
       {landingMode && landingCollections && (
         <div className="mb-10 space-y-9">
           <EventCollection
-            title="Les incontournables"
-            eyebrow="Sélection Global Party"
+            title={tr("Les incontournables")}
+            eyebrow={tr("Sélection Global Party")}
             events={landingCollections.top}
             onSeeAll={() => setSort("popular")}
           />
           <EventCollection
-            title="Sortir gratuitement"
-            eyebrow="Petits budgets, grandes idées"
+            title={tr("Sortir gratuitement")}
+            eyebrow={tr("Petits budgets, grandes idées")}
             events={landingCollections.free}
             onSeeAll={() => setAdvancedFilters((current) => ({ ...current, priceMode: "free" }))}
           />
           <EventCollection
-            title="La nuit t’appartient"
-            eyebrow="Clubs & soirées"
+            title={tr("La nuit t’appartient")}
+            eyebrow={tr("Clubs & soirées")}
             events={landingCollections.nightlife}
             onSeeAll={() => setCats(new Set(["soirees"]))}
           />
           <EventCollection
-            title="Festivals à ne pas manquer"
-            eyebrow="Prépare ton prochain week-end"
+            title={tr("Festivals à ne pas manquer")}
+            eyebrow={tr("Prépare ton prochain week-end")}
             events={landingCollections.festivals}
             onSeeAll={() => setCats(new Set(["festivals"]))}
           />
           <div className="border-t pt-8">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-              Catalogue complet
+              {tr("Catalogue complet")}
             </p>
-            <h2 className="mt-1 text-2xl font-black">Tout ce qui arrive bientôt</h2>
+            <h2 className="mt-1 text-2xl font-black">{tr("Tout ce qui arrive bientôt")}</h2>
           </div>
         </div>
       )}
@@ -1016,7 +1017,7 @@ function Discover() {
             onClick={() => setReloadKey((value) => value + 1)}
             className="font-semibold underline"
           >
-            Réessayer
+            {t("common.retry")}
           </button>
         </div>
       )}
@@ -1044,11 +1045,11 @@ function Discover() {
               >
                 {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
                 {loadingMore
-                  ? "Chargement…"
+                  ? t("common.loading")
                   : `Charger ${COUNT_FORMATTER.format(nextPageCount)} événements supplémentaires`}
               </button>
               <p className="text-xs text-muted-foreground">
-                Aucun plafond global : continue jusqu'au dernier événement correspondant.
+                {tr("Aucun plafond global : continue jusqu'au dernier événement correspondant.")}
               </p>
             </div>
           )}
@@ -1056,16 +1057,17 @@ function Discover() {
       ) : (
         <div className="glass flex flex-col items-center justify-center rounded-3xl p-12 text-center">
           <SlidersHorizontal className="mb-3 h-10 w-10 text-muted-foreground" />
-          <p className="font-semibold">Aucun événement ne matche ces critères</p>
+          <p className="font-semibold">{tr("Aucun événement ne matche ces critères")}</p>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Élargis la période, retire une catégorie ou explore la carte pour trouver des idées
-            proches.
+            {tr(
+              "Élargis la période, retire une catégorie ou explore la carte pour trouver des idées proches.",
+            )}
           </p>
           <button
             onClick={resetFilters}
             className="mt-5 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
           >
-            Voir toutes les sorties
+            {tr("Voir toutes les sorties")}
           </button>
         </div>
       )}
@@ -1084,6 +1086,7 @@ function EventCollection({
   events: DiscoveredEvent[];
   onSeeAll: () => void;
 }) {
+  const { tr } = useTranslation();
   if (!events.length) return null;
   return (
     <section aria-label={title}>
@@ -1099,7 +1102,7 @@ function EventCollection({
           onClick={onSeeAll}
           className="shrink-0 text-sm font-semibold text-primary"
         >
-          Voir tout →
+          {tr("Voir tout →")}
         </button>
       </div>
       <div className="no-scrollbar flex snap-x gap-4 overflow-x-auto pb-3">

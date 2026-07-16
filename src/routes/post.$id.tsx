@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCurrentSocialUser, useSocialPost } from "@/hooks/use-social-feed";
 import { getEventArtworkUrl } from "@/lib/event-artwork";
 import { fetchSocialPost } from "@/lib/social-queries";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/post/$id")({
   loader: async ({ params }) => {
@@ -42,30 +43,43 @@ export const Route = createFileRoute("/post/$id")({
       ],
     };
   },
-  errorComponent: ({ error }) => (
-    <div className="mx-auto max-w-xl px-4 py-16 text-center">
-      <MessageCircle className="mx-auto h-10 w-10 text-muted-foreground" />
-      <h1 className="mt-4 text-xl font-semibold">Impossible de charger la publication</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
-      <Button asChild variant="outline" className="mt-5 rounded-full">
-        <Link to="/social">Retour au fil</Link>
-      </Button>
-    </div>
-  ),
-  notFoundComponent: () => (
-    <div className="mx-auto max-w-xl px-4 py-16 text-center">
-      <MessageCircle className="mx-auto h-10 w-10 text-muted-foreground" />
-      <h1 className="mt-4 text-xl font-semibold">Publication introuvable</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Elle a peut-être été retirée ou masquée.</p>
-      <Button asChild variant="outline" className="mt-5 rounded-full">
-        <Link to="/social">Retour au fil</Link>
-      </Button>
-    </div>
-  ),
+  errorComponent: PostError,
+  notFoundComponent: PostNotFound,
   component: SocialPostPage,
 });
 
+function PostError({ error }: { error: Error }) {
+  const { tr } = useTranslation();
+  return (
+    <div className="mx-auto max-w-xl px-4 py-16 text-center">
+      <MessageCircle className="mx-auto h-10 w-10 text-muted-foreground" />
+      <h1 className="mt-4 text-xl font-semibold">{tr("Impossible de charger la publication")}</h1>
+      <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
+      <Button asChild variant="outline" className="mt-5 rounded-full">
+        <Link to="/social">{tr("Retour au fil")}</Link>
+      </Button>
+    </div>
+  );
+}
+
+function PostNotFound() {
+  const { tr } = useTranslation();
+  return (
+    <div className="mx-auto max-w-xl px-4 py-16 text-center">
+      <MessageCircle className="mx-auto h-10 w-10 text-muted-foreground" />
+      <h1 className="mt-4 text-xl font-semibold">{tr("Publication introuvable")}</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {tr("Elle a peut-être été retirée ou masquée.")}
+      </p>
+      <Button asChild variant="outline" className="mt-5 rounded-full">
+        <Link to="/social">{tr("Retour au fil")}</Link>
+      </Button>
+    </div>
+  );
+}
+
 function SocialPostPage() {
+  const { tr } = useTranslation();
   const initialPost = Route.useLoaderData();
   const currentUser = useCurrentSocialUser();
   const userId = currentUser.data?.id ?? null;
@@ -80,7 +94,7 @@ function SocialPostPage() {
         className="mb-3 -ml-2 rounded-full text-muted-foreground"
       >
         <Link to="/social">
-          <ArrowLeft className="h-4 w-4" /> Retour au fil
+          <ArrowLeft className="h-4 w-4" /> {tr("Retour au fil")}
         </Link>
       </Button>
       {post.isLoading ? (
@@ -95,7 +109,7 @@ function SocialPostPage() {
         <SocialPostCard post={post.data} currentUserId={userId} standalone />
       ) : (
         <div className="glass rounded-3xl p-8 text-center text-sm text-muted-foreground">
-          Cette publication n'est plus disponible.
+          {tr("Cette publication n'est plus disponible.")}
         </div>
       )}
     </div>

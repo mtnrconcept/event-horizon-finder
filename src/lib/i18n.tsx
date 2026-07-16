@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";
+import { translateCategory, translateGenre } from "@/lib/taxonomy-translations";
 
 export const SUPPORTED_LOCALES = ["fr", "en", "pl", "it", "ru", "es"] as const;
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -702,6 +704,9 @@ type TranslationContextValue = {
   setLocale: (locale: AppLocale) => void;
   t: (key: TranslationKey, variables?: Record<string, string | number>) => string;
   formatNumber: (value: number) => string;
+  tr: (phrase: UiTranslationPhrase, variables?: Record<string, string | number>) => string;
+  categoryLabel: (slug: string, fallback?: string) => string;
+  genreLabel: (slug: string, fallback?: string) => string;
 };
 
 const TranslationContext = createContext<TranslationContextValue | null>(null);
@@ -742,10 +747,32 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     (value: number) => new Intl.NumberFormat(localeTags[locale]).format(value),
     [locale],
   );
+  const tr = useCallback(
+    (phrase: UiTranslationPhrase, variables: Record<string, string | number> = {}) =>
+      translateUiPhrase(locale, phrase, variables),
+    [locale],
+  );
+  const categoryLabel = useCallback(
+    (slug: string, fallback?: string) => translateCategory(locale, slug, fallback),
+    [locale],
+  );
+  const genreLabel = useCallback(
+    (slug: string, fallback?: string) => translateGenre(locale, slug, fallback),
+    [locale],
+  );
 
   const value = useMemo(
-    () => ({ locale, localeTag: localeTags[locale], setLocale, t, formatNumber }),
-    [formatNumber, locale, setLocale, t],
+    () => ({
+      locale,
+      localeTag: localeTags[locale],
+      setLocale,
+      t,
+      tr,
+      categoryLabel,
+      genreLabel,
+      formatNumber,
+    }),
+    [categoryLabel, formatNumber, genreLabel, locale, setLocale, t, tr],
   );
 
   return <TranslationContext.Provider value={value}>{children}</TranslationContext.Provider>;

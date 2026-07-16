@@ -5,14 +5,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SocialPostCard } from "@/components/social/social-post-card";
 import { useSocialFeed } from "@/hooks/use-social-feed";
 import type { SocialFeedFilter } from "@/lib/social-queries";
+import { useTranslation } from "@/lib/i18n";
 
 const filters: Array<{
   value: SocialFeedFilter;
-  label: string;
+  label: "Pour toi" | "Événement";
   icon: typeof Users;
 }> = [
   { value: "all", label: "Pour toi", icon: Users },
-  { value: "events", label: "Événements", icon: CalendarDays },
+  { value: "events", label: "Événement", icon: CalendarDays },
 ];
 
 function PostSkeleton() {
@@ -48,6 +49,7 @@ export function SocialFeed({
   onFilterChange: (filter: SocialFeedFilter) => void;
   currentUserId: string | null;
 }) {
+  const { tr, t } = useTranslation();
   const feed = useSocialFeed(filter, currentUserId);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feed;
@@ -67,7 +69,7 @@ export function SocialFeed({
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   return (
-    <section aria-label="Fil social Global Party">
+    <section aria-label={tr("Fil social Global Party")}>
       <div className="no-scrollbar sticky top-0 z-20 mb-4 flex gap-2 overflow-x-auto rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-xl md:top-[4.25rem]">
         {filters.map(({ value, label, icon: Icon }) => (
           <button
@@ -81,7 +83,7 @@ export function SocialFeed({
                 : { color: "var(--color-muted-foreground)" }
             }
           >
-            <Icon className="h-4 w-4" /> {label}
+            <Icon className="h-4 w-4" /> {tr(label)}
           </button>
         ))}
       </div>
@@ -95,10 +97,12 @@ export function SocialFeed({
       ) : feed.isError ? (
         <div className="glass rounded-3xl p-8 text-center">
           <RefreshCw className="mx-auto h-9 w-9 text-muted-foreground" />
-          <p className="mt-3 font-semibold">Le fil n'a pas pu être chargé</p>
-          <p className="mt-1 text-sm text-muted-foreground">Vérifie ta connexion puis réessaie.</p>
+          <p className="mt-3 font-semibold">{tr("Le fil n'a pas pu être chargé")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {tr("Vérifie ta connexion puis réessaie.")}
+          </p>
           <Button variant="outline" onClick={() => feed.refetch()} className="mt-4 rounded-full">
-            Réessayer
+            {t("common.retry")}
           </Button>
         </div>
       ) : posts.length === 0 ? (
@@ -106,11 +110,11 @@ export function SocialFeed({
           <MessageCircle className="mx-auto h-10 w-10 text-muted-foreground" />
           <h2 className="mt-3 text-lg font-semibold">
             {filter === "events"
-              ? "Aucune publication événement pour l'instant"
-              : "Ton fil est encore calme"}
+              ? tr("Aucune publication événement pour l'instant")
+              : tr("Ton fil est encore calme")}
           </h2>
           <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Les prochaines annonces des organisateurs apparaîtront ici.
+            {tr("Les prochaines annonces des organisateurs apparaîtront ici.")}
           </p>
         </div>
       ) : (
@@ -121,14 +125,14 @@ export function SocialFeed({
           <div ref={loadMoreRef} className="flex min-h-16 items-center justify-center">
             {feed.isFetchingNextPage ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <RefreshCw className="h-4 w-4 animate-spin" /> Chargement…
+                <RefreshCw className="h-4 w-4 animate-spin" /> {t("common.loading")}
               </div>
             ) : feed.hasNextPage ? (
               <Button variant="ghost" size="sm" onClick={() => feed.fetchNextPage()}>
-                Voir plus
+                {tr("Voir plus")}
               </Button>
             ) : (
-              <p className="text-xs text-muted-foreground">Tu es à jour.</p>
+              <p className="text-xs text-muted-foreground">{tr("Tu es à jour.")}</p>
             )}
           </div>
         </div>

@@ -15,7 +15,6 @@ import type { DiscoveredEvent } from "@/lib/queries";
 import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
-import { GENRE_LABELS } from "@/lib/event-filters";
 import { useTranslation } from "@/lib/i18n";
 
 function formatLocalTime(iso: string, tz: string, locale: string) {
@@ -33,23 +32,6 @@ function formatLocalTime(iso: string, tz: string, locale: string) {
   }
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  concerts: "Concert",
-  festivals: "Festival",
-  soirees: "Soirée",
-  expositions: "Exposition",
-  theatre: "Spectacle",
-  famille: "Famille",
-  "sports-outdoor": "Sport & plein air",
-  heritage: "Visites & patrimoine",
-  gastronomy: "Gastronomie & marchés",
-  activities: "Ateliers & activités",
-  conferences: "Conférences & rencontres",
-  cinema: "Cinéma & projections",
-  leisure: "Jeux & loisirs",
-  other: "Autres événements",
-};
-
 async function fetchViewerId() {
   const { data } = await supabase.auth.getSession();
   return data.session?.user.id ?? null;
@@ -62,7 +44,7 @@ async function fetchFavoriteEventIds(userId: string) {
 }
 
 export function EventCard({ ev }: { ev: DiscoveredEvent }) {
-  const { t, formatNumber, localeTag } = useTranslation();
+  const { t, tr, categoryLabel, genreLabel, formatNumber, localeTag } = useTranslation();
   const queryClient = useQueryClient();
   const viewer = useQuery({
     queryKey: ["viewer-id"],
@@ -91,12 +73,12 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         .delete()
         .eq("user_id", userId)
         .eq("event_id", ev.event_id);
-      if (error) return toast.error("Impossible de retirer ce favori");
+      if (error) return toast.error(tr("Impossible de retirer ce favori"));
     } else {
       const { error } = await supabase
         .from("favorites")
         .insert({ user_id: userId, event_id: ev.event_id });
-      if (error) return toast.error("Impossible d'enregistrer ce favori");
+      if (error) return toast.error(tr("Impossible d'enregistrer ce favori"));
     }
     queryClient.setQueryData<string[]>(["favorite-event-ids", userId], (current = []) =>
       fav ? current.filter((id) => id !== ev.event_id) : [...current, ev.event_id],
@@ -107,7 +89,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
   const priceLabel = ev.is_free
     ? t("common.free")
     : ev.price_from != null
-      ? `Dès ${formatNumber(Number(ev.price_from))}`
+      ? tr("Dès {price}", { price: formatNumber(Number(ev.price_from)) })
       : ev.has_tickets
         ? t("event.ticketAvailable")
         : null;
@@ -158,7 +140,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
                   color: "var(--color-primary-foreground)",
                 }}
               >
-                Démonstration
+                {tr("Démonstration")}
               </Badge>
             )}
             {ev.is_free && (
@@ -192,7 +174,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
               className="border-transparent"
               style={{ background: "oklch(0 0 0 / 0.55)", color: "white" }}
             >
-              {CATEGORY_LABELS[ev.category_slug] ?? ev.category_slug}
+              {categoryLabel(ev.category_slug)}
             </Badge>
           </div>
         )}
@@ -211,7 +193,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MapPin className="h-3.5 w-3.5" />
           <span className="truncate">
-            {ev.venue_name ?? "Lieu à confirmer"}
+            {ev.venue_name ?? tr("Lieu à confirmer")}
             {ev.city_name ? ` · ${ev.city_name}` : ""}
           </span>
           {ev.distance_km != null && (
@@ -227,7 +209,8 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             )}
             {ev.capacity != null && (
               <span className="inline-flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" /> {formatNumber(ev.capacity)} pers.
+                <Users className="h-3.5 w-3.5" />
+                {tr("{count} pers.", { count: formatNumber(ev.capacity) })}
               </span>
             )}
             {ev.wheelchair && (
@@ -244,14 +227,14 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
                 key={genre}
                 className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium"
               >
-                {GENRE_LABELS[genre] ?? genre}
+                {genreLabel(genre)}
               </span>
             ))}
           </div>
         )}
         {ev.location_precision === "city" && (
           <span className="text-[10px] text-amber-700 dark:text-amber-300">
-            Position approximative au niveau de la ville
+            {tr("Position approximative au niveau de la ville")}
           </span>
         )}
       </div>

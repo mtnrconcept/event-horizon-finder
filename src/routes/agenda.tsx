@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Calendar, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/agenda")({
   head: () => ({ meta: [{ title: "Mon agenda — Global Party" }] }),
@@ -57,6 +58,7 @@ function toIcs(items: Item[]) {
 }
 
 function Agenda() {
+  const { tr, t, localeTag } = useTranslation();
   const [items, setItems] = useState<Item[] | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
@@ -97,20 +99,22 @@ function Agenda() {
     a.download = "global-party.ics";
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Agenda exporté");
+    toast.success(tr("Agenda exporté"));
   };
 
   if (signedIn === false) {
     return (
       <div className="mx-auto max-w-md px-4 pt-16 text-center">
         <Calendar className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-        <h1 className="text-2xl font-bold">Ton agenda</h1>
-        <p className="mt-2 text-muted-foreground">Connecte-toi pour construire ton programme.</p>
+        <h1 className="text-2xl font-bold">{tr("Ton agenda")}</h1>
+        <p className="mt-2 text-muted-foreground">
+          {tr("Connecte-toi pour construire ton programme.")}
+        </p>
         <Link
           to="/auth"
           className="btn-glow mt-6 inline-flex rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground"
         >
-          Se connecter
+          {tr("Se connecter")}
         </Link>
       </div>
     );
@@ -123,29 +127,29 @@ function Agenda() {
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 md:px-6">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Agenda</h1>
+        <h1 className="text-3xl font-bold">{t("nav.agenda")}</h1>
         <button
           onClick={download}
           className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium hover:bg-accent"
         >
-          <Download className="h-4 w-4" /> Exporter .ics
+          <Download className="h-4 w-4" /> {tr("Exporter .ics")}
         </button>
       </div>
       {!items ? (
-        <p className="text-muted-foreground">Chargement…</p>
+        <p className="text-muted-foreground">{t("common.loading")}</p>
       ) : sorted.length === 0 ? (
         <p className="text-muted-foreground">
-          Ton agenda est vide. Ajoute un événement depuis sa fiche.
+          {tr("Ton agenda est vide. Ajoute un événement depuis sa fiche.")}
         </p>
       ) : (
         <ul className="space-y-3">
           {sorted.map((i) => (
             <li key={i.id} className="glass flex items-center gap-3 rounded-xl p-3">
               <div className="flex-1">
-                <p className="font-medium">{i.event?.title ?? "Événement"}</p>
+                <p className="font-medium">{i.event?.title ?? tr("Événement")}</p>
                 <p className="text-xs text-muted-foreground">
                   {i.occurrence
-                    ? new Intl.DateTimeFormat("fr-FR", {
+                    ? new Intl.DateTimeFormat(localeTag, {
                         timeZone: i.occurrence.timezone,
                         dateStyle: "medium",
                         timeStyle: "short",
@@ -154,7 +158,7 @@ function Agenda() {
                 </p>
                 {i.event?.status === "cancelled" && (
                   <span className="mt-1 inline-block rounded-full bg-destructive px-2 py-0.5 text-[10px] text-destructive-foreground">
-                    Annulé
+                    {t("event.cancelled")}
                   </span>
                 )}
               </div>
@@ -164,12 +168,12 @@ function Agenda() {
                   params={{ slug: i.event.slug }}
                   className="text-xs text-primary"
                 >
-                  Voir
+                  {tr("Voir")}
                 </Link>
               )}
               <button
                 onClick={() => remove(i.id)}
-                aria-label="Retirer"
+                aria-label={tr("Retirer")}
                 className="rounded-full p-2 hover:bg-accent"
               >
                 <Trash2 className="h-4 w-4" />
