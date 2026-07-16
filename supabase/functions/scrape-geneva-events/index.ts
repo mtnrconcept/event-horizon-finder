@@ -401,6 +401,8 @@ Deno.serve(async (req) => {
 
   const sources = (sourceRows ?? []) as DataSource[];
   const tasks = sources
+    .filter((source) => source.metadata?.derived_city_source !== true)
+    .filter((source) => source.metadata?.import_only !== true)
     .filter((source) => shouldSync(source, force, runStartedAt))
     .flatMap((source) =>
       Array.from({ length: Math.max(1, source.page_count ?? 1) }, (_, page) => ({
@@ -508,22 +510,43 @@ Deno.serve(async (req) => {
         if (recordError) throw recordError;
 
         for (const event of events) {
-          const { data: upserted, error: upsertError } = await admin.rpc("upsert_ingested_event", {
+          const { data: upserted, error: upsertError } = await admin.rpc("upsert_ingested_event_v2", {
             _data_source_id: task.source.id,
-            _source_url: event.sourceUrl,
-            _title: event.title,
-            _description: event.description,
-            _starts_at: event.startDate,
-            _ends_at: event.endDate,
-            _venue_name: event.venueName,
-            _address: event.address,
-            _latitude: event.latitude,
-            _longitude: event.longitude,
-            _category: event.category,
-            _ticket_url: event.ticketUrl,
-            _image_url: event.imageUrl,
-            _is_free: event.isFree,
-            _external_identifier: event.externalId,
+            _payload: {
+              source_url: event.sourceUrl,
+              external_identifier: event.externalId,
+              title: event.title,
+              description: event.description,
+              starts_at: event.startDate,
+              ends_at: event.endDate,
+              timezone: event.timezone,
+              time_precision: event.timePrecision,
+              all_day: event.allDay,
+              venue_name: event.venueName,
+              address: event.address,
+              city: event.city,
+              region: event.region,
+              country_code: event.countryCode,
+              latitude: event.latitude,
+              longitude: event.longitude,
+              organizer_name: event.organizerName,
+              organizer_url: event.organizerUrl,
+              status: event.status,
+              language: event.language,
+              category: event.category,
+              genres: event.genres,
+              capacity: event.capacity,
+              price_min: event.priceMin,
+              price_max: event.priceMax,
+              currency: event.currency,
+              ticket_url: event.ticketUrl,
+              ticket_status: event.isFree ? "free" : event.ticketUrl ? "available" : "unknown",
+              image_url: event.imageUrl,
+              is_free: event.isFree,
+              quality_score: event.qualityScore,
+              warnings: event.warnings,
+              extraction_method: event.extractionMethod,
+            },
           });
           if (upsertError) {
             rejected += 1;
@@ -531,74 +554,6 @@ Deno.serve(async (req) => {
             continue;
           }
           const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
-          if (outcome?.event_id) {
-            const eventUpdate: Record<string, unknown> = {
-              quality_score: Math.max(Number(outcome.score ?? 0), event.qualityScore),
-            };
-            if (event.language !== "und") eventUpdate.language = event.language;
-            if (event.genres.length) eventUpdate.genres = event.genres;
-            if (event.status !== "scheduled") {
-              eventUpdate.status = event.status;
-            }
-            const { error: eventUpdateError } = await admin
-              .from("events")
-              .update(eventUpdate)
-              .eq("id", outcome.event_id);
-            if (eventUpdateError && upsertErrors.length < 5) {
-              upsertErrors.push(`event: ${eventUpdateError.message.slice(0, 450)}`);
-            }
-
-            const occurrenceUpdate = {
-              timezone: event.timezone,
-              time_precision: event.timePrecision,
-              all_day: event.allDay,
-              status: event.status,
-              ...(event.capacity != null ? { capacity: event.capacity } : {}),
-            };
-            {
-              const { error: occurrenceError } = await admin
-                .from("event_occurrences")
-                .update(occurrenceUpdate)
-                .eq("event_id", outcome.event_id)
-                .eq("starts_at", event.startDate);
-              if (occurrenceError && upsertErrors.length < 5) {
-                upsertErrors.push(`occurrence: ${occurrenceError.message.slice(0, 450)}`);
-              }
-            }
-
-            if (
-              event.priceMin != null ||
-              event.priceMax != null ||
-              event.ticketUrl ||
-              event.isFree
-            ) {
-              const { data: offer } = await admin
-                .from("ticket_offers")
-                .select("id")
-                .eq("event_id", outcome.event_id)
-                .order("id", { ascending: true })
-                .limit(1)
-                .maybeSingle();
-              const ticketData: Record<string, unknown> = {
-                price_min: event.priceMin ?? event.priceMax,
-                price_max: event.priceMax ?? event.priceMin,
-                is_free: event.isFree,
-                ticket_url: event.ticketUrl,
-                status: event.isFree ? "free" : event.ticketUrl ? "available" : "unknown",
-              };
-              if (event.currency) ticketData.currency = event.currency;
-              const ticketResult = offer
-                ? await admin.from("ticket_offers").update(ticketData).eq("id", offer.id)
-                : await admin.from("ticket_offers").insert({
-                    event_id: outcome.event_id,
-                    name: event.isFree ? "Entrée gratuite" : "Billetterie officielle",
-                    ...ticketData,
-                  });
-              if (ticketResult.error && upsertErrors.length < 5) {
-                upsertErrors.push(`price: ${ticketResult.error.message.slice(0, 450)}`);
-              }
-            }
-          }
           if (outcome?.action === "created") created += 1;
           else updated += 1;
         }
