@@ -7,8 +7,10 @@ import {
   type AdPlacement,
   type EligibleCampaign,
 } from "@/lib/ad-queries";
+import { useTranslation } from "@/lib/i18n";
 
 export function TargetedCampaigns({ placement }: { placement: AdPlacement }) {
+  const { tr } = useTranslation();
   const campaigns = useQuery({
     queryKey: ["eligible-ad-campaigns", placement],
     queryFn: () => fetchEligibleCampaigns(placement),
@@ -24,9 +26,10 @@ export function TargetedCampaigns({ placement }: { placement: AdPlacement }) {
 
   if (!campaigns.data?.length) return null;
   return (
-    <section aria-label="Événements sponsorisés" className="mb-6">
+    <section aria-label={tr("Événements sponsorisés")} className="mb-6">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <Megaphone className="h-3.5 w-3.5" /> Sélection sponsorisée · personnalisée avec ton accord
+        <Megaphone className="h-3.5 w-3.5" />{" "}
+        {tr("Sélection sponsorisée · personnalisée avec ton accord")}
       </div>
       <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
         {campaigns.data.map((campaign) => (

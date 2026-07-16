@@ -31,6 +31,7 @@ import {
   type PromotableEvent,
   type PromotablePost,
 } from "@/lib/ad-queries";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/organizer/ads")({
   head: () => ({ meta: [{ title: "Publicité et ciblage — Global Party" }] }),
@@ -69,6 +70,7 @@ function defaultForm() {
 }
 
 function OrganizerAds() {
+  const { tr, t, genreLabel, formatNumber, localeTag } = useTranslation();
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
   const [organizers, setOrganizers] = useState<OrganizerOption[]>([]);
@@ -226,7 +228,7 @@ function OrganizerAds() {
   if (loading) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-12 text-sm text-muted-foreground">
-        Chargement du module publicitaire…
+        {t("common.loading")}
       </div>
     );
   }
@@ -235,15 +237,15 @@ function OrganizerAds() {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <Megaphone className="mx-auto h-12 w-12 text-muted-foreground" />
-        <h1 className="mt-4 text-2xl font-bold">Crée d'abord ton organisation</h1>
+        <h1 className="mt-4 text-2xl font-bold">{tr("Crée d'abord ton organisation")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Une organisation est nécessaire pour publier et promouvoir du contenu.
+          {tr("Une organisation est nécessaire pour publier et promouvoir du contenu.")}
         </p>
         <Link
           to="/organizer"
           className="mt-5 inline-flex rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground"
         >
-          Portail organisateur
+          {tr("Portail organisateur")}
         </Link>
       </div>
     );
@@ -255,15 +257,18 @@ function OrganizerAds() {
         to="/organizer"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ChevronLeft className="h-4 w-4" /> Dashboard organisateur
+        <ChevronLeft className="h-4 w-4" /> {tr("Dashboard organisateur")}
       </Link>
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase text-primary">Audience & acquisition</p>
-          <h1 className="text-3xl font-black md:text-4xl">Campagnes publicitaires</h1>
+          <p className="text-xs font-semibold uppercase text-primary">
+            {tr("Audience & acquisition")}
+          </p>
+          <h1 className="text-3xl font-black md:text-4xl">{tr("Campagnes publicitaires")}</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Mets en avant un événement, une publication ou ton organisation auprès des clients
-            consentants selon leur ville, leur tranche d'âge et leurs goûts musicaux.
+            {tr(
+              "Mets en avant un événement, une publication ou ton organisation auprès des clients consentants selon leur ville, leur tranche d'âge et leurs goûts musicaux.",
+            )}
           </p>
         </div>
         <button
@@ -271,30 +276,30 @@ function OrganizerAds() {
           onClick={() => setShowComposer((current) => !current)}
           className="btn-glow inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
         >
-          <Plus className="h-4 w-4" /> Nouvelle campagne
+          <Plus className="h-4 w-4" /> {tr("Nouvelle campagne")}
         </button>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric icon={Megaphone} label="Actives" value={activeCampaigns.toString()} />
-        <Metric icon={Eye} label="Impressions" value={totalImpressions.toLocaleString("fr-CH")} />
+        <Metric icon={Megaphone} label={tr("Actives")} value={formatNumber(activeCampaigns)} />
+        <Metric icon={Eye} label={tr("Impressions")} value={formatNumber(totalImpressions)} />
         <Metric
           icon={MousePointerClick}
-          label="Clics"
+          label={tr("Clics")}
           value={totalClicks.toLocaleString("fr-CH")}
         />
-        <Metric icon={BarChart3} label="CTR moyen" value={`${averageCtr.toFixed(1)}%`} />
+        <Metric icon={BarChart3} label={tr("CTR moyen")} value={`${averageCtr.toFixed(1)}%`} />
       </div>
 
       {showComposer && (
         <form onSubmit={submit} className="glass mb-7 rounded-[2rem] p-5 md:p-7">
           <div className="mb-6">
-            <p className="text-xs font-semibold uppercase text-primary">Configuration</p>
-            <h2 className="text-2xl font-bold">Créer une campagne ciblée</h2>
+            <p className="text-xs font-semibold uppercase text-primary">{tr("Configuration")}</p>
+            <h2 className="text-2xl font-bold">{tr("Créer une campagne ciblée")}</h2>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-4">
-              <FormField label="Organisation">
+              <FormField label={tr("Organisation")}>
                 <select
                   value={form.organizerId}
                   onChange={(event) => set("organizerId", event.target.value)}
@@ -307,44 +312,46 @@ function OrganizerAds() {
                   ))}
                 </select>
               </FormField>
-              <FormField label="Nom interne de la campagne">
+              <FormField label={tr("Nom interne de la campagne")}>
                 <input
                   required
                   minLength={2}
                   maxLength={120}
                   value={form.name}
                   onChange={(event) => set("name", event.target.value)}
-                  placeholder="Lancement festival été"
+                  placeholder={tr("Lancement festival été")}
                   className="field-control"
                 />
               </FormField>
-              <FormField label="Objectif">
+              <FormField label={tr("Objectif")}>
                 <select
                   value={form.objective}
                   onChange={(event) => set("objective", event.target.value)}
                   className="field-control"
                 >
-                  <option value="awareness">Notoriété</option>
-                  <option value="engagement">Engagement sur le fil</option>
-                  <option value="event_visits">Visites de la fiche événement</option>
-                  <option value="ticket_sales">Ventes de billets</option>
+                  <option value="awareness">{tr("Notoriété")}</option>
+                  <option value="engagement">{tr("Engagement sur le fil")}</option>
+                  <option value="event_visits">{tr("Visites de la fiche événement")}</option>
+                  <option value="ticket_sales">{tr("Ventes de billets")}</option>
                 </select>
               </FormField>
-              <FormField label="Contenu à promouvoir">
+              <FormField label={tr("Contenu à promouvoir")}>
                 <select
                   value={form.promotedContent}
                   onChange={(event) => set("promotedContent", event.target.value)}
                   className="field-control"
                 >
-                  <option value="brand">L'organisation {selectedOrganizer?.name}</option>
-                  <optgroup label="Événements publiés">
+                  <option value="brand">
+                    {tr("L'organisation {name}", { name: selectedOrganizer?.name ?? "" })}
+                  </option>
+                  <optgroup label={tr("Événements publiés")}>
                     {selectedEvents.map((item) => (
                       <option key={item.id} value={`event:${item.id}`}>
                         {item.title}
                       </option>
                     ))}
                   </optgroup>
-                  <optgroup label="Publications du fil">
+                  <optgroup label={tr("Publications du fil")}>
                     {selectedPosts.map((item) => (
                       <option key={item.id} value={`post:${item.id}`}>
                         {item.body?.slice(0, 70) || "Publication avec média"}
@@ -353,18 +360,18 @@ function OrganizerAds() {
                   </optgroup>
                 </select>
               </FormField>
-              <FormField label="Titre publicitaire">
+              <FormField label={tr("Titre publicitaire")}>
                 <input
                   required
                   minLength={2}
                   maxLength={140}
                   value={form.headline}
                   onChange={(event) => set("headline", event.target.value)}
-                  placeholder="La nuit que Genève attendait"
+                  placeholder={tr("La nuit que Genève attendait")}
                   className="field-control"
                 />
               </FormField>
-              <FormField label="Message">
+              <FormField label={tr("Message")}>
                 <textarea
                   value={form.body}
                   onChange={(event) => set("body", event.target.value)}
@@ -374,7 +381,7 @@ function OrganizerAds() {
                 />
               </FormField>
               <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="Image (URL https)">
+                <FormField label={tr("Image (URL https)")}>
                   <input
                     type="url"
                     value={form.imageUrl}
@@ -383,12 +390,12 @@ function OrganizerAds() {
                     className="field-control"
                   />
                 </FormField>
-                <FormField label="Lien externe (facultatif)">
+                <FormField label={tr("Lien externe (facultatif)")}>
                   <input
                     type="url"
                     value={form.ctaUrl}
                     onChange={(event) => set("ctaUrl", event.target.value)}
-                    placeholder="Billetterie https://…"
+                    placeholder={tr("Billetterie https://…")}
                     className="field-control"
                   />
                 </FormField>
@@ -398,10 +405,10 @@ function OrganizerAds() {
             <div className="space-y-5">
               <div className="rounded-2xl border p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold">
-                  <Target className="h-4 w-4 text-primary" /> Ciblage
+                  <Target className="h-4 w-4 text-primary" /> {tr("Ciblage")}
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <FormField label="Âge minimum">
+                  <FormField label={tr("Âge minimum")}>
                     <input
                       type="number"
                       min={13}
@@ -412,7 +419,7 @@ function OrganizerAds() {
                       className="field-control"
                     />
                   </FormField>
-                  <FormField label="Âge maximum">
+                  <FormField label={tr("Âge maximum")}>
                     <input
                       type="number"
                       min={13}
@@ -424,7 +431,7 @@ function OrganizerAds() {
                     />
                   </FormField>
                 </div>
-                <FormField label="Villes (Ctrl/Cmd pour plusieurs)">
+                <FormField label={tr("Villes (Ctrl/Cmd pour plusieurs)")}>
                   <select
                     multiple
                     size={5}
@@ -445,7 +452,7 @@ function OrganizerAds() {
                   </select>
                 </FormField>
                 <div className="mt-4">
-                  <p className="text-xs font-medium">Styles musicaux</p>
+                  <p className="text-xs font-medium">{tr("Styles musicaux")}</p>
                   <div className="mt-2 flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
                     {MUSIC_GENRES.map(([value, label]) => (
                       <button
@@ -459,7 +466,7 @@ function OrganizerAds() {
                             : undefined
                         }
                       >
-                        {label}
+                        {genreLabel(value, label)}
                       </button>
                     ))}
                   </div>
@@ -469,7 +476,7 @@ function OrganizerAds() {
                   onClick={() => void estimate()}
                   className="mt-4 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold hover:bg-accent"
                 >
-                  <Users className="h-4 w-4" /> Estimer l'audience
+                  <Users className="h-4 w-4" /> {tr("Estimer l'audience")}
                 </button>
                 {estimatedAudience !== null && (
                   <p className="mt-2 text-sm font-semibold text-primary">
@@ -482,10 +489,10 @@ function OrganizerAds() {
 
               <div className="rounded-2xl border p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold">
-                  <CalendarClock className="h-4 w-4 text-primary" /> Diffusion
+                  <CalendarClock className="h-4 w-4 text-primary" /> {tr("Diffusion")}
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <FormField label="Début">
+                  <FormField label={tr("Début")}>
                     <input
                       required
                       type="datetime-local"
@@ -494,7 +501,7 @@ function OrganizerAds() {
                       className="field-control"
                     />
                   </FormField>
-                  <FormField label="Fin">
+                  <FormField label={tr("Fin")}>
                     <input
                       required
                       type="datetime-local"
@@ -504,7 +511,7 @@ function OrganizerAds() {
                     />
                   </FormField>
                 </div>
-                <p className="mt-4 text-xs font-medium">Emplacements</p>
+                <p className="mt-4 text-xs font-medium">{tr("Emplacements")}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(
                     [
@@ -524,7 +531,7 @@ function OrganizerAds() {
                           : undefined
                       }
                     >
-                      {label}
+                      {tr(label)}
                     </button>
                   ))}
                 </div>
@@ -532,10 +539,10 @@ function OrganizerAds() {
 
               <div className="rounded-2xl border p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold">
-                  <CircleDollarSign className="h-4 w-4 text-primary" /> Budget indicatif
+                  <CircleDollarSign className="h-4 w-4 text-primary" /> {tr("Budget indicatif")}
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <FormField label="Par jour (CHF)">
+                  <FormField label={tr("Par jour (CHF)")}>
                     <input
                       required
                       type="number"
@@ -546,7 +553,7 @@ function OrganizerAds() {
                       className="field-control"
                     />
                   </FormField>
-                  <FormField label="Total (CHF)">
+                  <FormField label={tr("Total (CHF)")}>
                     <input
                       required
                       type="number"
@@ -559,8 +566,9 @@ function OrganizerAds() {
                   </FormField>
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Le paiement et la facturation seront validés séparément avant toute dépense
-                  réelle.
+                  {tr(
+                    "Le paiement et la facturation seront validés séparément avant toute dépense réelle.",
+                  )}
                 </p>
               </div>
 
@@ -572,9 +580,9 @@ function OrganizerAds() {
                   className="mt-1 h-4 w-4 accent-[var(--color-primary)]"
                 />
                 <span>
-                  <span className="block font-semibold">Activer dès la date de début</span>
+                  <span className="block font-semibold">{tr("Activer dès la date de début")}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    Sinon, la campagne restera en brouillon.
+                    {tr("Sinon, la campagne restera en brouillon.")}
                   </span>
                 </span>
               </label>
@@ -586,7 +594,7 @@ function OrganizerAds() {
               onClick={() => setShowComposer(false)}
               className="rounded-full border px-5 py-2.5 text-sm"
             >
-              Annuler
+              {tr("Annuler")}
             </button>
             <button
               type="submit"
@@ -605,8 +613,10 @@ function OrganizerAds() {
 
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xl font-bold">Toutes les campagnes</h2>
-          <span className="text-xs text-muted-foreground">{campaigns.length} campagne(s)</span>
+          <h2 className="text-xl font-bold">{tr("Toutes les campagnes")}</h2>
+          <span className="text-xs text-muted-foreground">
+            {tr("{count} campagne(s)", { count: campaigns.length })}
+          </span>
         </div>
         {campaigns.length ? (
           <div className="space-y-3">
@@ -622,9 +632,9 @@ function OrganizerAds() {
                       {campaign.headline}
                     </p>
                     <p className="mt-2 text-[11px] text-muted-foreground">
-                      {new Date(campaign.starts_at).toLocaleDateString("fr-CH")} →{" "}
-                      {new Date(campaign.ends_at).toLocaleDateString("fr-CH")} ·{" "}
-                      {campaign.total_budget.toLocaleString("fr-CH")} {campaign.currency}
+                      {new Date(campaign.starts_at).toLocaleDateString(localeTag)} →{" "}
+                      {new Date(campaign.ends_at).toLocaleDateString(localeTag)} ·{" "}
+                      {formatNumber(campaign.total_budget)} {campaign.currency}
                     </p>
                   </div>
                   <button
@@ -648,12 +658,12 @@ function OrganizerAds() {
                 </div>
                 <div className="mt-4 grid grid-cols-4 gap-2 border-t pt-4 text-center">
                   <SmallMetric
-                    label="Impressions"
+                    label={tr("Impressions")}
                     value={campaign.impression_count.toLocaleString("fr-CH")}
                   />
-                  <SmallMetric label="Clics" value={campaign.click_count.toLocaleString("fr-CH")} />
+                  <SmallMetric label={tr("Clics")} value={formatNumber(campaign.click_count)} />
                   <SmallMetric
-                    label="Portée"
+                    label={tr("Portée")}
                     value={campaign.unique_reach.toLocaleString("fr-CH")}
                   />
                   <SmallMetric label="CTR" value={`${campaign.click_through_rate.toFixed(1)}%`} />
@@ -664,9 +674,9 @@ function OrganizerAds() {
         ) : (
           <div className="glass rounded-3xl p-10 text-center">
             <Megaphone className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="mt-3 font-semibold">Aucune campagne pour le moment</p>
+            <p className="mt-3 font-semibold">{tr("Aucune campagne pour le moment")}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Crée un premier brouillon et estime son audience.
+              {tr("Crée un premier brouillon et estime son audience.")}
             </p>
           </div>
         )}

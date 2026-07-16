@@ -5,6 +5,7 @@ import { EventCard } from "@/components/event-card";
 import { Heart } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { DiscoveredEvent } from "@/lib/queries";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/favorites")({
   head: () => ({ meta: [{ title: "Mes favoris — Global Party" }] }),
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/favorites")({
 });
 
 function Favorites() {
+  const { tr, t } = useTranslation();
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
@@ -81,15 +83,15 @@ function Favorites() {
     return (
       <div className="mx-auto max-w-md px-4 pt-16 text-center">
         <Heart className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-        <h1 className="text-2xl font-bold">Tes favoris</h1>
+        <h1 className="text-2xl font-bold">{tr("Tes favoris")}</h1>
         <p className="mt-2 text-muted-foreground">
-          Connecte-toi pour enregistrer tes événements préférés.
+          {tr("Connecte-toi pour enregistrer tes événements préférés.")}
         </p>
         <Link
           to="/auth"
           className="btn-glow mt-6 inline-flex rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground"
         >
-          Se connecter
+          {tr("Se connecter")}
         </Link>
       </div>
     );
@@ -97,11 +99,11 @@ function Favorites() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-8 md:px-6">
-      <h1 className="mb-6 text-3xl font-bold">Favoris</h1>
+      <h1 className="mb-6 text-3xl font-bold">{tr("Favoris")}</h1>
       {!events ? (
-        <p className="text-muted-foreground">Chargement…</p>
+        <p className="text-muted-foreground">{t("common.loading")}</p>
       ) : events.length === 0 ? (
-        <p className="text-muted-foreground">Aucun favori pour l'instant.</p>
+        <p className="text-muted-foreground">{tr("Aucun favori pour l'instant.")}</p>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {events.map((e) => (

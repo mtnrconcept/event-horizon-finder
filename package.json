@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test:map": "node --test tests/map-clusters.test.ts",
     "test:mcp": "node --test tests/mcp-server.test.ts",
+    "test:i18n": "node --test tests/i18n-coverage.test.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MUSIC_GENRES } from "@/lib/event-filters";
 import { notifyPrivacyUpdated } from "@/lib/client-analytics";
 import { CitySearchInput } from "@/components/city-search-input";
+import { useTranslation } from "@/lib/i18n";
 
 const profileDb = supabase as unknown as SupabaseClient<any>;
 
@@ -46,6 +47,7 @@ const EMPTY_PROFILE: ProfileState = {
 };
 
 function Profile() {
+  const { tr, genreLabel } = useTranslation();
   const navigate = useNavigate();
   const [session, setSession] = useState<{ email?: string; id: string } | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
@@ -119,17 +121,17 @@ function Profile() {
     setSaving(false);
     if (error) return toast.error(error.message);
     notifyPrivacyUpdated();
-    toast.success("Profil et préférences enregistrés");
+    toast.success(tr("Profil et préférences enregistrés"));
   };
 
   const deleteJourney = async () => {
     const confirmed = window.confirm(
-      "Supprimer définitivement tout l'historique de parcours associé à ton compte ?",
+      tr("Supprimer définitivement tout l'historique de parcours associé à ton compte ?"),
     );
     if (!confirmed) return;
     const { error } = await profileDb.rpc("delete_my_client_journey");
     if (error) return toast.error(error.message);
-    toast.success("Historique de parcours supprimé");
+    toast.success(tr("Historique de parcours supprimé"));
   };
 
   const signOut = async () => {
@@ -141,13 +143,13 @@ function Profile() {
     return (
       <div className="mx-auto max-w-md px-4 pt-16 text-center">
         <User className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-        <h1 className="text-2xl font-bold">Ton profil</h1>
-        <p className="mt-2 text-muted-foreground">Crée un compte client ou organisateur.</p>
+        <h1 className="text-2xl font-bold">{tr("Ton profil")}</h1>
+        <p className="mt-2 text-muted-foreground">{tr("Crée un compte client ou organisateur.")}</p>
         <Link
           to="/auth"
           className="btn-glow mt-6 inline-flex rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground"
         >
-          Se connecter ou s'inscrire
+          {tr("Se connecter ou s'inscrire")}
         </Link>
       </div>
     );
@@ -158,9 +160,9 @@ function Profile() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase text-primary">
-            {profile.account_type === "organizer" ? "Compte organisateur" : "Compte client"}
+            {profile.account_type === "organizer" ? tr("Compte organisateur") : tr("Compte client")}
           </p>
-          <h1 className="text-3xl font-black">Profil et préférences</h1>
+          <h1 className="text-3xl font-black">{tr("Profil et préférences")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{session.email}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -176,10 +178,10 @@ function Profile() {
       </div>
 
       <section className="glass mb-4 space-y-4 rounded-3xl p-5 md:p-6">
-        <h2 className="text-lg font-semibold">Informations personnelles</h2>
+        <h2 className="text-lg font-semibold">{tr("Informations personnelles")}</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-xs font-medium">
-            <span className="mb-1.5 block">Nom affiché</span>
+            <span className="mb-1.5 block">{tr("Nom affiché")}</span>
             <input
               value={profile.display_name}
               maxLength={100}
@@ -190,7 +192,7 @@ function Profile() {
             />
           </label>
           <label className="text-xs font-medium">
-            <span className="mb-1.5 block">Ville principale</span>
+            <span className="mb-1.5 block">{tr("Ville principale")}</span>
             <CitySearchInput
               value={profile.home_city_id}
               initialLabel={homeCityLabel}
@@ -201,7 +203,7 @@ function Profile() {
           </label>
           {profile.account_type === "client" && (
             <label className="text-xs font-medium">
-              <span className="mb-1.5 block">Année de naissance</span>
+              <span className="mb-1.5 block">{tr("Année de naissance")}</span>
               <input
                 type="number"
                 min={1900}
@@ -220,9 +222,9 @@ function Profile() {
       {profile.account_type === "client" && (
         <>
           <section className="glass mb-4 rounded-3xl p-5 md:p-6">
-            <h2 className="text-lg font-semibold">Goûts musicaux</h2>
+            <h2 className="text-lg font-semibold">{tr("Goûts musicaux")}</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Ils servent aux recommandations et, avec ton accord, au ciblage publicitaire.
+              {tr("Ils servent aux recommandations et, avec ton accord, au ciblage publicitaire.")}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {MUSIC_GENRES.map(([value, label]) => (
@@ -238,7 +240,7 @@ function Profile() {
                       : undefined
                   }
                 >
-                  {label}
+                  {genreLabel(value, label)}
                 </button>
               ))}
             </div>
@@ -248,10 +250,11 @@ function Profile() {
             <div className="flex items-start gap-3">
               <ShieldCheck className="h-6 w-6 shrink-0 text-primary" />
               <div>
-                <h2 className="text-lg font-semibold">Données et confidentialité</h2>
+                <h2 className="text-lg font-semibold">{tr("Données et confidentialité")}</h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Les parcours individuels ne sont jamais visibles par les organisateurs. Ils
-                  reçoivent uniquement des statistiques agrégées.
+                  {tr(
+                    "Les parcours individuels ne sont jamais visibles par les organisateurs. Ils reçoivent uniquement des statistiques agrégées.",
+                  )}
                 </p>
               </div>
             </div>
@@ -261,16 +264,18 @@ function Profile() {
                 onChange={(checked) =>
                   setProfile((current) => ({ ...current, analytics_consent: checked }))
                 }
-                title="Analyse du parcours"
-                description="Pages vues et interactions pour améliorer l'expérience et les recommandations."
+                title={tr("Analyse du parcours")}
+                description={tr(
+                  "Pages vues et interactions pour améliorer l'expérience et les recommandations.",
+                )}
               />
               <PrivacyToggle
                 checked={profile.personalized_ads_consent}
                 onChange={(checked) =>
                   setProfile((current) => ({ ...current, personalized_ads_consent: checked }))
                 }
-                title="Publicités personnalisées"
-                description="Ciblage selon ta ville, ta tranche d'âge et tes styles musicaux."
+                title={tr("Publicités personnalisées")}
+                description={tr("Ciblage selon ta ville, ta tranche d'âge et tes styles musicaux.")}
               />
             </div>
             <button
@@ -278,7 +283,7 @@ function Profile() {
               onClick={() => void deleteJourney()}
               className="mt-5 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs text-muted-foreground hover:bg-accent"
             >
-              <Trash2 className="h-4 w-4" /> Supprimer mon historique de parcours
+              <Trash2 className="h-4 w-4" /> {tr("Supprimer mon historique de parcours")}
             </button>
           </section>
         </>
@@ -290,27 +295,27 @@ function Profile() {
         disabled={saving}
         className="btn-glow mb-4 w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
       >
-        {saving ? "Enregistrement…" : "Enregistrer toutes les modifications"}
+        {saving ? tr("Enregistrement…") : tr("Enregistrer toutes les modifications")}
       </button>
 
       <div className="glass mb-4 space-y-2 rounded-3xl p-4">
         <Link to="/favorites" className="flex items-center gap-3 rounded-xl p-3 hover:bg-accent">
-          <Heart className="h-5 w-5" /> Mes favoris
+          <Heart className="h-5 w-5" /> {tr("Mes favoris")}
         </Link>
         <Link to="/organizer" className="flex items-center gap-3 rounded-xl p-3 hover:bg-accent">
-          <Settings className="h-5 w-5" /> Portail organisateur
+          <Settings className="h-5 w-5" /> {tr("Portail organisateur")}
         </Link>
         {roles.includes("organizer") && (
           <Link
             to="/organizer/ads"
             className="flex items-center gap-3 rounded-xl p-3 hover:bg-accent"
           >
-            <Megaphone className="h-5 w-5" /> Campagnes publicitaires
+            <Megaphone className="h-5 w-5" /> {tr("Campagnes publicitaires")}
           </Link>
         )}
         {(roles.includes("admin") || roles.includes("moderator")) && (
           <Link to="/admin" className="flex items-center gap-3 rounded-xl p-3 hover:bg-accent">
-            <Shield className="h-5 w-5" /> Administration
+            <Shield className="h-5 w-5" /> {tr("Administration")}
           </Link>
         )}
       </div>
@@ -319,7 +324,7 @@ function Profile() {
         onClick={() => void signOut()}
         className="flex w-full items-center justify-center gap-2 rounded-full border py-3 text-sm font-medium hover:bg-accent"
       >
-        <LogOut className="h-4 w-4" /> Se déconnecter
+        <LogOut className="h-4 w-4" /> {tr("Se déconnecter")}
       </button>
     </div>
   );

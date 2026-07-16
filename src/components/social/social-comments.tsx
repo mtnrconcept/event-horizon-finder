@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useAddSocialComment, useSocialComments } from "@/hooks/use-social-feed";
+import { useTranslation } from "@/lib/i18n";
 
-function relativeDate(value: string) {
+function relativeDate(value: string, locale: string) {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat("fr", { numeric: "auto" });
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
   const minutes = Math.round(seconds / 60);
   if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
@@ -17,7 +18,7 @@ function relativeDate(value: string) {
   if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 8) return formatter.format(days, "day");
-  return new Intl.DateTimeFormat("fr-CH", { day: "numeric", month: "short" }).format(
+  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(
     new Date(value),
   );
 }
@@ -33,6 +34,7 @@ export function SocialComments({
   expanded: boolean;
   commentsEnabled: boolean;
 }) {
+  const { tr, localeTag } = useTranslation();
   const comments = useSocialComments(postId, expanded);
   const addComment = useAddSocialComment(postId);
   const [body, setBody] = useState("");
@@ -46,14 +48,16 @@ export function SocialComments({
       await addComment.mutateAsync(body);
       setBody("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible d'ajouter le commentaire");
+      toast.error(
+        error instanceof Error ? error.message : tr("Impossible d'ajouter le commentaire"),
+      );
     }
   };
 
   return (
     <div className="border-t px-4 py-4">
       {!commentsEnabled ? (
-        <p className="text-sm text-muted-foreground">Les commentaires sont fermés.</p>
+        <p className="text-sm text-muted-foreground">{tr("Les commentaires sont fermés.")}</p>
       ) : currentUserId ? (
         <form onSubmit={submit} className="mb-4 flex items-end gap-2">
           <div className="min-w-0 flex-1">
@@ -62,8 +66,8 @@ export function SocialComments({
               onChange={(event) => setBody(event.target.value)}
               maxLength={1000}
               rows={2}
-              placeholder="Ajouter un commentaire…"
-              aria-label="Ajouter un commentaire"
+              placeholder={tr("Ajouter un commentaire…")}
+              aria-label={tr("Ajouter un commentaire…")}
               className="min-h-16 resize-none rounded-xl bg-surface/50"
             />
             {body.length > 850 && (
@@ -76,7 +80,7 @@ export function SocialComments({
             type="submit"
             size="icon"
             disabled={!body.trim() || addComment.isPending}
-            aria-label="Publier le commentaire"
+            aria-label={tr("Publier le commentaire")}
             className="rounded-full"
           >
             <Send className="h-4 w-4" />
@@ -85,10 +89,12 @@ export function SocialComments({
       ) : (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border bg-primary/5 px-3 py-2.5">
           <p className="text-xs text-muted-foreground">
-            Connecte-toi pour participer à la discussion.
+            {tr("Connecte-toi pour participer à la discussion.")}
           </p>
           <Button asChild size="sm" className="rounded-full">
-            <a href={`/auth?redirect=${encodeURIComponent(`/post/${postId}`)}`}>Se connecter</a>
+            <a href={`/auth?redirect=${encodeURIComponent(`/post/${postId}`)}`}>
+              {tr("Se connecter")}
+            </a>
           </Button>
         </div>
       )}
@@ -111,7 +117,7 @@ export function SocialComments({
           onClick={() => comments.refetch()}
           className="text-xs text-destructive underline-offset-4 hover:underline"
         >
-          Impossible de charger les commentaires. Réessayer
+          {tr("Impossible de charger les commentaires. Réessayer")}
         </button>
       ) : comments.data?.length ? (
         <ul className="space-y-3">
@@ -129,7 +135,7 @@ export function SocialComments({
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="truncate text-xs font-semibold">{comment.author_display_name}</p>
                   <time className="shrink-0 text-[10px] text-muted-foreground">
-                    {relativeDate(comment.created_at)}
+                    {relativeDate(comment.created_at, localeTag)}
                   </time>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">
@@ -141,7 +147,7 @@ export function SocialComments({
         </ul>
       ) : (
         <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-          <MessageCircle className="h-4 w-4" /> Sois la première personne à commenter.
+          <MessageCircle className="h-4 w-4" /> {tr("Sois la première personne à commenter.")}
         </div>
       )}
     </div>

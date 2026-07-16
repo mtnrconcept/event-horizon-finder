@@ -3,11 +3,12 @@ import { CalendarDays, MapPin, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import type { SocialEvent } from "@/lib/social-queries";
+import { useTranslation } from "@/lib/i18n";
 
-function eventDate(event: SocialEvent) {
-  if (!event.starts_at) return "Date à confirmer";
+function eventDate(event: SocialEvent, localeTag: string, fallback: string) {
+  if (!event.starts_at) return fallback;
   try {
-    return new Intl.DateTimeFormat("fr-CH", {
+    return new Intl.DateTimeFormat(localeTag, {
       timeZone: event.timezone,
       weekday: "short",
       day: "numeric",
@@ -16,11 +17,12 @@ function eventDate(event: SocialEvent) {
       minute: "2-digit",
     }).format(new Date(event.starts_at));
   } catch {
-    return new Date(event.starts_at).toLocaleString("fr-CH");
+    return new Date(event.starts_at).toLocaleString(localeTag);
   }
 }
 
 export function SocialEventAttachment({ event }: { event: SocialEvent }) {
+  const { tr, t, localeTag } = useTranslation();
   return (
     <Link
       to="/event/$slug"
@@ -44,11 +46,11 @@ export function SocialEventAttachment({ event }: { event: SocialEvent }) {
       <div className="min-w-0 flex-1 p-3">
         <div className="mb-1 flex items-center gap-2">
           <Badge variant="outline" className="border-primary/30 text-[10px] text-primary">
-            Événement
+            {tr("Événement")}
           </Badge>
           {event.is_free && (
             <Badge className="border-transparent bg-secondary text-[10px] text-secondary-foreground">
-              Gratuit
+              {t("common.free")}
             </Badge>
           )}
         </div>
@@ -57,7 +59,7 @@ export function SocialEventAttachment({ event }: { event: SocialEvent }) {
         </p>
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">
           <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{eventDate(event)}</span>
+          <span className="truncate">{eventDate(event, localeTag, tr("Date à confirmer"))}</span>
         </p>
         {(event.venue_name || event.city_name) && (
           <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">

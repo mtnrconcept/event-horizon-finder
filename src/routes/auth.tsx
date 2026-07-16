@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MUSIC_GENRES } from "@/lib/event-filters";
 import { CitySearchInput } from "@/components/city-search-input";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n";
 
 type AuthSearch = { redirect?: string };
 type AccountType = "client" | "organizer";
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/auth")({
 });
 
 function Auth() {
+  const { tr, genreLabel } = useTranslation();
   const navigate = useNavigate();
   const { redirect } = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
@@ -86,7 +88,7 @@ function Auth() {
     try {
       if (mode === "signup") {
         if (accountType === "organizer" && organizerName.trim().length < 2) {
-          throw new Error("Indique le nom de ton organisation.");
+          throw new Error(tr("Indique le nom de ton organisation."));
         }
         const parsedBirthYear = birthYear ? Number(birthYear) : null;
         const { data, error } = await supabase.auth.signUp({
@@ -111,12 +113,12 @@ function Auth() {
         });
         if (error) throw error;
         if (!data.session) {
-          toast.success("Compte créé. Confirme ton adresse e-mail pour te connecter.");
+          toast.success(tr("Compte créé. Confirme ton adresse e-mail pour te connecter."));
           setMode("signin");
           return;
         }
         toast.success(
-          accountType === "organizer" ? "Espace organisateur créé" : "Compte client créé",
+          accountType === "organizer" ? tr("Espace organisateur créé") : tr("Compte client créé"),
         );
         navigateTo(accountType === "organizer" ? "/organizer" : destination);
       } else if (mode === "signin") {
@@ -128,10 +130,10 @@ function Auth() {
           redirectTo: `${window.location.origin}/reset-password`,
         });
         if (error) throw error;
-        toast.success("E-mail de réinitialisation envoyé.");
+        toast.success(tr("E-mail de réinitialisation envoyé."));
       }
     } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Une erreur est survenue");
+      toast.error(error instanceof Error ? error.message : tr("Une erreur est survenue"));
     } finally {
       setLoading(false);
     }
@@ -142,32 +144,32 @@ function Auth() {
       <div className="glass w-full rounded-[2rem] p-5 md:p-8">
         <h1 className="text-3xl font-black">
           {mode === "signin"
-            ? "Bienvenue sur Global Party"
+            ? tr("Bienvenue sur Global Party")
             : mode === "signup"
-              ? "Crée ton espace"
-              : "Mot de passe oublié"}
+              ? tr("Crée ton espace")
+              : tr("Mot de passe oublié")}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {mode === "signin"
-            ? "Connecte-toi pour retrouver tes favoris ou gérer tes événements."
+            ? tr("Connecte-toi pour retrouver tes favoris ou gérer tes événements.")
             : mode === "signup"
-              ? "Choisis le compte correspondant à ton utilisation."
-              : "Reçois un lien sécurisé pour choisir un nouveau mot de passe."}
+              ? tr("Choisis le compte correspondant à ton utilisation.")
+              : tr("Reçois un lien sécurisé pour choisir un nouveau mot de passe.")}
         </p>
 
         {mode === "signup" && (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <AccountChoice
               active={accountType === "client"}
-              title="Compte client"
-              description="Découvrir, aimer, commenter et personnaliser tes sorties."
+              title={tr("Compte client")}
+              description={tr("Découvrir, aimer, commenter et personnaliser tes sorties.")}
               icon={UserRound}
               onClick={() => setAccountType("client")}
             />
             <AccountChoice
               active={accountType === "organizer"}
-              title="Compte organisateur"
-              description="Créer des événements, publier et lancer des campagnes."
+              title={tr("Compte organisateur")}
+              description={tr("Créer des événements, publier et lancer des campagnes.")}
               icon={Building2}
               onClick={() => setAccountType("organizer")}
             />
@@ -177,29 +179,29 @@ function Auth() {
         <form onSubmit={submit} className="mt-6 space-y-4">
           {mode === "signup" && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Nom affiché">
+              <Field label={tr("Nom affiché")}>
                 <input
                   required
                   maxLength={100}
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="Ton nom"
+                  placeholder={tr("Ton nom")}
                   className="field-control"
                 />
               </Field>
               {accountType === "organizer" ? (
-                <Field label="Organisation">
+                <Field label={tr("Organisation")}>
                   <input
                     required
                     maxLength={120}
                     value={organizerName}
                     onChange={(event) => setOrganizerName(event.target.value)}
-                    placeholder="Nom de l'organisation"
+                    placeholder={tr("Nom de l'organisation")}
                     className="field-control"
                   />
                 </Field>
               ) : (
-                <Field label="Année de naissance (facultatif)">
+                <Field label={tr("Année de naissance (facultatif)")}>
                   <input
                     type="number"
                     min={1900}
@@ -211,25 +213,25 @@ function Auth() {
                   />
                 </Field>
               )}
-              <Field label="Ville principale">
+              <Field label={tr("Ville principale")}>
                 <CitySearchInput value={homeCityId} onChange={setHomeCityId} />
               </Field>
             </div>
           )}
 
-          <Field label="E-mail">
+          <Field label={tr("E-mail")}>
             <input
               type="email"
               required
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="nom@exemple.ch"
+              placeholder={tr("nom@exemple.ch")}
               className="field-control"
             />
           </Field>
           {mode !== "reset" && (
-            <Field label="Mot de passe">
+            <Field label={tr("Mot de passe")}>
               <input
                 type="password"
                 required
@@ -237,7 +239,7 @@ function Auth() {
                 autoComplete={mode === "signup" ? "new-password" : "current-password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="8 caractères minimum"
+                placeholder={tr("8 caractères minimum")}
                 className="field-control"
               />
             </Field>
@@ -246,10 +248,10 @@ function Auth() {
           {mode === "signup" && accountType === "client" && (
             <div className="rounded-2xl border p-4">
               <p className="flex items-center gap-2 text-sm font-semibold">
-                <Music2 className="h-4 w-4 text-primary" /> Préférences musicales
+                <Music2 className="h-4 w-4 text-primary" /> {tr("Préférences musicales")}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Facultatif · sélectionne jusqu'à 12 styles.
+                {tr("Facultatif · sélectionne jusqu'à 12 styles.")}
               </p>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {MUSIC_GENRES.map(([value, label]) => (
@@ -266,7 +268,7 @@ function Auth() {
                     }
                   >
                     {musicPreferences.includes(value) && <Check className="mr-1 inline h-3 w-3" />}
-                    {label}
+                    {genreLabel(value, label)}
                   </button>
                 ))}
               </div>
@@ -278,15 +280,19 @@ function Auth() {
               <ConsentToggle
                 checked={analyticsConsent}
                 onChange={setAnalyticsConsent}
-                label="J'accepte l'analyse de mon parcours dans l'application pour améliorer mes recommandations."
+                label={tr(
+                  "J'accepte l'analyse de mon parcours dans l'application pour améliorer mes recommandations.",
+                )}
               />
               <ConsentToggle
                 checked={adsConsent}
                 onChange={setAdsConsent}
-                label="J'accepte les publicités personnalisées selon ma ville, mon âge et mes goûts musicaux."
+                label={tr(
+                  "J'accepte les publicités personnalisées selon ma ville, mon âge et mes goûts musicaux.",
+                )}
               />
               <p className="text-muted-foreground">
-                Ces choix sont facultatifs et modifiables à tout moment depuis ton profil.
+                {tr("Ces choix sont facultatifs et modifiables à tout moment depuis ton profil.")}
               </p>
             </div>
           )}
@@ -297,14 +303,14 @@ function Auth() {
             className="btn-glow w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             {loading
-              ? "Traitement…"
+              ? tr("Traitement…")
               : mode === "signin"
-                ? "Se connecter"
+                ? tr("Se connecter")
                 : mode === "signup"
                   ? accountType === "organizer"
-                    ? "Créer mon espace organisateur"
-                    : "Créer mon compte client"
-                  : "Envoyer le lien"}
+                    ? tr("Créer mon espace organisateur")
+                    : tr("Créer mon compte client")
+                  : tr("Envoyer le lien")}
           </button>
         </form>
 
@@ -314,7 +320,7 @@ function Auth() {
             onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
             className="text-muted-foreground hover:text-foreground"
           >
-            {mode === "signin" ? "Créer un compte" : "J'ai déjà un compte"}
+            {mode === "signin" ? tr("Créer un compte") : tr("J'ai déjà un compte")}
           </button>
           {mode !== "reset" && (
             <button
@@ -322,7 +328,7 @@ function Auth() {
               onClick={() => setMode("reset")}
               className="text-muted-foreground hover:text-foreground"
             >
-              Mot de passe oublié
+              {tr("Mot de passe oublié")}
             </button>
           )}
         </div>

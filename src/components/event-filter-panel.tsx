@@ -16,7 +16,7 @@ export function EventFilterPanel({
   onChange: (next: AdvancedEventFilters) => void;
   compact?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, genreLabel } = useTranslation();
   const update = <K extends keyof AdvancedEventFilters>(key: K, next: AdvancedEventFilters[K]) =>
     onChange({ ...value, [key]: next });
 
@@ -86,7 +86,7 @@ export function EventFilterPanel({
                     : undefined
                 }
               >
-                {label}
+                {genreLabel(slug, label)}
               </button>
             );
           })}

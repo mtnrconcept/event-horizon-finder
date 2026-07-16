@@ -14,8 +14,10 @@ import {
   SOCIAL_MAX_MEDIA,
   validateSocialFiles,
 } from "@/lib/social-queries";
+import { useTranslation } from "@/lib/i18n";
 
 export function SocialPostComposer({ userId }: { userId: string }) {
+  const { tr } = useTranslation();
   const context = useSocialPostingContext(userId);
   const createPost = useCreateSocialPost();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,12 +64,14 @@ export function SocialPostComposer({ userId }: { userId: string }) {
   if (!context.data?.organizers.length) {
     return (
       <div className="glass mb-5 rounded-3xl p-5 lg:hidden">
-        <p className="font-semibold">Tu organises des événements ?</p>
+        <p className="font-semibold">{tr("Tu organises des événements ?")}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Crée ou rejoins une organisation pour publier messages, médias et événements dans le fil.
+          {tr(
+            "Crée ou rejoins une organisation pour publier messages, médias et événements dans le fil.",
+          )}
         </p>
         <Button asChild variant="outline" size="sm" className="mt-3 rounded-full">
-          <Link to="/organizer">Ouvrir le portail organisateur</Link>
+          <Link to="/organizer">{tr("Ouvrir le portail organisateur")}</Link>
         </Button>
       </div>
     );
@@ -89,7 +93,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
       validateSocialFiles(next);
       setFiles(next);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Média non pris en charge");
+      toast.error(error instanceof Error ? error.message : tr("Média non pris en charge"));
     }
   };
 
@@ -107,9 +111,9 @@ export function SocialPostComposer({ userId }: { userId: string }) {
       setEventId("");
       setFiles([]);
       setEventPickerOpen(false);
-      toast.success("Publication en ligne");
+      toast.success(tr("Publication en ligne"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Impossible de publier");
+      toast.error(error instanceof Error ? error.message : tr("Impossible de publier"));
     }
   };
 
@@ -129,13 +133,13 @@ export function SocialPostComposer({ userId }: { userId: string }) {
         </Avatar>
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">Publier en tant que</span>
+            <span className="text-xs text-muted-foreground">{tr("Publier en tant que")}</span>
             {context.data.organizers.length > 1 ? (
               <select
                 value={organizer.id}
                 onChange={(event) => setOrganizerId(event.target.value)}
                 className="rounded-lg border bg-surface px-2 py-1 text-xs font-semibold outline-none focus:border-primary"
-                aria-label="Organisation qui publie"
+                aria-label={tr("Organisation qui publie")}
               >
                 {context.data.organizers.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -152,7 +156,9 @@ export function SocialPostComposer({ userId }: { userId: string }) {
             onChange={(event) => setBody(event.target.value)}
             maxLength={5000}
             rows={3}
-            placeholder="Partage une annonce, une nouveauté ou les coulisses de ton événement…"
+            placeholder={tr(
+              "Partage une annonce, une nouveauté ou les coulisses de ton événement…",
+            )}
             className="min-h-24 resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
           />
           {body.length > 4400 && (
@@ -171,7 +177,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
               {file.type.startsWith("video/") ? (
                 <video src={url} muted playsInline className="h-full w-full object-cover" />
               ) : (
-                <img src={url} alt="Aperçu du média" className="h-full w-full object-cover" />
+                <img src={url} alt={tr("Aperçu du média")} className="h-full w-full object-cover" />
               )}
               <button
                 type="button"
@@ -194,7 +200,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
       {eventPickerOpen && (
         <div className="mx-4 mb-4 rounded-2xl border bg-surface/50 p-3 sm:mx-5">
           <label htmlFor="social-event" className="text-xs font-medium">
-            Événement associé
+            {tr("Événement associé")}
           </label>
           {availableEvents.length ? (
             <select
@@ -203,7 +209,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
               onChange={(event) => setEventId(event.target.value)}
               className="mt-2 w-full rounded-xl border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
             >
-              <option value="">Aucun événement</option>
+              <option value="">{tr("Aucun événement")}</option>
               {availableEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.title}
@@ -212,7 +218,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
             </select>
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
-              Cette organisation n'a pas encore d'événement publié.
+              {tr("Cette organisation n'a pas encore d'événement publié.")}
             </p>
           )}
           {selectedEvent && (
@@ -246,7 +252,7 @@ export function SocialPostComposer({ userId }: { userId: string }) {
           disabled={files.length >= SOCIAL_MAX_MEDIA || createPost.isPending}
           className="rounded-full text-muted-foreground"
         >
-          <ImagePlus className="h-4 w-4" /> Média
+          <ImagePlus className="h-4 w-4" /> {tr("Média")}
           <span className="text-[10px]">
             {files.length}/{SOCIAL_MAX_MEDIA}
           </span>
@@ -259,13 +265,15 @@ export function SocialPostComposer({ userId }: { userId: string }) {
           disabled={createPost.isPending}
           className="rounded-full text-muted-foreground"
         >
-          <CalendarPlus className="h-4 w-4" /> Événement
+          <CalendarPlus className="h-4 w-4" /> {tr("Événement")}
         </Button>
         <span className="ml-1 hidden text-[10px] text-muted-foreground sm:inline">
-          Images ou vidéos · {(SOCIAL_MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} Mio max.
+          {tr("Images ou vidéos · {size} MB max.", {
+            size: (SOCIAL_MAX_FILE_BYTES / 1024 / 1024).toFixed(0),
+          })}
         </span>
         <Button type="submit" size="sm" disabled={!canSubmit} className="ml-auto rounded-full px-4">
-          <Send className="h-4 w-4" /> {createPost.isPending ? "Publication…" : "Publier"}
+          <Send className="h-4 w-4" /> {createPost.isPending ? tr("Publication…") : tr("Publier")}
         </Button>
       </div>
     </form>

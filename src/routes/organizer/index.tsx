@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SocialPostComposer } from "@/components/social/social-post-composer";
 import { fetchAdCampaigns, type AdCampaign } from "@/lib/ad-queries";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/organizer/")({
   head: () => ({ meta: [{ title: "Dashboard organisateur — Global Party" }] }),
@@ -36,6 +37,7 @@ type EventRow = {
 };
 
 function OrganizerHome() {
+  const { tr, t, formatNumber } = useTranslation();
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
@@ -121,7 +123,7 @@ function OrganizerHome() {
     const { error } = await supabase.rpc("create_organizer", { _name: trimmedName, _slug: slug });
     setSubmitting(false);
     if (error) return toast.error(error.message);
-    toast.success("Organisation créée");
+    toast.success(tr("Organisation créée"));
     setCreating(false);
     setName("");
     await loadOrganizerData();
@@ -138,43 +140,43 @@ function OrganizerHome() {
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-6">
       <section className="relative mb-7 overflow-hidden rounded-[2rem] border p-6 md:p-8">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_20%,oklch(0.68_0.22_295_/_0.38),transparent_35%),radial-gradient(circle_at_88%_15%,oklch(0.72_0.18_35_/_0.20),transparent_30%),linear-gradient(135deg,oklch(0.19_0.03_265_/_0.95),oklch(0.12_0.03_265_/_0.9))]" />
-        <p className="text-xs font-semibold uppercase text-primary">Espace professionnel</p>
-        <h1 className="mt-2 text-3xl font-black md:text-5xl">Dashboard organisateur</h1>
+        <p className="text-xs font-semibold uppercase text-primary">{tr("Espace professionnel")}</p>
+        <h1 className="mt-2 text-3xl font-black md:text-5xl">{tr("Dashboard organisateur")}</h1>
         <p className="mt-3 max-w-2xl text-sm text-muted-foreground md:text-base">
-          Crée tes événements, anime ton audience et pilote tes campagnes depuis un seul espace.
+          {tr(
+            "Crée tes événements, anime ton audience et pilote tes campagnes depuis un seul espace.",
+          )}
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           <Link
             to="/organizer/new"
             className="btn-glow inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
           >
-            <Plus className="h-4 w-4" /> Créer un événement
+            <Plus className="h-4 w-4" /> {tr("Créer un événement")}
           </Link>
           <a
             href="#publier"
             className="inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold hover:bg-accent"
           >
-            <Radio className="h-4 w-4" /> Publier sur le fil
+            <Radio className="h-4 w-4" /> {tr("Publier sur le fil")}
           </a>
           <Link
             to="/organizer/ads"
             className="inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold hover:bg-accent"
           >
-            <Megaphone className="h-4 w-4" /> Lancer une campagne
+            <Megaphone className="h-4 w-4" /> {tr("Lancer une campagne")}
           </Link>
         </div>
       </section>
 
       {loading ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">
-          Chargement de tes données…
-        </div>
+        <div className="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
       ) : orgs.length === 0 ? (
         <section className="glass rounded-3xl p-7 text-center">
           <Settings className="mx-auto h-10 w-10 text-muted-foreground" />
-          <h2 className="mt-3 text-xl font-bold">Crée ton organisation</h2>
+          <h2 className="mt-3 text-xl font-bold">{tr("Crée ton organisation")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Elle regroupera tes événements, publications, collaborateurs et campagnes.
+            {tr("Elle regroupera tes événements, publications, collaborateurs et campagnes.")}
           </p>
           {!creating ? (
             <button
@@ -182,7 +184,7 @@ function OrganizerHome() {
               onClick={() => setCreating(true)}
               className="mt-5 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
             >
-              Commencer
+              {tr("Commencer")}
             </button>
           ) : (
             <form onSubmit={createOrg} className="mx-auto mt-5 flex max-w-md gap-2">
@@ -192,7 +194,7 @@ function OrganizerHome() {
                 maxLength={120}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Nom de l'organisation"
+                placeholder={tr("Nom de l'organisation")}
                 className="field-control"
               />
               <button
@@ -200,7 +202,7 @@ function OrganizerHome() {
                 disabled={submitting}
                 className="rounded-2xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
               >
-                {submitting ? "…" : "Créer"}
+                {submitting ? "…" : tr("Créer")}
               </button>
             </form>
           )}
@@ -210,23 +212,27 @@ function OrganizerHome() {
           <div className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <DashboardMetric
               icon={CalendarDays}
-              label="Événements"
+              label={tr("Événements")}
               value={events.length.toString()}
             />
-            <DashboardMetric icon={Radio} label="Publications" value={postCount.toString()} />
+            <DashboardMetric
+              icon={Radio}
+              label={tr("Publications")}
+              value={formatNumber(postCount)}
+            />
             <DashboardMetric
               icon={Megaphone}
-              label="Campagnes actives"
+              label={tr("Campagnes actives")}
               value={stats.activeCampaigns.toString()}
             />
             <DashboardMetric
               icon={Eye}
-              label="Impressions"
+              label={tr("Impressions")}
               value={stats.impressions.toLocaleString("fr-CH")}
             />
             <DashboardMetric
               icon={MousePointerClick}
-              label="Clics"
+              label={tr("Clics")}
               value={stats.clicks.toLocaleString("fr-CH")}
             />
           </div>
@@ -237,11 +243,13 @@ function OrganizerHome() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold">{membership.organizer.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Rôle : {membership.role}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {tr("Rôle : {role}", { role: membership.role })}
+                    </p>
                   </div>
                   {membership.organizer.is_verified && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary">
-                      <BadgeCheck className="h-3.5 w-3.5" /> Vérifié
+                      <BadgeCheck className="h-3.5 w-3.5" /> {tr("Vérifié")}
                     </span>
                   )}
                 </div>
@@ -253,11 +261,13 @@ function OrganizerHome() {
             <section id="publier" className="mb-7 scroll-mt-24">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-primary">Communication</p>
-                  <h2 className="text-2xl font-bold">Publier sur le fil</h2>
+                  <p className="text-xs font-semibold uppercase text-primary">
+                    {tr("Communication")}
+                  </p>
+                  <h2 className="text-2xl font-bold">{tr("Publier sur le fil")}</h2>
                 </div>
                 <Link to="/social" className="text-xs font-semibold text-primary">
-                  Voir le fil
+                  {tr("Voir le fil")}
                 </Link>
               </div>
               <SocialPostComposer userId={userId} />
@@ -267,19 +277,23 @@ function OrganizerHome() {
           <section className="mb-7">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-primary">Programmation</p>
-                <h2 className="text-2xl font-bold">Tes événements</h2>
+                <p className="text-xs font-semibold uppercase text-primary">
+                  {tr("Programmation")}
+                </p>
+                <h2 className="text-2xl font-bold">{tr("Tes événements")}</h2>
               </div>
               <Link
                 to="/organizer/new"
                 className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground"
               >
-                <Plus className="h-4 w-4" /> Nouveau
+                <Plus className="h-4 w-4" /> {tr("Nouveau")}
               </Link>
             </div>
             <div className="glass overflow-hidden rounded-3xl">
               {events.length === 0 ? (
-                <p className="p-7 text-sm text-muted-foreground">Aucun événement pour l'instant.</p>
+                <p className="p-7 text-sm text-muted-foreground">
+                  {tr("Aucun événement pour l'instant.")}
+                </p>
               ) : (
                 <ul className="divide-y">
                   {events.slice(0, 12).map((event) => (
@@ -287,7 +301,7 @@ function OrganizerHome() {
                       <div className="min-w-0">
                         <p className="truncate font-medium">{event.title}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Statut : {event.status}
+                          {tr("Statut : {status}", { status: event.status })}
                           {event.is_demo ? " · démo" : ""}
                         </p>
                       </div>
@@ -296,7 +310,7 @@ function OrganizerHome() {
                         params={{ slug: event.slug }}
                         className="shrink-0 text-sm font-semibold text-primary"
                       >
-                        Voir
+                        {tr("Voir")}
                       </Link>
                     </li>
                   ))}
@@ -308,14 +322,14 @@ function OrganizerHome() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-primary">Acquisition</p>
-                <h2 className="text-2xl font-bold">Publicité</h2>
+                <p className="text-xs font-semibold uppercase text-primary">{tr("Acquisition")}</p>
+                <h2 className="text-2xl font-bold">{tr("Publicité")}</h2>
               </div>
               <Link
                 to="/organizer/ads"
                 className="inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-accent"
               >
-                <BarChart3 className="h-4 w-4" /> Module complet
+                <BarChart3 className="h-4 w-4" /> {tr("Module complet")}
               </Link>
             </div>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -331,16 +345,22 @@ function OrganizerHome() {
                     {campaign.headline}
                   </p>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                    <span>{campaign.impression_count.toLocaleString("fr-CH")} impressions</span>
-                    <span>{campaign.click_count.toLocaleString("fr-CH")} clics</span>
+                    <span>
+                      {tr("{count} impressions", {
+                        count: formatNumber(campaign.impression_count),
+                      })}
+                    </span>
+                    <span>
+                      {tr("{count} clics", { count: formatNumber(campaign.click_count) })}
+                    </span>
                   </div>
                 </article>
               ))}
               {!campaigns.length && (
                 <div className="glass rounded-3xl p-6 md:col-span-2 lg:col-span-3">
-                  <p className="font-semibold">Transforme ta visibilité en audience</p>
+                  <p className="font-semibold">{tr("Transforme ta visibilité en audience")}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Crée une campagne ciblée et estime sa portée avant activation.
+                    {tr("Crée une campagne ciblée et estime sa portée avant activation.")}
                   </p>
                 </div>
               )}
