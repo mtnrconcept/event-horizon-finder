@@ -52,7 +52,20 @@ import {
   type MapPointCollection,
   type MapPointProperties,
 } from "@/lib/map-clusters";
-import { selectNearestMapHit, type MapHitCandidate, type MapHitKind } from "@/lib/map-interactions";
+import {
+  EVENT_CLUSTER_MAX_ZOOM,
+  EVENT_CLUSTER_RADIUS,
+  EVENT_SOURCE_MAX_ZOOM,
+  clusterExpansionTargetZoom,
+  eventClusterCircleRadiusExpression,
+  eventClusterTextSizeExpression,
+} from "@/lib/map-cluster-config";
+import {
+  selectHighestPriorityMapHit,
+  selectNearestMapHit,
+  type MapHitCandidate,
+  type MapHitKind,
+} from "@/lib/map-interactions";
 import {
   Building2,
   CalendarDays,
@@ -97,7 +110,9 @@ type Category = { slug: string; name_fr: string; icon: string | null };
 const MAP_EVENT_PAGE_SIZE = 1_000;
 const MOBILE_LIST_BATCH_SIZE = 24;
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
-const MAP_POINT_SOURCE_ID = "eventa-map-points";
+const MAP_EVENT_SOURCE_ID = "eventa-map-events";
+const MAP_VENUE_SOURCE_ID = "eventa-map-venues";
+const MAP_CLUSTER_HALO_LAYER_ID = "eventa-map-cluster-halo";
 const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
 const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
 const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
@@ -118,28 +133,125 @@ const MAP_RANGES: { value: QuickRange; label: UiTranslationPhrase }[] = [
 ];
 
 function mapFeatureHitKind(feature: MapGeoJSONFeature): MapHitKind | null {
-  if (feature.layer.id === MAP_CLUSTER_LAYER_ID) return "cluster";
+  if (feature.layer.id === MAP_CLUSTER_LAYER_ID || feature.layer.id === MAP_CLUSTER_HALO_LAYER_ID)
+    return "cluster";
   if (feature.layer.id === MAP_EVENT_POINT_LAYER_ID) return "event";
   if (feature.layer.id === MAP_VENUE_POINT_LAYER_ID) return "venue";
   return null;
 }
 
-function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
-  const existingSource = map.getSource(MAP_POINT_SOURCE_ID) as GeoJSONSource | undefined;
-  if (existingSource) {
-    existingSource.setData(points);
+function syncClusterLayers(
+  map: maplibregl.Map,
+  eventPoints: MapPointCollection,
+  venuePoints: MapPointCollection,
+) {
+  const existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
+  if (existingEventSource) {
+    existingEventSource.setData(eventPoints);
   } else {
-    map.addSource(MAP_POINT_SOURCE_ID, {
+    map.addSource(MAP_EVENT_SOURCE_ID, {
       type: "geojson",
-      data: points,
+      data: eventPoints,
       cluster: true,
-      clusterMaxZoom: 14,
-      clusterRadius: 64,
-      maxzoom: 18,
+      clusterMaxZoom: EVENT_CLUSTER_MAX_ZOOM,
+      clusterRadius: EVENT_CLUSTER_RADIUS,
+      maxzoom: EVENT_SOURCE_MAX_ZOOM,
       clusterProperties: {
-        event_count: ["+", ["case", ["==", ["get", "kind"], "event"], 1, 0]],
-        venue_count: ["+", ["case", ["==", ["get", "kind"], "venue"], 1, 0]],
         free_count: ["+", ["case", ["==", ["get", "is_free"], 1], 1, 0]],
+      },
+    });
+  }
+
+  const existingVenueSource = map.getSource(MAP_VENUE_SOURCE_ID) as GeoJSONSource | undefined;
+  if (existingVenueSource) {
+    existingVenueSource.setData(venuePoints);
+  } else {
+    map.addSource(MAP_VENUE_SOURCE_ID, {
+      type: "geojson",
+      data: venuePoints,
+      maxzoom: EVENT_SOURCE_MAX_ZOOM,
+    });
+  }
+
+  if (!map.getLayer(MAP_VENUE_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_VENUE_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_VENUE_SOURCE_ID,
+      filter: ["==", ["get", "kind"], "venue"],
+      paint: {
+        "circle-color": "#252238",
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 8, 16, 11],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.64, 0.95],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_VENUE_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_VENUE_LABEL_LAYER_ID,
+      type: "symbol",
+      source: MAP_VENUE_SOURCE_ID,
+      minzoom: 14,
+      filter: ["==", ["get", "kind"], "venue"],
+      layout: {
+        "text-field": "L",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 9,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+      },
+      paint: { "text-color": "#ffffff" },
+    });
+  }
+
+  if (!map.getLayer(MAP_EVENT_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_EVENT_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_EVENT_SOURCE_ID,
+      filter: ["!", ["has", "point_count"]],
+      paint: {
+        "circle-color": ["case", ["==", ["get", "is_free"], 1], "#f97316", "#8b5cf6"],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 6, 12, 9, 16, 13],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 2.5],
+        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.68, 1],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_EVENT_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_EVENT_LABEL_LAYER_ID,
+      type: "symbol",
+      source: MAP_EVENT_SOURCE_ID,
+      minzoom: 14,
+      filter: ["!", ["has", "point_count"]],
+      layout: {
+        "text-field": ["get", "marker_label"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 10,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+      },
+      paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.35)" },
+    });
+  }
+
+  if (!map.getLayer(MAP_CLUSTER_HALO_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_CLUSTER_HALO_LAYER_ID,
+      type: "circle",
+      source: MAP_EVENT_SOURCE_ID,
+      filter: ["has", "point_count"],
+      paint: {
+        "circle-color": "#a855f7",
+        "circle-radius": ["+", eventClusterCircleRadiusExpression(), 9],
+        "circle-opacity": 0.28,
+        "circle-blur": 0.55,
       },
     });
   }
@@ -148,7 +260,7 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
     map.addLayer({
       id: MAP_CLUSTER_LAYER_ID,
       type: "circle",
-      source: MAP_POINT_SOURCE_ID,
+      source: MAP_EVENT_SOURCE_ID,
       filter: ["has", "point_count"],
       paint: {
         "circle-color": [
@@ -164,15 +276,11 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
           5_000,
           "#dc2626",
         ],
-        "circle-radius": [
-          "+",
-          ["step", ["get", "point_count"], 18, 10, 21, 50, 25, 250, 31, 1_000, 39, 5_000, 48],
-          ["interpolate", ["linear"], ["zoom"], 0, 6, 6, 3, 12, 0],
-        ],
+        "circle-radius": eventClusterCircleRadiusExpression(),
         "circle-stroke-color": "rgba(255,255,255,0.92)",
-        "circle-stroke-width": 3,
-        "circle-opacity": 0.94,
-        "circle-blur": 0.02,
+        "circle-stroke-width": 3.5,
+        "circle-opacity": 0.97,
+        "circle-blur": 0,
       },
     });
   }
@@ -181,88 +289,20 @@ function syncClusterLayers(map: maplibregl.Map, points: MapPointCollection) {
     map.addLayer({
       id: MAP_CLUSTER_COUNT_LAYER_ID,
       type: "symbol",
-      source: MAP_POINT_SOURCE_ID,
+      source: MAP_EVENT_SOURCE_ID,
       filter: ["has", "point_count"],
       layout: {
-        "text-field": ["get", "point_count_abbreviated"],
+        "text-field": ["to-string", ["get", "point_count"]],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["step", ["get", "point_count"], 11, 250, 12, 1_000, 13],
+        "text-size": eventClusterTextSizeExpression(),
         "text-allow-overlap": true,
         "text-ignore-placement": true,
       },
       paint: {
         "text-color": "#ffffff",
-        "text-halo-color": "rgba(38, 10, 61, 0.48)",
-        "text-halo-width": 1,
+        "text-halo-color": "rgba(38, 10, 61, 0.7)",
+        "text-halo-width": 1.5,
       },
-    });
-  }
-
-  if (!map.getLayer(MAP_EVENT_POINT_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_EVENT_POINT_LAYER_ID,
-      type: "circle",
-      source: MAP_POINT_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
-      paint: {
-        "circle-color": ["case", ["==", ["get", "is_free"], 1], "#f97316", "#8b5cf6"],
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 9, 16, 13],
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 2.5],
-        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.68, 1],
-      },
-    });
-  }
-
-  if (!map.getLayer(MAP_EVENT_LABEL_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_EVENT_LABEL_LAYER_ID,
-      type: "symbol",
-      source: MAP_POINT_SOURCE_ID,
-      minzoom: 14,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
-      layout: {
-        "text-field": ["get", "marker_label"],
-        "text-font": ["Noto Sans Regular"],
-        "text-size": 9,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-      },
-      paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.35)" },
-    });
-  }
-
-  if (!map.getLayer(MAP_VENUE_POINT_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_VENUE_POINT_LAYER_ID,
-      type: "circle",
-      source: MAP_POINT_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "venue"]],
-      paint: {
-        "circle-color": "#252238",
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 8, 16, 11],
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.64, 0.95],
-      },
-    });
-  }
-
-  if (!map.getLayer(MAP_VENUE_LABEL_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_VENUE_LABEL_LAYER_ID,
-      type: "symbol",
-      source: MAP_POINT_SOURCE_ID,
-      minzoom: 14,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "venue"]],
-      layout: {
-        "text-field": "L",
-        "text-font": ["Noto Sans Regular"],
-        "text-size": 9,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-      },
-      paint: { "text-color": "#ffffff" },
     });
   }
 }
@@ -388,12 +428,54 @@ function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClo
   );
 }
 
+function SelectedClusterEvents({
+  events,
+  onClose,
+}: {
+  events: DiscoveredEvent[];
+  onClose: () => void;
+}) {
+  const { tr, localeTag } = useTranslation();
+  return (
+    <aside className="relative max-h-64 overflow-y-auto p-3 pr-14">
+      <button
+        type="button"
+        aria-label={tr("Fermer la fiche")}
+        onClick={onClose}
+        className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
+      >
+        ×
+      </button>
+      <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
+        {tr("Résultats")}
+      </Badge>
+      <h2 className="text-base font-black">{tr("{count} sorties", { count: events.length })}</h2>
+      <div className="mt-2 grid gap-2">
+        {events.slice(0, 25).map((event) => (
+          <Link
+            key={event.occurrence_id}
+            to="/event/$slug"
+            params={{ slug: event.slug }}
+            className="rounded-xl border bg-background/70 px-3 py-2 text-left hover:border-primary"
+          >
+            <span className="block truncate text-xs font-black">{event.title}</span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+              {formatMobileEventDate(event, localeTag)} · {event.venue_name ?? event.city_name}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const isMobileRef = useRef(isMobile);
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
@@ -419,6 +501,7 @@ function MapPage() {
   const [showVenues, setShowVenues] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<DiscoveredVenue | null>(null);
+  const [selectedClusterEvents, setSelectedClusterEvents] = useState<DiscoveredEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageMayHaveMoreEvents, setPageMayHaveMoreEvents] = useState(false);
@@ -481,15 +564,25 @@ function MapPage() {
       ),
     );
   }, [venues, deferredQuery]);
-  const mapPoints = useMemo(
+  const eventMapPoints = useMemo(
     () =>
       buildMapPointCollection({
         events,
-        venues: visibleVenues,
+        venues: [],
         showEvents,
+        showVenues: false,
+      }),
+    [events, showEvents],
+  );
+  const venueMapPoints = useMemo(
+    () =>
+      buildMapPointCollection({
+        events: [],
+        venues: visibleVenues,
+        showEvents: false,
         showVenues,
       }),
-    [events, showEvents, showVenues, visibleVenues],
+    [showVenues, visibleVenues],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -504,6 +597,10 @@ function MapPage() {
     [events, visibleMobileEventCount],
   );
   const requestMapResize = useCallback(() => mapRef.current?.resize(), []);
+
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
 
   useEffect(() => {
     let current = true;
@@ -534,7 +631,7 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -558,7 +655,7 @@ function MapPage() {
         style: MAPBOX_STYLE ?? OSM_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
-        clickTolerance: isMobile ? 8 : 3,
+        clickTolerance: 8,
         fadeDuration: 0,
       });
     } catch {
@@ -583,12 +680,33 @@ function MapPage() {
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
+    let firstResizeFrame = 0;
+    let secondResizeFrame = 0;
+    const resizeMap = () => {
+      window.cancelAnimationFrame(firstResizeFrame);
+      window.cancelAnimationFrame(secondResizeFrame);
+      firstResizeFrame = window.requestAnimationFrame(() => {
+        secondResizeFrame = window.requestAnimationFrame(() => map.resize());
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeMap);
+    resizeObserver?.observe(containerRef.current);
+    window.visualViewport?.addEventListener("resize", resizeMap);
+    window.addEventListener("orientationchange", resizeMap);
+    resizeMap();
+
     return () => {
       window.clearTimeout(fallbackTimer);
+      window.cancelAnimationFrame(firstResizeFrame);
+      window.cancelAnimationFrame(secondResizeFrame);
+      resizeObserver?.disconnect();
+      window.visualViewport?.removeEventListener("resize", resizeMap);
+      window.removeEventListener("orientationchange", resizeMap);
       map.remove();
       mapRef.current = null;
     };
-  }, [isMobile]);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -682,6 +800,7 @@ function MapPage() {
         setPageMayHaveMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
         setSelectedEvent(null);
         setSelectedVenue(null);
+        setSelectedClusterEvents([]);
       })
       .catch(() => {
         if (!current) return;
@@ -755,13 +874,13 @@ function MapPage() {
     if (!map || !mapReady) return;
 
     const syncLayers = () => {
-      if (map.isStyleLoaded()) syncClusterLayers(map, mapPoints);
+      if (map.isStyleLoaded()) syncClusterLayers(map, eventMapPoints, venueMapPoints);
     };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
       const clusterId = Number(feature.properties?.cluster_id);
       if (!Number.isFinite(clusterId)) return;
-      const source = map.getSource(MAP_POINT_SOURCE_ID) as GeoJSONSource | undefined;
+      const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
       if (!source) return;
 
       try {
@@ -769,9 +888,22 @@ function MapPage() {
         const [longitude, latitude] = feature.geometry.coordinates;
         setSelectedEvent(null);
         setSelectedVenue(null);
+        if (expansionZoom > EVENT_CLUSTER_MAX_ZOOM) {
+          const leaves = await source.getClusterLeaves(clusterId, 25, 0);
+          const leafEvents = leaves.flatMap((leaf) => {
+            const entityId = String(leaf.properties?.entity_id ?? "");
+            const event = eventsByOccurrenceId.get(entityId);
+            return event ? [event] : [];
+          });
+          if (leafEvents.length > 1) {
+            setSelectedClusterEvents(leafEvents);
+            return;
+          }
+        }
+        setSelectedClusterEvents([]);
         map.easeTo({
           center: [Number(longitude), Number(latitude)],
-          zoom: Math.min(expansionZoom, 17),
+          zoom: clusterExpansionTargetZoom(map.getZoom(), expansionZoom),
           duration: 450,
         });
       } catch {
@@ -786,6 +918,7 @@ function MapPage() {
         const selected = eventsByOccurrenceId.get(entityId);
         if (!selected) return;
         setSelectedVenue(null);
+        setSelectedClusterEvents([]);
         setSelectedEvent(selected);
         void trackClientEvent("map_pin_click", {
           entityType: "event_occurrence",
@@ -800,6 +933,7 @@ function MapPage() {
         const selected = venuesById.get(entityId);
         if (!selected) return;
         setSelectedEvent(null);
+        setSelectedClusterEvents([]);
         setSelectedVenue(selected);
         void trackClientEvent("map_pin_click", {
           entityType: "venue",
@@ -810,25 +944,42 @@ function MapPage() {
       }
     };
     const interactiveLayers = [
+      MAP_CLUSTER_HALO_LAYER_ID,
       MAP_CLUSTER_LAYER_ID,
       MAP_EVENT_POINT_LAYER_ID,
       MAP_VENUE_POINT_LAYER_ID,
     ] as const;
     const handleMapClick = (event: MapMouseEvent) => {
-      const hitRadius = isMobile ? MOBILE_MAP_HIT_RADIUS : DESKTOP_MAP_HIT_RADIUS;
       const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
       if (!renderedLayers.length) return;
 
-      const features = map.queryRenderedFeatures(
+      const directCandidates = map
+        .queryRenderedFeatures(event.point, { layers: [...renderedLayers] })
+        .flatMap<MapHitCandidate<MapGeoJSONFeature>>((feature) => {
+          const kind = mapFeatureHitKind(feature);
+          return kind ? [{ kind, x: event.point.x, y: event.point.y, value: feature }] : [];
+        });
+      const directHit = selectHighestPriorityMapHit(directCandidates);
+      if (directHit) {
+        if (directHit.kind === "cluster") void expandCluster(directHit.value);
+        else openPoint(directHit.value);
+        return;
+      }
+
+      const hitRadius = isMobileRef.current ? MOBILE_MAP_HIT_RADIUS : DESKTOP_MAP_HIT_RADIUS;
+      const tolerantLayers = [MAP_EVENT_POINT_LAYER_ID, MAP_VENUE_POINT_LAYER_ID].filter(
+        (layerId) => map.getLayer(layerId),
+      );
+      const nearbyFeatures = map.queryRenderedFeatures(
         [
           [event.point.x - hitRadius, event.point.y - hitRadius],
           [event.point.x + hitRadius, event.point.y + hitRadius],
         ],
-        { layers: [...renderedLayers] },
+        { layers: tolerantLayers },
       );
       const candidates: MapHitCandidate<MapGeoJSONFeature>[] = [];
 
-      for (const feature of features) {
+      for (const feature of nearbyFeatures) {
         const kind = mapFeatureHitKind(feature);
         if (!kind || feature.geometry.type !== "Point") continue;
         const [longitude, latitude] = feature.geometry.coordinates;
@@ -868,7 +1019,7 @@ function MapPage() {
       });
       resetCursor();
     };
-  }, [cityId, eventsByOccurrenceId, isMobile, mapPoints, mapReady, venuesById]);
+  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapReady, venueMapPoints, venuesById]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -914,6 +1065,11 @@ function MapPage() {
       <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     ) : selectedVenue ? (
       <MobileSelectedVenue venue={selectedVenue} onClose={() => setSelectedVenue(null)} />
+    ) : selectedClusterEvents.length ? (
+      <SelectedClusterEvents
+        events={selectedClusterEvents}
+        onClose={() => setSelectedClusterEvents([])}
+      />
     ) : null;
 
     return (
@@ -1172,11 +1328,13 @@ function MapPage() {
                 })}
               </p>
             )}
-            {!loading && mapReady && mapPoints.features.length > 0 && (
-              <p className="mt-1 text-[11px] font-medium text-primary">
-                {tr("Les nombres regroupent les points · clique pour zoomer")}
-              </p>
-            )}
+            {!loading &&
+              mapReady &&
+              eventMapPoints.features.length + venueMapPoints.features.length > 0 && (
+                <p className="mt-1 text-[11px] font-medium text-primary">
+                  {tr("Les nombres regroupent les points · clique pour zoomer")}
+                </p>
+              )}
           </div>
           <Button
             size="icon"
@@ -1389,6 +1547,15 @@ function MapPage() {
               )}
             </p>
           )}
+        </div>
+      )}
+
+      {selectedClusterEvents.length > 0 && (
+        <div className="glass absolute bottom-6 left-[32rem] z-10 w-80 rounded-3xl shadow-[var(--shadow-card)]">
+          <SelectedClusterEvents
+            events={selectedClusterEvents}
+            onClose={() => setSelectedClusterEvents([])}
+          />
         </div>
       )}
     </div>

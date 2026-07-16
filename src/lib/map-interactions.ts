@@ -14,6 +14,25 @@ const HIT_PRIORITY: Record<MapHitKind, number> = {
 };
 
 /**
+ * Picks the visually dominant feature from features rendered directly below a
+ * pointer. This deliberately ignores marker-center distance: a large cluster
+ * remains clickable all the way to the edge of its painted circle.
+ */
+export function selectHighestPriorityMapHit<T>(
+  candidates: MapHitCandidate<T>[],
+): MapHitCandidate<T> | null {
+  let selected: MapHitCandidate<T> | null = null;
+
+  for (const candidate of candidates) {
+    if (!selected || HIT_PRIORITY[candidate.kind] > HIT_PRIORITY[selected.kind]) {
+      selected = candidate;
+    }
+  }
+
+  return selected;
+}
+
+/**
  * Selects one deterministic feature for a pointer interaction. The distance is
  * considered first; when markers share a coordinate, clusters win over events,
  * then venues. Keeping this logic independent from MapLibre makes the mobile
