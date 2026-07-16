@@ -38,3 +38,4 @@ FROM (VALUES
 WHERE NOT EXISTS (
   SELECT 1 FROM public.data_sources existing WHERE existing.name = source.name
 );
+

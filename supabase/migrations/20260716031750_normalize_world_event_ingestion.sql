@@ -223,16 +223,6 @@ BEGIN
     status = CASE WHEN v_ticket_status IN ('available','limited','sold_out','free','on_sale_soon')
       THEN v_ticket_status::public.ticket_status ELSE status END
   WHERE id = (SELECT id FROM public.ticket_offers WHERE event_id = v_result.event_id ORDER BY id LIMIT 1);
-  IF NOT FOUND AND (v_price_min IS NOT NULL OR v_price_max IS NOT NULL OR nullif(_payload->>'ticket_url', '') IS NOT NULL) THEN
-    INSERT INTO public.ticket_offers(event_id, name, price_min, price_max, currency, is_free, ticket_url, status)
-    VALUES (
-      v_result.event_id, 'Billetterie officielle', coalesce(v_price_min, v_price_max),
-      coalesce(v_price_max, v_price_min), coalesce(v_currency, 'EUR'), false,
-      nullif(_payload->>'ticket_url', ''),
-      CASE WHEN v_ticket_status IN ('available','limited','sold_out','on_sale_soon')
-        THEN v_ticket_status::public.ticket_status ELSE 'unknown'::public.ticket_status END
-    );
-  END IF;
 
   IF nullif(_payload->>'image_url', '') ~ '^https?://' THEN
     INSERT INTO public.event_media(event_id, url, media_type, attribution, license, source_url, sort_order)
@@ -293,3 +283,4 @@ GRANT EXECUTE ON FUNCTION public.upsert_ingested_event_v2(UUID, JSONB) TO servic
 
 COMMENT ON FUNCTION public.upsert_ingested_event_v2(UUID, JSONB) IS
   'Atomically normalizes a rich scraper payload into geography, venue, organizer, event, occurrence, ticket, media, performer and source-record tables.';
+
