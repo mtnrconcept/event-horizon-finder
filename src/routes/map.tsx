@@ -6,7 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
+  type RefCallback,
 } from "react";
 import maplibregl, {
   type GeoJSONSource,
@@ -273,7 +273,7 @@ function MapSurface({
   mapReady,
   mapUnavailable,
 }: {
-  containerRef: RefObject<HTMLDivElement | null>;
+  containerRef: RefCallback<HTMLDivElement>;
   mapReady: boolean;
   mapUnavailable: string | null;
 }) {
@@ -406,7 +406,10 @@ function SelectedClusterEvents({
 
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
+  const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
+    setMapContainer(node);
+  }, []);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
@@ -554,6 +557,7 @@ function MapPage() {
     lastFittedScopeRef.current = null;
     setMapReady(false);
     setMapUnavailable(null);
+    lastFittedScopeRef.current = null;
     try {
       const canvas = document.createElement("canvas");
       const webgl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
@@ -621,7 +625,7 @@ function MapPage() {
       window.visualViewport?.removeEventListener("resize", resizeMap);
       window.removeEventListener("orientationchange", resizeMap);
       map.remove();
-      mapRef.current = null;
+      if (mapRef.current === map) mapRef.current = null;
     };
   }, [isMobile]);
 
