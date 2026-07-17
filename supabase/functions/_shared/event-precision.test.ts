@@ -151,6 +151,131 @@ test("navigation and commerce cards are rejected", () => {
   });
 });
 
+test("the worldwide taxonomy preserves every supported category slug", () => {
+  const categories = [
+    "concerts",
+    "festivals",
+    "expositions",
+    "soirees",
+    "theatre",
+    "famille",
+    "sports-outdoor",
+    "heritage",
+    "gastronomy",
+    "activities",
+    "conferences",
+    "cinema",
+    "leisure",
+    "other",
+  ];
+
+  for (const [index, category] of categories.entries()) {
+    const event = normalize({
+      title: `Événement mondial ${index + 1}`,
+      description: "Un rendez-vous officiel avec toutes les informations utiles pour le public.",
+      category,
+      startDate: `2026-09-${String(index + 1).padStart(2, "0")}T18:00:00+02:00`,
+      venueName: "Lieu officiel",
+      sourceUrl: `https://example.ch/events/world-${index + 1}`,
+    });
+    assert.equal(event.category, category);
+  }
+});
+
+test("outdoor, food, talks and screenings are classified from multilingual content", () => {
+  const cases = [
+    ["Randonnée urbaine", "Visite guidée et randonnée en plein air.", "sports-outdoor"],
+    ["Open Air Yoga", "Cours collectif dans le parc.", "sports-outdoor"],
+    ["Open Air Festival", "Programmation musicale sur plusieurs scènes.", "festivals"],
+    ["Marché gourmand", "Dégustation et cuisine locale.", "gastronomy"],
+    ["Rencontre publique", "Conférence et débat avec les artistes.", "conferences"],
+    ["Film sous les étoiles", "Projection cinéma officielle.", "cinema"],
+  ] as const;
+
+  for (const [index, [title, description, expected]] of cases.entries()) {
+    const event = normalize({
+      title,
+      description,
+      startDate: `2026-10-${String(index + 1).padStart(2, "0")}T19:00:00+02:00`,
+      venueName: "Lieu officiel",
+      sourceUrl: `https://example.ch/events/classified-${index + 1}`,
+    });
+    assert.equal(event.category, expected);
+  }
+});
+
+test("known city aliases resolve to the registered source city", () => {
+  const source: EventSourceContext = {
+    ...GENEVA_SOURCE,
+    name: "Rome — agenda officiel",
+    domain: "turismoroma.it",
+    metadata: { city_aliases: ["Rome", "Roma"] },
+    city: {
+      name: "Rome",
+      timezone: "Europe/Rome",
+      latitude: 41.9028,
+      longitude: 12.4964,
+      country: { code: "IT" },
+    },
+  };
+  const result = normalizeEventCandidate(
+    {
+      title: "Visita serale",
+      description: "Visita guidata ufficiale con tutte le informazioni per il pubblico.",
+      startDate: "2026-11-12T19:00:00+01:00",
+      city: "Roma",
+      venueName: "Museo civico",
+      sourceUrl: "https://turismoroma.it/eventi/visita-serale",
+    },
+    source,
+    "https://turismoroma.it/eventi",
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.event.city, "Rome");
+  assert.equal(result.event.warnings.includes("city_differs_from_source"), false);
+});
+
+test("world expansion countries use their local currency fallback", () => {
+  const cases = [
+    ["MX", "MXN", "America/Mexico_City"],
+    ["KR", "KRW", "Asia/Seoul"],
+    ["SG", "SGD", "Asia/Singapore"],
+    ["AE", "AED", "Asia/Dubai"],
+    ["ZA", "ZAR", "Africa/Johannesburg"],
+    ["MA", "MAD", "Africa/Casablanca"],
+  ] as const;
+
+  for (const [index, [countryCode, currency, timezone]] of cases.entries()) {
+    const source: EventSourceContext = {
+      ...GENEVA_SOURCE,
+      category_slug: null,
+      city: {
+        name: `Ville ${countryCode}`,
+        timezone,
+        latitude: null,
+        longitude: null,
+        country: { code: countryCode },
+      },
+    };
+    const result = normalizeEventCandidate(
+      {
+        title: `Événement officiel ${countryCode}`,
+        description: "Toutes les informations utiles sont publiées dans l’agenda officiel.",
+        startDate: `2026-12-${String(index + 1).padStart(2, "0")}T19:00:00`,
+        venueName: "Centre culturel",
+        sourceUrl: "https://example.ch/agenda",
+      },
+      source,
+      "https://example.ch/agenda",
+      NOW,
+    );
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.event.currency, currency);
+  }
+});
+
 test("duplicates merge but distinct sessions remain distinct", () => {
   const first = normalize({
     externalId: "party-1",

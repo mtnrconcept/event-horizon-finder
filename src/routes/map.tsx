@@ -21,13 +21,11 @@ import {
   discoverMapEvents,
   fetchCategories,
   fetchGeographies,
-  fetchMapVenues,
   searchGeographyCities,
   type CityOption,
   type CountryOption,
   type DiscoveryStats,
   type DiscoveredEvent,
-  type DiscoveredVenue,
   type QuickRange,
   type RegionOption,
 } from "@/lib/queries";
@@ -54,6 +52,11 @@ import {
   type MapPointProperties,
 } from "@/lib/map-clusters";
 import {
+  eventCategoryTextColor,
+  eventCategoryVisual,
+  registerEventCategoryImages,
+} from "@/lib/event-category-style";
+import {
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_RADIUS,
   EVENT_SOURCE_MAX_ZOOM,
@@ -68,7 +71,6 @@ import {
   type MapHitKind,
 } from "@/lib/map-interactions";
 import {
-  Building2,
   CalendarDays,
   CircleAlert,
   Clock,
@@ -79,11 +81,10 @@ import {
   Search,
   SlidersHorizontal,
   Ticket,
-  Users,
 } from "lucide-react";
 
 export const Route = createFileRoute("/map")({
-  head: () => ({ meta: [{ title: "Carte complète des événements et lieux — Global Party" }] }),
+  head: () => ({ meta: [{ title: "Carte complète des événements — Global Party" }] }),
   component: MapPage,
 });
 
@@ -93,18 +94,18 @@ const MAPBOX_STYLE = MAPBOX_ACCESS_TOKEN
   ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${MAPBOX_ACCESS_TOKEN}`
   : null;
 
-const OSM_STYLE: StyleSpecification = {
+const POI_FREE_STYLE: StyleSpecification = {
   version: 8,
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
-    osm: {
+    basemap: {
       type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tiles: ["https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"],
       tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
+      attribution: "© OpenStreetMap contributors © CARTO",
     },
   },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
+  layers: [{ id: "poi-free-basemap", type: "raster", source: "basemap" }],
 };
 
 type Category = { slug: string; name_fr: string; icon: string | null };
@@ -112,14 +113,11 @@ const MAP_EVENT_PAGE_SIZE = 1_000;
 const MOBILE_LIST_BATCH_SIZE = 24;
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 const MAP_EVENT_SOURCE_ID = "eventa-map-events";
-const MAP_VENUE_SOURCE_ID = "eventa-map-venues";
 const MAP_CLUSTER_HALO_LAYER_ID = "eventa-map-cluster-halo";
 const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
 const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
 const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
 const MAP_EVENT_LABEL_LAYER_ID = "eventa-map-event-labels";
-const MAP_VENUE_POINT_LAYER_ID = "eventa-map-venue-points";
-const MAP_VENUE_LABEL_LAYER_ID = "eventa-map-venue-labels";
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
 
@@ -137,15 +135,20 @@ function mapFeatureHitKind(feature: MapGeoJSONFeature): MapHitKind | null {
   if (feature.layer.id === MAP_CLUSTER_LAYER_ID || feature.layer.id === MAP_CLUSTER_HALO_LAYER_ID)
     return "cluster";
   if (feature.layer.id === MAP_EVENT_POINT_LAYER_ID) return "event";
-  if (feature.layer.id === MAP_VENUE_POINT_LAYER_ID) return "venue";
   return null;
 }
 
-function syncClusterLayers(
-  map: maplibregl.Map,
-  eventPoints: MapPointCollection,
-  venuePoints: MapPointCollection,
-) {
+function hideBasemapPoiLayers(map: maplibregl.Map) {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (/^(?:eventa-map-)/.test(layer.id)) continue;
+    if (/(?:^|[-_])(?:poi|transit|airport|station|ferry)(?:[-_]|$)/i.test(layer.id)) {
+      map.setLayoutProperty(layer.id, "visibility", "none");
+    }
+  }
+}
+
+function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection) {
+  hideBasemapPoiLayers(map);
   const existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
   if (existingEventSource) {
     existingEventSource.setData(eventPoints);
@@ -163,50 +166,7 @@ function syncClusterLayers(
     });
   }
 
-  const existingVenueSource = map.getSource(MAP_VENUE_SOURCE_ID) as GeoJSONSource | undefined;
-  if (existingVenueSource) {
-    existingVenueSource.setData(venuePoints);
-  } else {
-    map.addSource(MAP_VENUE_SOURCE_ID, {
-      type: "geojson",
-      data: venuePoints,
-      maxzoom: EVENT_SOURCE_MAX_ZOOM,
-    });
-  }
-
-  if (!map.getLayer(MAP_VENUE_POINT_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_VENUE_POINT_LAYER_ID,
-      type: "circle",
-      source: MAP_VENUE_SOURCE_ID,
-      filter: ["==", ["get", "kind"], "venue"],
-      paint: {
-        "circle-color": "#252238",
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 8, 16, 11],
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.64, 0.95],
-      },
-    });
-  }
-
-  if (!map.getLayer(MAP_VENUE_LABEL_LAYER_ID)) {
-    map.addLayer({
-      id: MAP_VENUE_LABEL_LAYER_ID,
-      type: "symbol",
-      source: MAP_VENUE_SOURCE_ID,
-      minzoom: 14,
-      filter: ["==", ["get", "kind"], "venue"],
-      layout: {
-        "text-field": "L",
-        "text-font": ["Noto Sans Regular"],
-        "text-size": 9,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-      },
-      paint: { "text-color": "#ffffff" },
-    });
-  }
+  registerEventCategoryImages(map);
 
   if (!map.getLayer(MAP_EVENT_POINT_LAYER_ID)) {
     map.addLayer({
@@ -215,10 +175,10 @@ function syncClusterLayers(
       source: MAP_EVENT_SOURCE_ID,
       filter: ["!", ["has", "point_count"]],
       paint: {
-        "circle-color": ["case", ["==", ["get", "is_free"], 1], "#f97316", "#8b5cf6"],
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 6, 12, 9, 16, 13],
+        "circle-color": ["get", "category_color"],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 9, 12, 13, 16, 18],
         "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 2.5],
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 16, 3],
         "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.68, 1],
       },
     });
@@ -229,16 +189,16 @@ function syncClusterLayers(
       id: MAP_EVENT_LABEL_LAYER_ID,
       type: "symbol",
       source: MAP_EVENT_SOURCE_ID,
-      minzoom: 14,
       filter: ["!", ["has", "point_count"]],
       layout: {
-        "text-field": ["get", "marker_label"],
-        "text-font": ["Noto Sans Regular"],
-        "text-size": 10,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
+        "icon-image": ["get", "category_icon_image"],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.54, 12, 0.74, 16, 1],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
       },
-      paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,0.35)" },
+      paint: {
+        "icon-opacity": ["case", ["==", ["get", "approximate"], 1], 0.78, 1],
+      },
     });
   }
 
@@ -403,32 +363,6 @@ function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClo
   );
 }
 
-function MobileSelectedVenue({ venue, onClose }: { venue: DiscoveredVenue; onClose: () => void }) {
-  const { tr } = useTranslation();
-  return (
-    <aside className="relative p-3 pr-14" aria-label={`Lieu sélectionné : ${venue.name}`}>
-      <button
-        type="button"
-        aria-label={tr("Fermer la fiche")}
-        onClick={onClose}
-        className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
-      >
-        ×
-      </button>
-      <Badge variant="outline" className="mb-1.5">
-        <Building2 className="mr-1 h-3.5 w-3.5" /> {tr("Lieu")}
-      </Badge>
-      <h2 className="line-clamp-1 text-base font-black">{venue.name}</h2>
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
-        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span className="line-clamp-2">
-          {venue.address ?? venue.city_name ?? tr("Adresse non précisée")}
-        </span>
-      </p>
-    </aside>
-  );
-}
-
 function SelectedClusterEvents({
   events,
   onClose,
@@ -497,11 +431,8 @@ function MapPage() {
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
   const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [venues, setVenues] = useState<DiscoveredVenue[]>([]);
   const [showEvents, setShowEvents] = useState(true);
-  const [showVenues, setShowVenues] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
-  const [selectedVenue, setSelectedVenue] = useState<DiscoveredVenue | null>(null);
   const [selectedClusterEvents, setSelectedClusterEvents] = useState<DiscoveredEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -557,44 +488,18 @@ function MapPage() {
   const selectedCountryCode = selectedCountry?.code ?? null;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
-  const visibleVenues = useMemo(() => {
-    if (!deferredQuery) return venues;
-    const needle = deferredQuery.toLocaleLowerCase("fr");
-    return venues.filter((venue) =>
-      [venue.name, venue.address, venue.city_name].some((value) =>
-        value?.toLocaleLowerCase("fr").includes(needle),
-      ),
-    );
-  }, [venues, deferredQuery]);
   const eventMapPoints = useMemo(
     () =>
       buildMapPointCollection({
         events,
-        venues: [],
         showEvents,
-        showVenues: false,
         countryCode: selectedCountryCode,
       }),
     [events, selectedCountryCode, showEvents],
   );
-  const venueMapPoints = useMemo(
-    () =>
-      buildMapPointCollection({
-        events: [],
-        venues: visibleVenues,
-        showEvents: false,
-        showVenues,
-        countryCode: selectedCountryCode,
-      }),
-    [selectedCountryCode, showVenues, visibleVenues],
-  );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
     [events],
-  );
-  const venuesById = useMemo(
-    () => new Map(visibleVenues.map((venue) => [venue.id, venue])),
-    [visibleVenues],
   );
   const mobileListEvents = useMemo(
     () => events.slice(0, visibleMobileEventCount),
@@ -656,7 +561,7 @@ function MapPage() {
     try {
       map = new maplibregl.Map({
         container: containerRef.current,
-        style: MAPBOX_STYLE ?? OSM_STYLE,
+        style: MAPBOX_STYLE ?? POI_FREE_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
         clickTolerance: 8,
@@ -670,7 +575,7 @@ function MapPage() {
     const fallbackTimer = window.setTimeout(() => {
       if (!MAPBOX_STYLE || map.isStyleLoaded()) return;
       switchedToFallback = true;
-      map.setStyle(OSM_STYLE);
+      map.setStyle(POI_FREE_STYLE);
     }, 6_000);
     map.on("load", () => setMapReady(true));
     map.on("styledata", () => {
@@ -679,7 +584,7 @@ function MapPage() {
     map.on("error", () => {
       if (MAPBOX_STYLE && !switchedToFallback && !map.isStyleLoaded()) {
         switchedToFallback = true;
-        map.setStyle(OSM_STYLE);
+        map.setStyle(POI_FREE_STYLE);
       }
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
@@ -796,28 +701,22 @@ function MapPage() {
     setNextEventOffset(0);
     setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
-    Promise.all([
-      discoverMapEvents({
-        ...mapDiscoveryParams,
-        limit: MAP_EVENT_PAGE_SIZE,
-        offset: 0,
-      }),
-      fetchMapVenues(geography),
-    ])
-      .then(([nextEvents, nextVenues]) => {
+    discoverMapEvents({
+      ...mapDiscoveryParams,
+      limit: MAP_EVENT_PAGE_SIZE,
+      offset: 0,
+    })
+      .then((nextEvents) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
-        setVenues(nextVenues);
         setNextEventOffset(nextEvents.length);
         setPageMayHaveMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
         setSelectedEvent(null);
-        setSelectedVenue(null);
         setSelectedClusterEvents([]);
       })
       .catch(() => {
         if (!current) return;
         setEvents([]);
-        setVenues([]);
         setError("Impossible de charger les points de la carte. Réessaie dans un instant.");
       })
       .finally(() => {
@@ -886,7 +785,7 @@ function MapPage() {
     if (!map || !mapReady) return;
 
     const syncLayers = () => {
-      if (map.isStyleLoaded()) syncClusterLayers(map, eventMapPoints, venueMapPoints);
+      if (map.isStyleLoaded()) syncClusterLayers(map, eventMapPoints);
     };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
@@ -899,7 +798,6 @@ function MapPage() {
         const expansionZoom = await source.getClusterExpansionZoom(clusterId);
         const [longitude, latitude] = feature.geometry.coordinates;
         setSelectedEvent(null);
-        setSelectedVenue(null);
         if (expansionZoom > EVENT_CLUSTER_MAX_ZOOM) {
           const leaves = await source.getClusterLeaves(clusterId, 25, 0);
           const leafEvents = leaves.flatMap((leaf) => {
@@ -929,27 +827,11 @@ function MapPage() {
       if (properties?.kind === "event") {
         const selected = eventsByOccurrenceId.get(entityId);
         if (!selected) return;
-        setSelectedVenue(null);
         setSelectedClusterEvents([]);
         setSelectedEvent(selected);
         void trackClientEvent("map_pin_click", {
           entityType: "event_occurrence",
           entityId: selected.occurrence_id,
-          cityId,
-          metadata: { precision: selected.location_precision },
-        });
-        return;
-      }
-
-      if (properties?.kind === "venue") {
-        const selected = venuesById.get(entityId);
-        if (!selected) return;
-        setSelectedEvent(null);
-        setSelectedClusterEvents([]);
-        setSelectedVenue(selected);
-        void trackClientEvent("map_pin_click", {
-          entityType: "venue",
-          entityId: selected.id,
           cityId,
           metadata: { precision: selected.location_precision },
         });
@@ -959,7 +841,6 @@ function MapPage() {
       MAP_CLUSTER_HALO_LAYER_ID,
       MAP_CLUSTER_LAYER_ID,
       MAP_EVENT_POINT_LAYER_ID,
-      MAP_VENUE_POINT_LAYER_ID,
     ] as const;
     const handleMapClick = (event: MapMouseEvent) => {
       const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
@@ -979,9 +860,7 @@ function MapPage() {
       }
 
       const hitRadius = isMobileRef.current ? MOBILE_MAP_HIT_RADIUS : DESKTOP_MAP_HIT_RADIUS;
-      const tolerantLayers = [MAP_EVENT_POINT_LAYER_ID, MAP_VENUE_POINT_LAYER_ID].filter(
-        (layerId) => map.getLayer(layerId),
-      );
+      const tolerantLayers = [MAP_EVENT_POINT_LAYER_ID].filter((layerId) => map.getLayer(layerId));
       const nearbyFeatures = map.queryRenderedFeatures(
         [
           [event.point.x - hitRadius, event.point.y - hitRadius],
@@ -1031,7 +910,7 @@ function MapPage() {
       });
       resetCursor();
     };
-  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapReady, venueMapPoints, venuesById]);
+  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapReady]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -1058,25 +937,16 @@ function MapPage() {
         : { countryId: null, regionId: null, cityId: null },
     );
     setShowEvents(true);
-    setShowVenues(true);
   };
 
-  const approximateCount =
-    events.filter((event) => event.location_precision === "city").length +
-    visibleVenues.filter((venue) => venue.location_precision === "city").length;
+  const approximateCount = events.filter((event) => event.location_precision === "city").length;
   const mobileActiveFilterCount =
-    advancedCount +
-    cats.size +
-    Number(range !== "year") +
-    Number(!showEvents) +
-    Number(!showVenues);
+    advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
   if (isMobile) {
     const hasMoreMobileEvents = visibleMobileEventCount < events.length || hasMoreEvents;
     const mobileSelection = selectedEvent ? (
       <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-    ) : selectedVenue ? (
-      <MobileSelectedVenue venue={selectedVenue} onClose={() => setSelectedVenue(null)} />
     ) : selectedClusterEvents.length ? (
       <SelectedClusterEvents
         events={selectedClusterEvents}
@@ -1227,27 +1097,26 @@ function MapPage() {
             <section>
               <h3 className="mb-2 text-sm font-black">{t("home.categories")}</h3>
               <div className="flex flex-wrap gap-2">
-                {categories.map((category) => (
-                  <button
-                    key={category.slug}
-                    type="button"
-                    aria-pressed={cats.has(category.slug)}
-                    onClick={() => toggleCategory(category.slug)}
-                    className="min-h-11 rounded-full border px-3 text-xs font-semibold"
-                    style={
-                      cats.has(category.slug)
-                        ? {
-                            borderColor: "var(--color-primary)",
-                            color: "var(--color-primary)",
-                            background: "var(--color-accent)",
-                          }
-                        : undefined
-                    }
-                  >
-                    {category.icon ? `${category.icon} ` : ""}
-                    {categoryLabel(category.slug, category.name_fr)}
-                  </button>
-                ))}
+                {categories.map((category) => {
+                  const visual = eventCategoryVisual(category.slug);
+                  const active = cats.has(category.slug);
+                  return (
+                    <button
+                      key={category.slug}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleCategory(category.slug)}
+                      className="min-h-11 rounded-full border px-3 text-xs font-semibold transition-colors"
+                      style={{
+                        borderColor: visual.color,
+                        color: active ? eventCategoryTextColor(category.slug) : visual.color,
+                        background: active ? visual.color : `${visual.color}18`,
+                      }}
+                    >
+                      {visual.icon} {categoryLabel(category.slug, category.name_fr)}
+                    </button>
+                  );
+                })}
               </div>
             </section>
 
@@ -1260,18 +1129,12 @@ function MapPage() {
 
             <section>
               <h3 className="mb-2 text-sm font-black">{tr("Points sur la carte")}</h3>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 <LayerToggle
                   active={showEvents}
                   icon={CalendarDays}
                   label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}
                   onClick={() => setShowEvents((value) => !value)}
-                />
-                <LayerToggle
-                  active={showVenues}
-                  icon={Building2}
-                  label={`Lieux (${visibleVenues.length})`}
-                  onClick={() => setShowVenues((value) => !value)}
                 />
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
@@ -1320,7 +1183,7 @@ function MapPage() {
               <MapPin className="mr-1 h-3.5 w-3.5" /> {tr("Carte clusterisée")}
             </Badge>
             <h1 className="text-xl font-black">
-              {tr("Sorties et lieux")} ·{" "}
+              {tr("Sorties")} ·{" "}
               {selectedCity?.name ??
                 selectedRegion?.name ??
                 selectedCountry?.name ??
@@ -1331,7 +1194,7 @@ function MapPage() {
                 ? "Chargement des premiers points…"
                 : statsLoading
                   ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
-                  : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits · ${COUNT_FORMATTER.format(visibleVenues.length)} lieux`}
+                  : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}
             </p>
             {!loading && (
               <p className="mt-1 text-[11px] text-muted-foreground">
@@ -1340,13 +1203,11 @@ function MapPage() {
                 })}
               </p>
             )}
-            {!loading &&
-              mapReady &&
-              eventMapPoints.features.length + venueMapPoints.features.length > 0 && (
-                <p className="mt-1 text-[11px] font-medium text-primary">
-                  {tr("Les nombres regroupent les points · clique pour zoomer")}
-                </p>
-              )}
+            {!loading && mapReady && eventMapPoints.features.length > 0 && (
+              <p className="mt-1 text-[11px] font-medium text-primary">
+                {tr("Les nombres regroupent les points · clique pour zoomer")}
+              </p>
+            )}
           </div>
           <Button
             size="icon"
@@ -1398,23 +1259,26 @@ function MapPage() {
         </div>
 
         <div className="no-scrollbar my-3 flex gap-1.5 overflow-x-auto pb-1">
-          {categories.map((category) => (
-            <button
-              key={category.slug}
-              type="button"
-              aria-pressed={cats.has(category.slug)}
-              onClick={() => toggleCategory(category.slug)}
-              className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium hover:bg-accent"
-              style={
-                cats.has(category.slug)
-                  ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
-                  : undefined
-              }
-            >
-              {category.icon ? `${category.icon} ` : ""}
-              {categoryLabel(category.slug, category.name_fr)}
-            </button>
-          ))}
+          {categories.map((category) => {
+            const visual = eventCategoryVisual(category.slug);
+            const active = cats.has(category.slug);
+            return (
+              <button
+                key={category.slug}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleCategory(category.slug)}
+                className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                style={{
+                  borderColor: visual.color,
+                  color: active ? eventCategoryTextColor(category.slug) : visual.color,
+                  background: active ? visual.color : `${visual.color}18`,
+                }}
+              >
+                {visual.icon} {categoryLabel(category.slug, category.name_fr)}
+              </button>
+            );
+          })}
         </div>
 
         <details className="rounded-2xl border" open={advancedCount > 0}>
@@ -1431,18 +1295,12 @@ function MapPage() {
           </div>
         </details>
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-1 gap-2">
           <LayerToggle
             active={showEvents}
             icon={CalendarDays}
             label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}
             onClick={() => setShowEvents((value) => !value)}
-          />
-          <LayerToggle
-            active={showVenues}
-            icon={Building2}
-            label={`Lieux (${visibleVenues.length})`}
-            onClick={() => setShowVenues((value) => !value)}
           />
         </div>
 
@@ -1523,42 +1381,6 @@ function MapPage() {
             </button>
             <EventCard ev={selectedEvent} />
           </div>
-        </div>
-      )}
-
-      {selectedVenue && (
-        <div className="glass absolute inset-x-3 bottom-20 z-10 rounded-3xl p-5 shadow-[var(--shadow-card)] md:inset-x-auto md:bottom-6 md:left-[32rem] md:w-80">
-          <button
-            type="button"
-            aria-label={tr("Fermer la fiche")}
-            onClick={() => setSelectedVenue(null)}
-            className="absolute right-3 top-3 h-7 w-7 rounded-full border text-xs"
-          >
-            ×
-          </button>
-          <Badge variant="outline" className="mb-3">
-            <Building2 className="mr-1 h-3.5 w-3.5" /> {tr("Lieu")}
-          </Badge>
-          <h2 className="pr-8 text-xl font-black">{selectedVenue.name}</h2>
-          <p className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-            {selectedVenue.address ?? selectedVenue.city_name ?? tr("Adresse non précisée")}
-          </p>
-          {selectedVenue.capacity != null && (
-            <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-              <Users className="h-4 w-4" />
-              {tr("Jusqu'à {count} personnes", {
-                count: formatNumber(selectedVenue.capacity),
-              })}
-            </p>
-          )}
-          {selectedVenue.location_precision === "city" && (
-            <p className="mt-3 rounded-2xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {tr(
-                "Position approximative au niveau de la ville — l'adresse exacte n'est pas encore renseignée.",
-              )}
-            </p>
-          )}
         </div>
       )}
 

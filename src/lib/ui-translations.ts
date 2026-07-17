@@ -2012,6 +2012,13 @@ export const UI_TRANSLATIONS = {
     ru: "События и места",
     es: "Eventos y lugares",
   },
+  Sorties: {
+    en: "Events",
+    pl: "Wydarzenia",
+    it: "Eventi",
+    ru: "События",
+    es: "Eventos",
+  },
   "{count} points d’événements chargés sur la carte": {
     en: "{count} event points loaded on the map",
     pl: "Wczytano {count} punktów wydarzeń",

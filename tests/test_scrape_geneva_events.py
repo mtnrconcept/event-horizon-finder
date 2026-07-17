@@ -18,6 +18,14 @@ class GenevaScraperTests(unittest.TestCase):
     def test_client_timeout_covers_server_side_retries(self):
         self.assertGreaterEqual(SCRAPER.DEFAULT_TIMEOUT, 2 * 72 + 5)
 
+    def test_world_expansion_currency_fallbacks(self):
+        self.assertEqual(SCRAPER._currency_for_country("MX"), "MXN")
+        self.assertEqual(SCRAPER._currency_for_country("kr"), "KRW")
+        self.assertEqual(SCRAPER._currency_for_country("SG"), "SGD")
+        self.assertEqual(SCRAPER._currency_for_country("AE"), "AED")
+        self.assertEqual(SCRAPER._currency_for_country("ZA"), "ZAR")
+        self.assertEqual(SCRAPER._currency_for_country("MA"), "MAD")
+
     def test_extracts_nested_schema_org_event(self):
         html = """
         <html><head><script type="application/ld+json">

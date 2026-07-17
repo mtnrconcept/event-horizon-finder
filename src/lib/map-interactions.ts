@@ -1,4 +1,4 @@
-export type MapHitKind = "cluster" | "event" | "venue";
+export type MapHitKind = "cluster" | "event";
 
 export type MapHitCandidate<T> = {
   kind: MapHitKind;
@@ -8,9 +8,8 @@ export type MapHitCandidate<T> = {
 };
 
 const HIT_PRIORITY: Record<MapHitKind, number> = {
-  cluster: 3,
-  event: 2,
-  venue: 1,
+  cluster: 2,
+  event: 1,
 };
 
 /**
@@ -34,9 +33,9 @@ export function selectHighestPriorityMapHit<T>(
 
 /**
  * Selects one deterministic feature for a pointer interaction. The distance is
- * considered first; when markers share a coordinate, clusters win over events,
- * then venues. Keeping this logic independent from MapLibre makes the mobile
- * hit-area behaviour straightforward to verify.
+ * considered first; when markers share a coordinate, clusters win over events.
+ * Keeping this logic independent from MapLibre makes the mobile hit-area
+ * behaviour straightforward to verify.
  */
 export function selectNearestMapHit<T>(
   candidates: MapHitCandidate<T>[],

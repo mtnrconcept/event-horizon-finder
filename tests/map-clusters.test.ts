@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import test from "node:test";
 
-import { buildMapPointCollection } from "../src/lib/map-clusters.ts";
 import {
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_RADIUS,
@@ -9,8 +9,30 @@ import {
   eventClusterCircleRadius,
   eventClusterTextSize,
 } from "../src/lib/map-cluster-config.ts";
+import {
+  eventCategoryTextColor,
+  eventCategoryVisual,
+  normalizeEventCategorySlug,
+} from "../src/lib/event-category-style.ts";
 import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
-import type { DiscoveredEvent, DiscoveredVenue } from "../src/lib/queries.ts";
+import type { DiscoveredEvent } from "../src/lib/queries.ts";
+
+// The production build resolves the @ alias through Vite. Register the one
+// runtime alias used by map-clusters so this dependency-free Node test follows
+// the same module graph.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "@/lib/event-category-style") {
+      return {
+        shortCircuit: true,
+        url: new URL("../src/lib/event-category-style.ts", import.meta.url).href,
+      };
+    }
+    return nextResolve(specifier, context);
+  },
+});
+
+const { buildMapPointCollection } = await import("../src/lib/map-clusters.ts");
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   return {
@@ -45,32 +67,14 @@ function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   };
 }
 
-function venue(overrides: Partial<DiscoveredVenue> = {}): DiscoveredVenue {
-  return {
-    id: "venue-1",
-    slug: "parc-des-bastions",
-    name: "Parc des Bastions",
-    address: "Promenade des Bastions 1",
-    city_name: "Genève",
-    capacity: 2_000,
-    is_verified: true,
-    latitude: 46.2004,
-    longitude: 6.1452,
-    location_precision: "exact",
-    ...overrides,
-  };
-}
-
-test("builds lightweight event and venue GeoJSON features", () => {
+test("builds a lightweight event-only GeoJSON feature with its category visual", () => {
   const points = buildMapPointCollection({
     events: [event()],
-    venues: [venue()],
     showEvents: true,
-    showVenues: true,
   });
 
   assert.equal(points.type, "FeatureCollection");
-  assert.equal(points.features.length, 2);
+  assert.equal(points.features.length, 1);
   assert.deepEqual(points.features[0], {
     type: "Feature",
     id: "event:occurrence-1",
@@ -79,34 +83,38 @@ test("builds lightweight event and venue GeoJSON features", () => {
       kind: "event",
       entity_id: "occurrence-1",
       label: "Open Air Geneva",
-      marker_label: "35",
+      category_slug: "concerts",
+      category_color: "#e11d48",
+      category_icon_image: "event-category-concerts",
       is_free: 0,
       approximate: 0,
     },
   });
-  assert.equal(points.features[1]?.properties.kind, "venue");
-  assert.equal(points.features[1]?.properties.marker_label, "L");
 });
 
-test("respects layer toggles and drops invalid world coordinates", () => {
+test("respects the event layer toggle and drops invalid world coordinates", () => {
+  const hidden = buildMapPointCollection({
+    events: [event()],
+    showEvents: false,
+  });
+  assert.equal(hidden.features.length, 0);
+
   const points = buildMapPointCollection({
     events: [
       event({ occurrence_id: "free", is_free: true, location_precision: "city" }),
-      event({ occurrence_id: "invalid", longitude: 181 }),
+      event({ occurrence_id: "invalid-longitude", longitude: 181 }),
+      event({ occurrence_id: "invalid-latitude", latitude: Number.NaN }),
     ],
-    venues: [venue({ latitude: Number.NaN })],
     showEvents: true,
-    showVenues: false,
   });
 
   assert.equal(points.features.length, 1);
   assert.equal(points.features[0]?.id, "event:free");
-  assert.equal(points.features[0]?.properties.marker_label, "0");
   assert.equal(points.features[0]?.properties.is_free, 1);
   assert.equal(points.features[0]?.properties.approximate, 1);
 });
 
-test("keeps Spain points in Spain and rejects proven coordinate inversions", () => {
+test("keeps Spain event points in Spain and rejects proven coordinate inversions", () => {
   const points = buildMapPointCollection({
     events: [
       event({
@@ -130,15 +138,7 @@ test("keeps Spain points in Spain and rejects proven coordinate inversions", () 
         longitude: -16.6291,
       }),
     ],
-    venues: [
-      venue({
-        id: "venue-swapped",
-        latitude: 2.1686,
-        longitude: 41.3874,
-      }),
-    ],
     showEvents: true,
-    showVenues: true,
     countryCode: "ES",
   });
 
@@ -156,38 +156,92 @@ test("keeps Spain points in Spain and rejects proven coordinate inversions", () 
         longitude: 41.3874,
       }),
     ],
-    venues: [],
     showEvents: true,
-    showVenues: false,
   });
   assert.equal(unscopedWorldPoint.features.length, 1);
 });
 
-test("abbreviates unusually large price labels", () => {
-  const points = buildMapPointCollection({
-    events: [event({ price_from: 1_250 })],
-    venues: [],
-    showEvents: true,
-    showVenues: true,
-  });
+test("normalizes category aliases and applies the explicit fallback visual", () => {
+  assert.equal(normalizeEventCategorySlug(" Concert "), "concerts");
+  assert.equal(normalizeEventCategorySlug("NIGHTLIFE"), "soirees");
+  assert.equal(normalizeEventCategorySlug("family"), "famille");
+  assert.equal(normalizeEventCategorySlug("outdoor"), "sports-outdoor");
+  assert.equal(normalizeEventCategorySlug("unknown-category"), "other");
+  assert.equal(normalizeEventCategorySlug(null), "other");
 
-  assert.equal(points.features[0]?.properties.marker_label, "1.3k");
+  assert.deepEqual(eventCategoryVisual("concert"), {
+    color: "#e11d48",
+    icon: "🎸",
+    imageId: "event-category-concerts",
+  });
+  assert.deepEqual(eventCategoryVisual("unknown-category"), {
+    color: "#64748b",
+    icon: "✨",
+    imageId: "event-category-other",
+  });
 });
 
-test("selects one nearby map hit by distance, then by marker priority", () => {
+test("assigns distinct colors and icons to recognizable event categories", () => {
+  const points = buildMapPointCollection({
+    events: [
+      event({ occurrence_id: "night", category_slug: "soiree" }),
+      event({ occurrence_id: "festival", category_slug: "festival", longitude: 6.15 }),
+      event({ occurrence_id: "family", category_slug: "family", longitude: 6.16 }),
+      event({ occurrence_id: "outdoor", category_slug: "outdoor", longitude: 6.17 }),
+    ],
+    showEvents: true,
+  });
+
+  assert.deepEqual(
+    points.features.map((feature) => feature.properties.category_slug),
+    ["soirees", "festivals", "famille", "sports-outdoor"],
+  );
+  assert.equal(
+    new Set(points.features.map((feature) => feature.properties.category_color)).size,
+    points.features.length,
+  );
+  assert.equal(
+    new Set(points.features.map((feature) => feature.properties.category_icon_image)).size,
+    points.features.length,
+  );
+});
+
+test("uses a readable foreground for every category color", () => {
+  for (const slug of [
+    "concerts",
+    "festivals",
+    "expositions",
+    "soirees",
+    "theatre",
+    "famille",
+    "sports-outdoor",
+    "heritage",
+    "gastronomy",
+    "activities",
+    "conferences",
+    "cinema",
+    "leisure",
+    "other",
+  ]) {
+    assert.match(eventCategoryTextColor(slug), /^#(?:ffffff|111827)$/);
+  }
+  assert.equal(eventCategoryTextColor("festivals"), "#111827");
+  assert.equal(eventCategoryTextColor("soirees"), "#ffffff");
+});
+
+test("selects one nearby event hit by distance, then by marker priority", () => {
   const nearest = selectNearestMapHit(
     [
       { kind: "cluster", x: 18, y: 10, value: "far-cluster" },
-      { kind: "venue", x: 11, y: 10, value: "near-venue" },
+      { kind: "event", x: 11, y: 10, value: "near-event" },
     ],
     { x: 10, y: 10 },
     24,
   );
-  assert.equal(nearest?.value, "near-venue");
+  assert.equal(nearest?.value, "near-event");
 
   const sharedPosition = selectNearestMapHit(
     [
-      { kind: "venue", x: 10, y: 10, value: "venue" },
       { kind: "event", x: 10, y: 10, value: "event" },
       { kind: "cluster", x: 10, y: 10, value: "cluster" },
     ],
@@ -231,7 +285,6 @@ test("cluster expansion always zooms in and remains within the supported source 
 
 test("accepts a rendered cluster at the edge of its painted circle", () => {
   const selected = selectHighestPriorityMapHit([
-    { kind: "venue", x: 100, y: 100, value: "venue" },
     { kind: "event", x: 100, y: 100, value: "event" },
     { kind: "cluster", x: 48, y: 100, value: "large-cluster" },
   ]);
