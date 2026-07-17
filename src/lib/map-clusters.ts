@@ -1,24 +1,19 @@
 import type { Feature, FeatureCollection, Point } from "geojson";
-import type { DiscoveredEvent, DiscoveredVenue } from "@/lib/queries";
+import { eventCategoryVisual, normalizeEventCategorySlug } from "@/lib/event-category-style";
+import type { DiscoveredEvent } from "@/lib/queries";
 
 export type MapPointProperties = {
-  kind: "event" | "venue";
+  kind: "event";
   entity_id: string;
   label: string;
-  marker_label: string;
+  category_slug: string;
+  category_color: string;
+  category_icon_image: string;
   is_free: 0 | 1;
   approximate: 0 | 1;
 };
 
 export type MapPointCollection = FeatureCollection<Point, MapPointProperties>;
-
-function markerPrice(event: DiscoveredEvent): string {
-  if (event.is_free) return "0";
-  if (event.price_from == null) return "★";
-  const price = Math.max(0, Math.round(Number(event.price_from)));
-  if (price >= 1_000) return `${Math.round(price / 100) / 10}k`;
-  return price.toString();
-}
 
 function validLongitude(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value) && value >= -180 && value <= 180;
@@ -45,15 +40,11 @@ export function isMapCoordinatePlausibleForCountry(
 
 export function buildMapPointCollection({
   events,
-  venues,
   showEvents,
-  showVenues,
   countryCode = null,
 }: {
   events: DiscoveredEvent[];
-  venues: DiscoveredVenue[];
   showEvents: boolean;
-  showVenues: boolean;
   countryCode?: string | null;
 }): MapPointCollection {
   const features: Array<Feature<Point, MapPointProperties>> = [];
@@ -67,6 +58,8 @@ export function buildMapPointCollection({
       ) {
         continue;
       }
+      const categorySlug = normalizeEventCategorySlug(event.category_slug);
+      const categoryVisual = eventCategoryVisual(categorySlug);
       features.push({
         type: "Feature",
         id: `event:${event.occurrence_id}`,
@@ -75,34 +68,11 @@ export function buildMapPointCollection({
           kind: "event",
           entity_id: event.occurrence_id,
           label: event.title,
-          marker_label: markerPrice(event),
+          category_slug: categorySlug,
+          category_color: categoryVisual.color,
+          category_icon_image: categoryVisual.imageId,
           is_free: event.is_free ? 1 : 0,
           approximate: event.location_precision === "city" ? 1 : 0,
-        },
-      });
-    }
-  }
-
-  if (showVenues) {
-    for (const venue of venues) {
-      if (
-        !validLongitude(venue.longitude) ||
-        !validLatitude(venue.latitude) ||
-        !isMapCoordinatePlausibleForCountry(countryCode, venue.latitude, venue.longitude)
-      ) {
-        continue;
-      }
-      features.push({
-        type: "Feature",
-        id: `venue:${venue.id}`,
-        geometry: { type: "Point", coordinates: [venue.longitude, venue.latitude] },
-        properties: {
-          kind: "venue",
-          entity_id: venue.id,
-          label: venue.name,
-          marker_label: "L",
-          is_free: 0,
-          approximate: venue.location_precision === "city" ? 1 : 0,
         },
       });
     }

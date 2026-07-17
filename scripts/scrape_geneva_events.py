@@ -36,6 +36,22 @@ USER_AGENT = "EVENTA-Geneva-Event-Collector/1.0 (+https://github.com/mtnrconcept
 DEFAULT_TIMEOUT = 210
 MAX_BATCH_SIZE = 4
 MAX_DIRECT_LINKS = 40
+SUPPORTED_CATEGORIES = (
+    "concerts",
+    "festivals",
+    "expositions",
+    "soirees",
+    "theatre",
+    "famille",
+    "sports-outdoor",
+    "heritage",
+    "gastronomy",
+    "activities",
+    "conferences",
+    "cinema",
+    "leisure",
+    "other",
+)
 EVENT_PATH_HINT = re.compile(
     r"(?:agenda|event|evenement|programme|concert|festival|soiree|party|club)", re.IGNORECASE
 )
@@ -53,7 +69,7 @@ class Source:
     id: str | None
     name: str
     base_url: str
-    category: str = "concerts"
+    category: str | None = None
     page_count: int = 1
     metadata: Mapping[str, Any] | None = None
     city: str = "Genève"
@@ -277,6 +293,17 @@ def _number(value: Any) -> float | None:
     return result if result == result else None
 
 
+def _currency_for_country(country_code: str | None) -> str | None:
+    if not country_code:
+        return None
+    return {
+        "CH": "CHF", "GB": "GBP", "US": "USD", "CA": "CAD", "AU": "AUD",
+        "NZ": "NZD", "JP": "JPY", "PL": "PLN", "CZ": "CZK", "HU": "HUF",
+        "SE": "SEK", "NO": "NOK", "DK": "DKK", "MX": "MXN", "KR": "KRW",
+        "SG": "SGD", "AE": "AED", "ZA": "ZAR", "MA": "MAD",
+    }.get(country_code.upper())
+
+
 def _iso_datetime(value: Any, timezone_name: str = "Europe/Zurich") -> str | None:
     text = _first_text(value)
     if not text:
@@ -407,7 +434,7 @@ def _event_quality(event: Event) -> int:
 def _event_from_json_ld(
     raw: Mapping[str, Any],
     page_url: str,
-    category: str,
+    category: str | None,
     *,
     timezone_name: str = "Europe/Zurich",
     city_name: str | None = "Genève",
@@ -507,7 +534,7 @@ def _event_from_json_ld(
         capacity=int(value) if (value := _number(raw.get("maximumAttendeeCapacity"))) else None,
         price_min=price_min,
         price_max=price_max,
-        currency=currency,
+        currency=currency or _currency_for_country(json_country) or _currency_for_country(country_code),
         warnings=tuple(warnings),
     )
     return replace(event, quality_score=_event_quality(event))
@@ -719,6 +746,9 @@ def _firecrawl_events(source: Source, page_url: str, api_key: str, timeout: int)
         currency = (_first_text(raw.get("currency")) or "").upper() or None
         if currency and not re.fullmatch(r"[A-Z]{3}", currency):
             currency = None
+        currency = currency or _currency_for_country(
+            _first_text(raw.get("countryCode")) or source.country_code
+        )
         all_day = raw.get("allDay") is True or bool(
             re.fullmatch(r"\d{4}-\d{2}-\d{2}", _first_text(raw.get("startDate")) or "")
         )
@@ -818,7 +848,7 @@ class SupabaseREST:
                 id=row["id"],
                 name=row["name"],
                 base_url=row["base_url"],
-                category=row.get("category_slug") or "concerts",
+                category=row.get("category_slug"),
                 page_count=max(1, min(int(row.get("page_count") or 1), 40)),
                 metadata=row.get("metadata") or {},
                 city=_first_text(city.get("name")) or city_slug or "",
@@ -1145,7 +1175,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timezone", default="Europe/Zurich", help="IANA timezone used with --url")
     parser.add_argument("--latitude", type=float, default=46.2044, help="City latitude used with --url")
     parser.add_argument("--longitude", type=float, default=6.1432, help="City longitude used with --url")
-    parser.add_argument("--category", default="concerts", choices=("soirees", "festivals", "concerts"))
+    parser.add_argument("--category", default="concerts", choices=SUPPORTED_CATEGORIES)
     parser.add_argument(
         "--follow-links",
         type=int,

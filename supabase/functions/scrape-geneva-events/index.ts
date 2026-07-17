@@ -203,9 +203,18 @@ async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): 
 
 async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<FirecrawlPayload> {
   let lastError = "unknown_error";
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const attemptLimit = Math.max(1, safeInteger(task.source.metadata?.firecrawl_attempts, 2, 2));
+  const requestTimeoutMs = Math.max(
+    15_000,
+    safeInteger(
+      task.source.metadata?.firecrawl_timeout_ms,
+      FIRECRAWL_TIMEOUT_MS,
+      FIRECRAWL_TIMEOUT_MS,
+    ),
+  );
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FIRECRAWL_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
       const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
         method: "POST",
@@ -213,7 +222,7 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
         body: JSON.stringify({
           url: task.url,
           onlyMainContent: true,
-          timeout: 90_000,
+          timeout: Math.min(90_000, Math.max(10_000, requestTimeoutMs - 5_000)),
           maxAge: 3_600_000,
           formats: [
             "markdown",

@@ -164,7 +164,15 @@ const CATEGORY_RULES: Array<[string, string[]]> = [
   ],
   [
     "festivals",
-    ["festival", "music festival", "festival de musique", "musikfestival", "open air", "festiwal"],
+    [
+      "festival",
+      "music festival",
+      "festival de musique",
+      "musikfestival",
+      "open air festival",
+      "festival open air",
+      "festiwal",
+    ],
   ],
   [
     "concerts",
@@ -217,6 +225,82 @@ const CATEGORY_RULES: Array<[string, string[]]> = [
     ],
   ],
   ["famille", ["family", "famille", "children", "enfant", "kids", "jeune public"]],
+  [
+    "sports-outdoor",
+    [
+      "sports-outdoor",
+      "sport",
+      "sports",
+      "outdoor activity",
+      "outdoor activities",
+      "plein air",
+      "hiking",
+      "randonnee",
+      "trail",
+      "running",
+      "cycling",
+      "bike",
+      "yoga",
+      "fitness",
+      "ski",
+      "swimming",
+    ],
+  ],
+  [
+    "heritage",
+    [
+      "heritage",
+      "patrimoine",
+      "guided tour",
+      "visite guidee",
+      "historic monument",
+      "architecture tour",
+      "walking tour",
+    ],
+  ],
+  [
+    "gastronomy",
+    [
+      "gastronomy",
+      "gastronomie",
+      "food market",
+      "marche gourmand",
+      "tasting",
+      "degustation",
+      "wine event",
+      "culinary",
+    ],
+  ],
+  [
+    "activities",
+    [
+      "activities",
+      "activity",
+      "workshop",
+      "atelier",
+      "masterclass",
+      "course",
+      "creative class",
+      "participatory",
+    ],
+  ],
+  [
+    "conferences",
+    [
+      "conferences",
+      "conference",
+      "talk",
+      "lecture",
+      "meetup",
+      "seminar",
+      "panel",
+      "debate",
+      "rencontre",
+    ],
+  ],
+  ["cinema", ["cinema", "film", "movie", "screening", "projection"]],
+  ["leisure", ["leisure", "loisir", "game", "gaming", "escape room", "quiz", "bowling", "arcade"]],
+  ["other", []],
 ];
 
 const NOISE_TITLE =
@@ -475,6 +559,12 @@ function currencyForCountry(countryCode: string | null | undefined): string | nu
     SE: "SEK",
     NO: "NOK",
     DK: "DKK",
+    MX: "MXN",
+    KR: "KRW",
+    SG: "SGD",
+    AE: "AED",
+    ZA: "ZAR",
+    MA: "MAD",
   };
   if (!countryCode) return null;
   return currencies[countryCode.toUpperCase()] ?? "EUR";
@@ -570,12 +660,20 @@ export function normalizeEventCandidate(
     }
   }
 
-  const city = cleanEventText(candidate.city, 120) || source.city?.name || "";
-  if (
-    candidate.city &&
-    source.city?.name &&
-    normalizeEventText(candidate.city) !== normalizeEventText(source.city.name)
-  ) {
+  const suppliedCity = cleanEventText(candidate.city, 120);
+  const sourceCity = cleanEventText(source.city?.name, 120);
+  const configuredCityAliases = Array.isArray(source.metadata?.city_aliases)
+    ? source.metadata.city_aliases
+        .map((value) => cleanEventText(value, 120))
+        .filter((value): value is string => Boolean(value))
+    : [];
+  const suppliedCityMatchesSource =
+    Boolean(suppliedCity && sourceCity) &&
+    [sourceCity, ...configuredCityAliases].some(
+      (alias) => normalizeEventText(alias) === normalizeEventText(suppliedCity),
+    );
+  const city = suppliedCityMatchesSource ? sourceCity : suppliedCity || sourceCity;
+  if (suppliedCity && sourceCity && !suppliedCityMatchesSource) {
     warnings.push("city_differs_from_source");
   }
   const description = cleanEventText(candidate.description, 6_000) || null;
