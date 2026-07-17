@@ -6,7 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
+  type RefCallback,
 } from "react";
 import maplibregl, {
   type GeoJSONSource,
@@ -273,7 +273,7 @@ function MapSurface({
   mapReady,
   mapUnavailable,
 }: {
-  containerRef: RefObject<HTMLDivElement | null>;
+  containerRef: RefCallback<HTMLDivElement>;
   mapReady: boolean;
   mapUnavailable: string | null;
 }) {
@@ -406,7 +406,10 @@ function SelectedClusterEvents({
 
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
+  const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
+    setMapContainer(node);
+  }, []);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const lastFittedScopeRef = useRef<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
@@ -543,9 +546,10 @@ function MapPage() {
   }, [isMobile]);
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapContainer || mapRef.current) return;
     setMapReady(false);
     setMapUnavailable(null);
+    lastFittedScopeRef.current = null;
     try {
       const canvas = document.createElement("canvas");
       const webgl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
@@ -560,7 +564,7 @@ function MapPage() {
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
-        container: containerRef.current,
+        container: mapContainer,
         style: MAPBOX_STYLE ?? POI_FREE_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
@@ -600,7 +604,7 @@ function MapPage() {
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeMap);
-    resizeObserver?.observe(containerRef.current);
+    resizeObserver?.observe(mapContainer);
     window.visualViewport?.addEventListener("resize", resizeMap);
     window.addEventListener("orientationchange", resizeMap);
     resizeMap();
@@ -613,9 +617,9 @@ function MapPage() {
       window.visualViewport?.removeEventListener("resize", resizeMap);
       window.removeEventListener("orientationchange", resizeMap);
       map.remove();
-      mapRef.current = null;
+      if (mapRef.current === map) mapRef.current = null;
     };
-  }, []);
+  }, [mapContainer]);
 
   useEffect(() => {
     const map = mapRef.current;
