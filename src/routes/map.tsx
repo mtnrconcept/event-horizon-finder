@@ -540,10 +540,18 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [isMobile]);
+  }, []);
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const mapContainer = containerRef.current;
+    if (!mapContainer || mapRef.current) return;
+
+    // The server renders the desktop route first. On a mobile browser React
+    // replaces that container after hydration, so MapLibre must be recreated
+    // against the new DOM node instead of remaining attached to the discarded
+    // desktop container. The same rule keeps breakpoint changes reliable.
+    mapContainer.dataset.mapLayout = isMobile ? "mobile" : "desktop";
+    lastFittedScopeRef.current = null;
     setMapReady(false);
     setMapUnavailable(null);
     try {
@@ -560,7 +568,7 @@ function MapPage() {
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
-        container: containerRef.current,
+        container: mapContainer,
         style: MAPBOX_STYLE ?? POI_FREE_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
@@ -600,7 +608,7 @@ function MapPage() {
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeMap);
-    resizeObserver?.observe(containerRef.current);
+    resizeObserver?.observe(mapContainer);
     window.visualViewport?.addEventListener("resize", resizeMap);
     window.addEventListener("orientationchange", resizeMap);
     resizeMap();
@@ -615,7 +623,7 @@ function MapPage() {
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     const map = mapRef.current;
