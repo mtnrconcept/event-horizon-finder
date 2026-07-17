@@ -20,7 +20,14 @@ const cors = {
 };
 
 const MAX_BATCH_SIZE = 4;
-const FIRECRAWL_TIMEOUT_MS = 120_000;
+// Supabase Edge requests are terminated after roughly 150 seconds. Keep every
+// source comfortably below that ceiling, including the deterministic fallback
+// and database writes.
+const FIRECRAWL_TIMEOUT_MS = 50_000;
+const DIRECT_TIMEOUT_MS = 12_000;
+const DIRECT_DETAIL_LIMIT = 3;
+const STALE_JOB_AFTER_MS = 3 * 60_000;
+const UPSERT_CONCURRENCY = 6;
 
 const EXTRACTION_SCHEMA = {
   type: "object",
@@ -203,7 +210,9 @@ async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): 
 
 async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<FirecrawlPayload> {
   let lastError = "unknown_error";
-  const attemptLimit = Math.max(1, safeInteger(task.source.metadata?.firecrawl_attempts, 2, 2));
+  // A retry is handled by the scheduler. Retrying inside the same Edge request
+  // can consume the complete runtime budget before the direct fallback starts.
+  const attemptLimit = Math.max(1, safeInteger(task.source.metadata?.firecrawl_attempts, 1, 1));
   const requestTimeoutMs = Math.max(
     15_000,
     safeInteger(
@@ -273,7 +282,7 @@ async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<Fi
     } finally {
       clearTimeout(timeout);
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    if (attempt + 1 < attemptLimit) await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw new Error(`Firecrawl: ${lastError}`);
 }
@@ -332,7 +341,19 @@ async function collectCandidates(
   }
 
   try {
-    const direct = await scrapeDirectEventSource({ url: task.url, source: sourceContext });
+    const directTimeoutMs = Math.max(
+      5_000,
+      safeInteger(task.source.metadata?.direct_timeout_ms, DIRECT_TIMEOUT_MS, 15_000),
+    );
+    const directDetailLimit = safeInteger(
+      task.source.metadata?.direct_detail_limit,
+      DIRECT_DETAIL_LIMIT,
+      DIRECT_DETAIL_LIMIT,
+    );
+    const direct = await scrapeDirectEventSource(
+      { url: task.url, source: sourceContext },
+      { timeoutMs: directTimeoutMs, detailPageLimit: directDetailLimit },
+    );
     return {
       mode: "direct",
       rawContent: direct.rootHtml,
@@ -375,6 +396,22 @@ Deno.serve(async (req) => {
   if (!(await isAllowed(req, admin))) return json({ error: "unauthorized" }, 401);
 
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY")?.trim();
+
+  // A platform timeout cannot execute the normal catch/finalizer. Reconcile
+  // jobs left running by a previous terminated invocation before starting a
+  // new batch; a genuine Edge invocation cannot still be alive after 3 min.
+  const staleBefore = new Date(Date.now() - STALE_JOB_AFTER_MS).toISOString();
+  const { error: staleJobError } = await admin
+    .from("ingestion_jobs")
+    .update({
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message: "edge_runtime_timeout",
+    })
+    .eq("status", "running")
+    .lt("started_at", staleBefore);
+  if (staleJobError)
+    console.warn("Unable to reconcile stale ingestion jobs", staleJobError.message);
 
   const body = (await req.json().catch(() => ({}))) as {
     cursor?: number;
@@ -518,56 +555,66 @@ Deno.serve(async (req) => {
           .single();
         if (recordError) throw recordError;
 
-        for (const event of events) {
-          const { data: upserted, error: upsertError } = await admin.rpc(
-            "upsert_ingested_event_v2",
-            {
-              _data_source_id: task.source.id,
-              _payload: {
-                source_url: event.sourceUrl,
-                external_identifier: event.externalId,
-                title: event.title,
-                description: event.description,
-                starts_at: event.startDate,
-                ends_at: event.endDate,
-                timezone: event.timezone,
-                time_precision: event.timePrecision,
-                all_day: event.allDay,
-                venue_name: event.venueName,
-                address: event.address,
-                city: event.city,
-                region: event.region,
-                country_code: event.countryCode,
-                latitude: event.latitude,
-                longitude: event.longitude,
-                organizer_name: event.organizerName,
-                organizer_url: event.organizerUrl,
-                status: event.status,
-                language: event.language,
-                category: event.category,
-                genres: event.genres,
-                capacity: event.capacity,
-                price_min: event.priceMin,
-                price_max: event.priceMax,
-                currency: event.currency,
-                ticket_url: event.ticketUrl,
-                ticket_status: event.isFree ? "free" : event.ticketUrl ? "available" : "unknown",
-                image_url: event.imageUrl,
-                is_free: event.isFree,
-                quality_score: event.qualityScore,
-                warnings: event.warnings,
-                extraction_method: event.extractionMethod,
-              },
-            },
+        for (let offset = 0; offset < events.length; offset += UPSERT_CONCURRENCY) {
+          await Promise.all(
+            events.slice(offset, offset + UPSERT_CONCURRENCY).map(async (event) => {
+              const { data: upserted, error: upsertError } = await admin.rpc(
+                "upsert_ingested_event_v2",
+                {
+                  _data_source_id: task.source.id,
+                  _payload: {
+                    source_url: event.sourceUrl,
+                    external_identifier: event.externalId,
+                    title: event.title,
+                    description: event.description,
+                    starts_at: event.startDate,
+                    ends_at: event.endDate,
+                    timezone: event.timezone,
+                    time_precision: event.timePrecision,
+                    all_day: event.allDay,
+                    venue_name: event.venueName,
+                    address: event.address,
+                    city: event.city,
+                    region: event.region,
+                    country_code: event.countryCode,
+                    latitude: event.latitude,
+                    longitude: event.longitude,
+                    organizer_name: event.organizerName,
+                    organizer_url: event.organizerUrl,
+                    status: event.status,
+                    language: event.language,
+                    category: event.category,
+                    genres: event.genres,
+                    capacity: event.capacity,
+                    price_min: event.priceMin,
+                    price_max: event.priceMax,
+                    currency: event.currency,
+                    ticket_url: event.ticketUrl,
+                    ticket_status: event.isFree
+                      ? "free"
+                      : event.ticketUrl
+                        ? "available"
+                        : "unknown",
+                    image_url: event.imageUrl,
+                    is_free: event.isFree,
+                    quality_score: event.qualityScore,
+                    warnings: event.warnings,
+                    extraction_method: event.extractionMethod,
+                  },
+                },
+              );
+              if (upsertError) {
+                rejected += 1;
+                if (upsertErrors.length < 5) {
+                  upsertErrors.push(upsertError.message.slice(0, 500));
+                }
+                return;
+              }
+              const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
+              if (outcome?.action === "created") created += 1;
+              else updated += 1;
+            }),
           );
-          if (upsertError) {
-            rejected += 1;
-            if (upsertErrors.length < 5) upsertErrors.push(upsertError.message.slice(0, 500));
-            continue;
-          }
-          const outcome = Array.isArray(upserted) ? upserted[0] : upserted;
-          if (outcome?.action === "created") created += 1;
-          else updated += 1;
         }
 
         const sourceCompleted = task.page >= Math.max(1, task.source.page_count ?? 1) - 1;

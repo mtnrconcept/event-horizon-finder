@@ -510,7 +510,7 @@ function classifyCategory(candidate: EventCandidate, source: EventSourceContext)
   if (best && best.score >= 2) return best.category;
   const suppliedSlug = cleanEventText(candidate.category, 80).toLowerCase();
   if (CATEGORY_RULES.some(([category]) => category === suppliedSlug)) return suppliedSlug;
-  return source.category_slug;
+  return source.category_slug ?? "other";
 }
 
 function normalizeGenres(value: unknown, candidate: EventCandidate): string[] {
@@ -542,6 +542,66 @@ function normalizeStatus(value: unknown): NormalizedEvent["status"] {
 function normalizedCurrency(value: unknown): string | null {
   const currency = cleanEventText(value, 3).toUpperCase();
   return /^[A-Z]{3}$/.test(currency) ? currency : null;
+}
+
+const COUNTRY_NAME_CODES: Record<string, string> = {
+  australia: "AU",
+  austria: "AT",
+  autriche: "AT",
+  belgique: "BE",
+  belgium: "BE",
+  canada: "CA",
+  "coree du sud": "KR",
+  "czech republic": "CZ",
+  czechia: "CZ",
+  danemark: "DK",
+  denmark: "DK",
+  emiratsarabesunis: "AE",
+  "emirats arabes unis": "AE",
+  espagne: "ES",
+  france: "FR",
+  ireland: "IE",
+  irlande: "IE",
+  italie: "IT",
+  italy: "IT",
+  japan: "JP",
+  japon: "JP",
+  maroc: "MA",
+  mexico: "MX",
+  mexique: "MX",
+  morocco: "MA",
+  "new zealand": "NZ",
+  "nouvelle zelande": "NZ",
+  norway: "NO",
+  norvege: "NO",
+  pologne: "PL",
+  poland: "PL",
+  "republic of korea": "KR",
+  singapour: "SG",
+  singapore: "SG",
+  "south africa": "ZA",
+  "south korea": "KR",
+  spain: "ES",
+  suede: "SE",
+  suisse: "CH",
+  sweden: "SE",
+  switzerland: "CH",
+  tchequie: "CZ",
+  "united arab emirates": "AE",
+  "united states": "US",
+  "united states of america": "US",
+  usa: "US",
+};
+
+function normalizedCountryCode(value: unknown, fallback: string | null | undefined): string | null {
+  const fallbackCode = cleanEventText(fallback, 2).toUpperCase();
+  const safeFallback = /^[A-Z]{2}$/.test(fallbackCode) ? fallbackCode : null;
+  const supplied = cleanEventText(value, 120);
+  if (!supplied) return safeFallback;
+  const uppercase = supplied.toUpperCase();
+  if (/^[A-Z]{2}$/.test(uppercase)) return uppercase;
+  const name = normalizeEventText(supplied);
+  return COUNTRY_NAME_CODES[name] ?? COUNTRY_NAME_CODES[name.replace(/\s+/g, "")] ?? safeFallback;
 }
 
 function currencyForCountry(countryCode: string | null | undefined): string | null {
@@ -673,6 +733,8 @@ export function normalizeEventCandidate(
       (alias) => normalizeEventText(alias) === normalizeEventText(suppliedCity),
     );
   const city = suppliedCityMatchesSource ? sourceCity : suppliedCity || sourceCity;
+  const eventUsesSourceCity =
+    Boolean(city && sourceCity) && normalizeEventText(city) === normalizeEventText(sourceCity);
   if (suppliedCity && sourceCity && !suppliedCityMatchesSource) {
     warnings.push("city_differs_from_source");
   }
@@ -696,8 +758,36 @@ export function normalizeEventCandidate(
     priceMin ??= 0;
     priceMax ??= 0;
   }
-  const countryCode =
-    cleanEventText(candidate.countryCode, 2).toUpperCase() || source.city?.country?.code || null;
+  const sourceCountryCode = normalizedCountryCode(source.city?.country?.code, null);
+  const suppliedCountryCode = normalizedCountryCode(candidate.countryCode, sourceCountryCode);
+  const countryCode = eventUsesSourceCity
+    ? (sourceCountryCode ?? suppliedCountryCode)
+    : suppliedCountryCode;
+  if (
+    eventUsesSourceCity &&
+    sourceCountryCode &&
+    suppliedCountryCode &&
+    suppliedCountryCode !== sourceCountryCode
+  ) {
+    warnings.push("country_differs_from_source");
+  }
+  if (
+    latitude == null &&
+    longitude == null &&
+    city &&
+    sourceCity &&
+    normalizeEventText(city) !== normalizeEventText(sourceCity) &&
+    countryCode === sourceCountryCode &&
+    source.city?.latitude != null &&
+    source.city.longitude != null
+  ) {
+    // City-specific calendars sometimes list a nearby suburb without venue
+    // coordinates. Keep the event visible on the map at the source-city
+    // centroid and flag the approximation instead of silently losing its pin.
+    latitude = source.city.latitude;
+    longitude = source.city.longitude;
+    warnings.push("approximate_source_city_coordinates");
+  }
   const currency = normalizedCurrency(candidate.currency) ?? currencyForCountry(countryCode);
   const externalId = cleanEventText(candidate.externalId, 500) || null;
   const extractionMethod = candidate.extractionMethod ?? "ai";

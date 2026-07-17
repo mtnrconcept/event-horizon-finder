@@ -118,6 +118,114 @@ test("naive times use the source IANA timezone instead of the runner timezone", 
   assert.equal(result.event.currency, "USD");
 });
 
+test("country names are converted to ISO codes instead of being truncated", () => {
+  const cases = [
+    { supplied: "United States", fallback: "US", expected: "US", currency: "USD" },
+    { supplied: "South Africa", fallback: "ZA", expected: "ZA", currency: "ZAR" },
+    { supplied: "United Arab Emirates", fallback: "AE", expected: "AE", currency: "AED" },
+  ];
+
+  for (const country of cases) {
+    const source: EventSourceContext = {
+      ...GENEVA_SOURCE,
+      city: {
+        ...GENEVA_SOURCE.city!,
+        country: { code: country.fallback },
+      },
+    };
+    const result = normalizeEventCandidate(
+      {
+        title: `Official event in ${country.supplied}`,
+        description: "A detailed official event description for country normalization coverage.",
+        startDate: "2026-07-20T20:30:00+02:00",
+        countryCode: country.supplied,
+        sourceUrl: "https://example.ch/events/country-test",
+      },
+      source,
+      "https://example.ch/agenda",
+      NOW,
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) continue;
+    assert.equal(result.event.countryCode, country.expected);
+    assert.equal(result.event.currency, country.currency);
+  }
+});
+
+test("unknown country names fall back to the source country", () => {
+  const event = normalize({
+    title: "Official event with an ambiguous country label",
+    description: "A detailed official event description with a non-standard country label.",
+    startDate: "2026-07-20T20:30:00+02:00",
+    countryCode: "Confederation Helvetica",
+    sourceUrl: "https://example.ch/events/fallback-country",
+  });
+  assert.equal(event.countryCode, "CH");
+  assert.equal(event.currency, "CHF");
+});
+
+test("a source-city event cannot switch to a conflicting two-letter country", () => {
+  const event = normalize({
+    title: "Official Geneva city event",
+    description: "A detailed official event description in the registered source city.",
+    startDate: "2026-07-20T20:30:00+02:00",
+    city: "Genève",
+    countryCode: "UN",
+    sourceUrl: "https://example.ch/events/source-country-guard",
+  });
+  assert.equal(event.countryCode, "CH");
+  assert.ok(event.warnings.includes("country_differs_from_source"));
+});
+
+test("unclassified events use the recognizable other category", () => {
+  const source: EventSourceContext = { ...GENEVA_SOURCE, category_slug: null };
+  const result = normalizeEventCandidate(
+    {
+      title: "A singular gathering",
+      description: "A detailed announcement without any supported taxonomy keyword.",
+      startDate: "2026-07-20T20:30:00+02:00",
+      sourceUrl: "https://example.ch/events/unclassified",
+    },
+    source,
+    "https://example.ch/agenda",
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.event.category, "other");
+});
+
+test("nearby derived cities keep an explicitly approximate event pin", () => {
+  const source: EventSourceContext = {
+    ...GENEVA_SOURCE,
+    city: {
+      name: "Los Angeles",
+      timezone: "America/Los_Angeles",
+      latitude: 34.0522,
+      longitude: -118.2437,
+      country: { code: "US" },
+    },
+  };
+  const result = normalizeEventCandidate(
+    {
+      title: "Burbank community gathering",
+      description: "A detailed official event announcement without explicit venue coordinates.",
+      startDate: "2026-07-20T20:30:00-07:00",
+      city: "Burbank",
+      countryCode: "United States",
+      sourceUrl: "https://example.ch/events/burbank",
+    },
+    source,
+    "https://example.ch/agenda",
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.event.latitude, 34.0522);
+  assert.equal(result.event.longitude, -118.2437);
+  assert.ok(result.event.warnings.includes("approximate_source_city_coordinates"));
+});
+
 test("hallucinated coordinates and off-domain detail URLs are discarded", () => {
   const event = normalize({
     title: "Festival Test",
