@@ -15,6 +15,7 @@ import {
   type MapOccurrencePreview,
 } from "@/lib/map-occurrence-previews";
 import { loadAllPages } from "@/lib/load-all-pages";
+import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-viewport";
 
 const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
@@ -121,6 +122,13 @@ export interface DiscoverParams {
   venueOnly?: boolean;
   limit?: number;
   offset?: number;
+}
+
+export interface DiscoverMapViewportParams extends Omit<
+  DiscoverParams,
+  "lat" | "lon" | "radiusKm" | "countryId" | "regionId" | "cityId"
+> {
+  bounds: MapViewportBounds;
 }
 
 export interface DiscoveredEvent {
@@ -242,6 +250,31 @@ function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, 
   };
 }
 
+function viewportDiscoveryArgs(
+  p: DiscoverMapViewportParams,
+  pagination: { limit: number; offset: number } | null,
+): Record<string, unknown> {
+  const bounds = normalizeMapViewportBounds(p.bounds);
+  if (!bounds) throw new RangeError("Invalid map viewport bounds");
+
+  const args = discoveryFilterArgs(p);
+  delete args._radius_km;
+  delete args._lat;
+  delete args._lon;
+  delete args._country_id;
+  delete args._region_id;
+  delete args._city_id;
+
+  return {
+    ...args,
+    _west: bounds.west,
+    _south: bounds.south,
+    _east: bounds.east,
+    _north: bounds.north,
+    ...(pagination ? { _limit: pagination.limit, _offset: pagination.offset } : {}),
+  };
+}
+
 export async function discoverEvents(p: DiscoverParams): Promise<DiscoveredEvent[]> {
   const args = discoveryArgs(p, 40);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,6 +287,31 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
   const args = discoveryArgs(p, 500);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any).rpc("discover_map_events", args as any);
+  if (error) throw error;
+  return (data ?? []) as DiscoveredEvent[];
+}
+
+/** Returns every filtered pin inside the current map viewport in one compact response. */
+export async function discoverMapPinsInBounds(
+  p: DiscoverMapViewportParams,
+): Promise<CompactMapPin[]> {
+  const args = viewportDiscoveryArgs(p, null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("discover_map_pins_in_bounds_v1", args);
+  if (error) throw error;
+  return parseCompactMapPins(data);
+}
+
+/** Loads one stable page of rich list rows for the current visible map zone. */
+export async function discoverMapEventsInBounds(
+  p: DiscoverMapViewportParams,
+): Promise<DiscoveredEvent[]> {
+  const args = viewportDiscoveryArgs(p, {
+    limit: p.limit ?? 1_000,
+    offset: p.offset ?? 0,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("discover_map_events_in_bounds_v1", args);
   if (error) throw error;
   return (data ?? []) as DiscoveredEvent[];
 }

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:map": "node --test tests/map-clusters.test.ts tests/map-event-details.test.ts",
+    "test:map": "node --test tests/map-clusters.test.ts tests/map-event-details.test.ts tests/map-viewport.test.ts",
     "test:mcp": "node --test tests/mcp-server.test.ts",
     "test:i18n": "node --test tests/i18n-coverage.test.mjs",
     "format": "prettier --write ."
