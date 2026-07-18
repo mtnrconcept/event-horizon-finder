@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 function formatLocalTime(iso: string, tz: string, locale: string) {
   try {
@@ -43,8 +44,14 @@ async function fetchFavoriteEventIds(userId: string) {
   return (data ?? []).map((row) => row.event_id);
 }
 
-export function EventCard({ ev }: { ev: DiscoveredEvent }) {
+type EventCardProps = {
+  ev: DiscoveredEvent;
+  variant?: "default" | "compact";
+};
+
+export function EventCard({ ev, variant = "default" }: EventCardProps) {
   const { t, tr, categoryLabel, genreLabel, formatNumber, localeTag } = useTranslation();
+  const compact = variant === "compact";
   const queryClient = useQueryClient();
   const viewer = useQuery({
     queryKey: ["viewer-id"],
@@ -95,7 +102,12 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         : null;
 
   return (
-    <article className="glass group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]">
+    <article
+      className={cn(
+        "glass group relative overflow-hidden rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]",
+        compact ? "grid min-h-36 grid-cols-[6.75rem_minmax(0,1fr)]" : "flex flex-col",
+      )}
+    >
       <Link
         to="/event/$slug"
         params={{ slug: ev.slug }}
@@ -104,7 +116,12 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
       >
         <span className="sr-only">{t("event.open", { title: ev.title })}</span>
       </Link>
-      <div className="relative aspect-[16/10] overflow-hidden bg-muted">
+      <div
+        className={cn(
+          "relative overflow-hidden bg-muted",
+          compact ? "h-full min-h-36" : "aspect-[16/10]",
+        )}
+      >
         <EventArtworkImage
           eventId={ev.event_id}
           sourceUrl={ev.cover_image_url}
@@ -114,8 +131,10 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
           fallback={
             <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_75%_20%,oklch(0.72_0.18_35_/_0.38),transparent_30%),linear-gradient(135deg,oklch(0.3_0.12_295),oklch(0.16_0.04_265))] text-white">
               <div className="text-center">
-                <Sparkles className="mx-auto mb-2 h-8 w-8 opacity-70" />
-                <p className="text-3xl font-black">
+                <Sparkles
+                  className={cn("mx-auto opacity-70", compact ? "mb-1 h-6 w-6" : "mb-2 h-8 w-8")}
+                />
+                <p className={cn("font-black", compact ? "text-2xl" : "text-3xl")}>
                   {new Intl.DateTimeFormat(localeTag, { day: "2-digit" }).format(
                     new Date(ev.starts_at),
                   )}
@@ -129,7 +148,12 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
             </div>
           }
         />
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
+        <div
+          className={cn(
+            "absolute inset-x-0 top-0 flex items-start justify-between gap-2",
+            compact ? "p-2" : "p-3",
+          )}
+        >
           <div className="flex flex-wrap gap-1.5">
             {ev.is_demo && (
               <Badge
@@ -169,7 +193,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
           </button>
         </div>
         {ev.category_slug && (
-          <div className="absolute bottom-3 left-3">
+          <div className={cn("absolute", compact ? "bottom-2 left-2" : "bottom-3 left-3")}>
             <Badge
               className="border-transparent"
               style={{ background: "oklch(0 0 0 / 0.55)", color: "white" }}
@@ -179,9 +203,16 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
           </div>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className={cn("flex min-w-0 flex-1 flex-col", compact ? "gap-1.5 p-3" : "gap-2 p-4")}>
         <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 text-base font-semibold leading-tight">{ev.title}</h3>
+          <h3
+            className={cn(
+              "line-clamp-2 font-semibold leading-tight",
+              compact ? "text-sm" : "text-base",
+            )}
+          >
+            {ev.title}
+          </h3>
           {ev.is_verified && (
             <BadgeCheck className="h-4 w-4 shrink-0" style={{ color: "var(--color-primary)" }} />
           )}
@@ -222,7 +253,7 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
         )}
         {ev.genres?.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {ev.genres.slice(0, 3).map((genre) => (
+            {ev.genres.slice(0, compact ? 2 : 3).map((genre) => (
               <span
                 key={genre}
                 className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium"
@@ -242,11 +273,19 @@ export function EventCard({ ev }: { ev: DiscoveredEvent }) {
   );
 }
 
-export function EventCardSkeleton() {
+export function EventCardSkeleton({ variant = "default" }: Pick<EventCardProps, "variant"> = {}) {
+  const compact = variant === "compact";
   return (
-    <div className="glass overflow-hidden rounded-2xl">
-      <div className="aspect-[16/10] animate-pulse bg-muted" />
-      <div className="space-y-2 p-4">
+    <div
+      className={cn(
+        "glass overflow-hidden rounded-2xl",
+        compact && "grid min-h-36 grid-cols-[6.75rem_minmax(0,1fr)]",
+      )}
+    >
+      <div
+        className={cn("animate-pulse bg-muted", compact ? "h-full min-h-36" : "aspect-[16/10]")}
+      />
+      <div className={cn("space-y-2", compact ? "p-3" : "p-4")}>
         <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
         <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
       </div>
