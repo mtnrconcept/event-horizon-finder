@@ -75,21 +75,29 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Sync Geneva scraper secret to Edge Functions
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         run: supabase secrets set GENEVA_SCRAPER_SECRET="$GENEVA_SCRAPER_SECRET"
 
-      - name: Push database migrations
+      # The protected-branch Supabase integration is the single automatic
+      # deployer on pushes. This dry run keeps GitHub CI as a migration guard
+      # without racing a second db push against the native deployment.
+      - name: Preview database migrations
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        run: supabase db push --dry-run
+
+      - name: Push database migrations
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        timeout-minutes: 60
         run: supabase db push
 
       - name: Sync Geneva scraper Edge Function secrets
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         run: |
           normalized_geneva_secret="$(printf '%s' "$GENEVA_SCRAPER_SECRET" | tr -d '\r\n')"
           supabase secrets set "GENEVA_SCRAPER_SECRET=$normalized_geneva_secret"
 
       - name: Deploy Supabase Edge Functions
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         run: |
           supabase functions deploy firecrawl-scrape-event-url
           supabase functions deploy firecrawl-webhook --no-verify-jwt
