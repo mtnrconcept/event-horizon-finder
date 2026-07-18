@@ -7,10 +7,47 @@ export type MapHitCandidate<T> = {
   value: T;
 };
 
+export type MapEventPinPreviewResult<T> =
+  | { status: "ready"; preview: T }
+  | { status: "missing" }
+  | { status: "error" }
+  | { status: "stale" };
+
 const HIT_PRIORITY: Record<MapHitKind, number> = {
   cluster: 2,
   event: 1,
 };
+
+/**
+ * Returns the occurrence selected by an event pin. Compact worldwide pins are
+ * intentionally identified by occurrence id only: a slug must never turn a
+ * map click into implicit navigation.
+ */
+export function mapEventPinOccurrenceId(
+  properties: { kind?: unknown; entity_id?: unknown; [key: string]: unknown } | null | undefined,
+): string | null {
+  if (properties?.kind !== "event" || typeof properties.entity_id !== "string") return null;
+  const occurrenceId = properties.entity_id.trim();
+  return occurrenceId || null;
+}
+
+/**
+ * Resolves the lightweight details needed by the in-place event dialog while
+ * keeping late responses from reopening or replacing a newer selection.
+ */
+export async function resolveMapEventPinPreview<T>(
+  occurrenceId: string,
+  resolvePreview: (occurrenceId: string) => Promise<T | null>,
+  isCurrent: () => boolean,
+): Promise<MapEventPinPreviewResult<T>> {
+  try {
+    const preview = await resolvePreview(occurrenceId);
+    if (!isCurrent()) return { status: "stale" };
+    return preview ? { status: "ready", preview } : { status: "missing" };
+  } catch {
+    return isCurrent() ? { status: "error" } : { status: "stale" };
+  }
+}
 
 /**
  * Picks the visually dominant feature from features rendered directly below a
