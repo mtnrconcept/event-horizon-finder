@@ -5,9 +5,12 @@ import test from "node:test";
 import {
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_RADIUS,
+  clusterLeafPageRequests,
   clusterExpansionTargetZoom,
   eventClusterCircleRadius,
   eventClusterTextSize,
+  loadAllClusterLeaves,
+  shouldOpenClusterSelection,
 } from "../src/lib/map-cluster-config.ts";
 import {
   eventCategoryTextColor,
@@ -16,6 +19,12 @@ import {
 } from "../src/lib/event-category-style.ts";
 import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
 import { parseCompactMapPins } from "../src/lib/map-pins.ts";
+import {
+  chunkOccurrenceIds,
+  mapPreviewExcerpt,
+  mapPreviewVenueNames,
+  parseMapOccurrencePreviewRows,
+} from "../src/lib/map-occurrence-previews.ts";
 import type { DiscoveredEvent } from "../src/lib/queries.ts";
 import { loadAllPages } from "../src/lib/load-all-pages.ts";
 
@@ -369,6 +378,70 @@ test("cluster expansion always zooms in and remains within the supported source 
   assert.equal(clusterExpansionTargetZoom(4, 6), 6.35);
   assert.equal(clusterExpansionTargetZoom(12, 12), 13.25);
   assert.equal(clusterExpansionTargetZoom(20, 22), 20.75);
+});
+
+test("opens a terminal cluster instead of requesting an ineffective extra zoom", () => {
+  assert.equal(shouldOpenClusterSelection(20.75, 21), true);
+  assert.equal(shouldOpenClusterSelection(19, 21), true);
+  assert.equal(shouldOpenClusterSelection(12, 14), false);
+});
+
+test("requests every terminal cluster leaf without the former 25-event cap", () => {
+  assert.deepEqual(clusterLeafPageRequests(640), [
+    { limit: 250, offset: 0 },
+    { limit: 250, offset: 250 },
+    { limit: 140, offset: 500 },
+  ]);
+});
+
+test("loads and preserves every paginated terminal cluster leaf", async () => {
+  const requestedPages: Array<{ limit: number; offset: number }> = [];
+  const leaves = await loadAllClusterLeaves(640, async (limit, offset) => {
+    requestedPages.push({ limit, offset });
+    return Array.from({ length: limit }, (_, index) => offset + index);
+  });
+
+  assert.deepEqual(requestedPages, [
+    { limit: 250, offset: 0 },
+    { limit: 250, offset: 250 },
+    { limit: 140, offset: 500 },
+  ]);
+  assert.equal(leaves.length, 640);
+  assert.equal(leaves[0], 0);
+  assert.equal(leaves.at(-1), 639);
+});
+
+test("validates, deduplicates and batches occurrence preview ids", () => {
+  const first = "79e46cb5-36e3-4e59-9706-e41f1e3688b9";
+  const second = "0f199399-565d-4915-a478-d3f272f4dd67";
+  assert.deepEqual(chunkOccurrenceIds([first, first, second], 1), [[first], [second]]);
+  assert.throws(() => chunkOccurrenceIds(["not-a-uuid"]), /Invalid occurrence id/);
+});
+
+test("parses safe hover previews and derives venue labels and excerpts", () => {
+  const previews = parseMapOccurrencePreviewRows([
+    {
+      id: "79e46cb5-36e3-4e59-9706-e41f1e3688b9",
+      starts_at: "2026-11-20T00:00:00+00:00",
+      timezone: "Europe/Paris",
+      event: {
+        slug: "haroun",
+        title: "Haroun",
+        short_description: null,
+        description: "<p>Une soirée   exceptionnelle au Forum.</p>",
+        cover_image_url: "https://example.com/haroun.jpg",
+        venue: { name: "  Le Forum  ", city: { name: "Le Mans" } },
+        city: { name: "Le Mans" },
+      },
+    },
+  ]);
+
+  assert.equal(previews.length, 1);
+  assert.deepEqual(mapPreviewVenueNames(previews), ["Le Forum"]);
+  assert.equal(
+    mapPreviewExcerpt(previews[0]?.short_description ?? previews[0]?.description, 24),
+    "Une soirée exceptionnel…",
+  );
 });
 
 test("accepts a rendered cluster at the edge of its painted circle", () => {

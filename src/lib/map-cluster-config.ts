@@ -4,6 +4,7 @@ export const EVENT_CLUSTER_RADIUS = 82;
 export const EVENT_CLUSTER_MAX_ZOOM = 20;
 export const EVENT_SOURCE_MAX_ZOOM = 22;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = 20.75;
+export const EVENT_CLUSTER_LEAF_BATCH_SIZE = 250;
 
 const CLUSTER_RADIUS_STOPS = [
   [1, 27],
@@ -68,4 +69,39 @@ export function clusterExpansionTargetZoom(currentZoom: number, expansionZoom: n
     EVENT_CLUSTER_EXPANSION_MAX_ZOOM,
     Math.max(safeExpansionZoom + 0.35, safeCurrentZoom + 1.25),
   );
+}
+
+export function shouldOpenClusterSelection(currentZoom: number, expansionZoom: number): boolean {
+  return (
+    (Number.isFinite(currentZoom) && currentZoom >= EVENT_CLUSTER_MAX_ZOOM) ||
+    !Number.isFinite(expansionZoom) ||
+    expansionZoom > EVENT_CLUSTER_MAX_ZOOM
+  );
+}
+
+export function clusterLeafPageRequests(
+  pointCount: number,
+  batchSize = EVENT_CLUSTER_LEAF_BATCH_SIZE,
+): Array<{ limit: number; offset: number }> {
+  const total = Number.isFinite(pointCount) ? Math.max(0, Math.floor(pointCount)) : 0;
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new RangeError("batchSize must be a positive integer");
+  }
+
+  const requests: Array<{ limit: number; offset: number }> = [];
+  for (let offset = 0; offset < total; offset += batchSize) {
+    requests.push({ limit: Math.min(batchSize, total - offset), offset });
+  }
+  return requests;
+}
+
+export async function loadAllClusterLeaves<T>(
+  pointCount: number,
+  loadPage: (limit: number, offset: number) => Promise<T[]>,
+): Promise<T[]> {
+  const leaves: T[] = [];
+  for (const request of clusterLeafPageRequests(pointCount)) {
+    leaves.push(...(await loadPage(request.limit, request.offset)));
+  }
+  return leaves;
 }

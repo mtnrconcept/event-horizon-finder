@@ -1,6 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { parseCompactMapPins, type CompactMapPin } from "@/lib/map-pins";
+import {
+  MAP_PREVIEW_QUERY_BATCH_SIZE,
+  chunkOccurrenceIds,
+  parseMapOccurrencePreviewRows,
+  type MapOccurrencePreview,
+} from "@/lib/map-occurrence-previews";
 
 export type QuickRange =
   | "now"
@@ -256,6 +262,67 @@ export async function discoverAllMapPins({
   });
   if (error) throw error;
   return parseCompactMapPins(data);
+}
+
+export async function fetchMapOccurrencePreviews(
+  occurrenceIds: string[],
+  { includeDescription = false }: { includeDescription?: boolean } = {},
+): Promise<MapOccurrencePreview[]> {
+  if (!occurrenceIds.length) return [];
+  const normalizedIds = chunkOccurrenceIds(occurrenceIds).flat();
+  if (normalizedIds.length > MAP_PREVIEW_QUERY_BATCH_SIZE) {
+    throw new RangeError(
+      `At most ${MAP_PREVIEW_QUERY_BATCH_SIZE} occurrence previews can be requested at once`,
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("event_occurrences")
+    .select(
+      includeDescription
+        ? `
+      id,
+      starts_at,
+      timezone,
+      event:events!event_occurrences_event_id_fkey!inner(
+        slug,
+        title,
+        short_description,
+        description,
+        cover_image_url,
+        is_demo,
+        status,
+        venue:venues!events_venue_id_fkey(
+          name,
+          city:cities!venues_city_id_fkey(name)
+        ),
+        city:cities!events_city_id_fkey(name)
+      )
+    `
+        : `
+      id,
+      starts_at,
+      timezone,
+      event:events!event_occurrences_event_id_fkey!inner(
+        slug,
+        title,
+        short_description,
+        cover_image_url,
+        is_demo,
+        status,
+        venue:venues!events_venue_id_fkey(
+          name,
+          city:cities!venues_city_id_fkey(name)
+        ),
+        city:cities!events_city_id_fkey(name)
+      )
+    `,
+    )
+    .in("id", normalizedIds)
+    .eq("event.is_demo", false)
+    .in("event.status", ["published", "cancelled", "postponed", "sold_out"]);
+  if (error) throw error;
+  return parseMapOccurrencePreviewRows(data);
 }
 
 export async function discoverEventStats(
