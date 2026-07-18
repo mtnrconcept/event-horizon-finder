@@ -12,10 +12,11 @@ type MobileDiscoveryLayoutProps = {
   map: ReactNode;
   list: ReactNode;
   selection?: ReactNode;
-  resultCount: number;
+  resultCount: number | null;
   activeFilterCount?: number;
   hasSelection?: boolean;
   onMapResizeNeeded?: () => void;
+  onListViewNeeded?: () => void;
 };
 
 export function MobileDiscoveryLayout({
@@ -28,6 +29,7 @@ export function MobileDiscoveryLayout({
   activeFilterCount = 0,
   hasSelection = false,
   onMapResizeNeeded,
+  onListViewNeeded,
 }: MobileDiscoveryLayoutProps) {
   const { t, formatNumber } = useTranslation();
   const [view, setView] = useState<MobileDiscoveryView>("map");
@@ -35,6 +37,7 @@ export function MobileDiscoveryLayout({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const viewportHeight = useVisualViewportHeight();
   const resizeMap = useCallback(() => onMapResizeNeeded?.(), [onMapResizeNeeded]);
+  const resultCountLabel = resultCount == null ? "…" : formatNumber(resultCount);
 
   useEffect(() => {
     if (view !== "map") return;
@@ -108,12 +111,19 @@ export function MobileDiscoveryLayout({
           aria-pressed={view === "list"}
           onClick={() => {
             setListVisited(true);
+            onListViewNeeded?.();
             setView("list");
           }}
         >
           <List aria-hidden="true" />
           <span>{t("common.list")}</span>
-          <span className="mobile-discovery-result-count">{resultCount}</span>
+          <span
+            className="mobile-discovery-result-count"
+            aria-label={resultCount == null ? t("common.loading") : undefined}
+            aria-busy={resultCount == null}
+          >
+            {resultCountLabel}
+          </span>
         </button>
       </nav>
 
@@ -140,7 +150,7 @@ export function MobileDiscoveryLayout({
           <div className="mobile-discovery-filter-scroll">{filters}</div>
           <footer>
             <button type="button" onClick={() => setFiltersOpen(false)}>
-              {t("discovery.showEvents", { count: formatNumber(resultCount) })}
+              {t("discovery.showEvents", { count: resultCountLabel })}
             </button>
           </footer>
         </div>
