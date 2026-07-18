@@ -75,13 +75,13 @@ import {
   CircleAlert,
   Clock,
   MapPin,
-  LoaderCircle,
   Navigation,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Ticket,
 } from "lucide-react";
+import { loadAllPages } from "@/lib/load-all-pages";
 
 export const Route = createFileRoute("/map")({
   head: () => ({ meta: [{ title: "Carte complète des événements — Global Party" }] }),
@@ -438,14 +438,15 @@ function MapPage() {
   const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
   const [selectedClusterEvents, setSelectedClusterEvents] = useState<DiscoveredEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [pageMayHaveMoreEvents, setPageMayHaveMoreEvents] = useState(false);
-  const [nextEventOffset, setNextEventOffset] = useState(0);
   const [visibleMobileEventCount, setVisibleMobileEventCount] = useState(MOBILE_LIST_BATCH_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null);
+  const [readyStyle, setReadyStyle] = useState<{
+    map: maplibregl.Map;
+    revision: number;
+  } | null>(null);
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
   const cityRequestVersionRef = useRef(0);
@@ -558,6 +559,7 @@ function MapPage() {
       : "desktop";
     lastFittedScopeRef.current = null;
     setReadyMap(null);
+    setReadyStyle(null);
     setMapUnavailable(null);
     try {
       const canvas = document.createElement("canvas");
@@ -602,6 +604,10 @@ function MapPage() {
     map.on("load", markMapReady);
     map.on("style.load", () => {
       primaryStyleLoaded = true;
+      setReadyStyle((current) => ({
+        map,
+        revision: current?.map === map ? current.revision + 1 : 1,
+      }));
       markMapReady();
     });
     map.on("styledata", () => {
@@ -639,6 +645,7 @@ function MapPage() {
         mapRef.current = null;
         setMapInstance((current) => (current === map ? null : current));
         setReadyMap((current) => (current === map ? null : current));
+        setReadyStyle((current) => (current?.map === map ? null : current));
       }
     };
   }, [mapContainer]);
@@ -717,12 +724,6 @@ function MapPage() {
   );
   const mapStats = discoveryStats ?? localDiscoveryStats;
   const totalEventCount = mapStats.total_count;
-  const hasMoreEvents = discoveryStats
-    ? nextEventOffset < discoveryStats.total_count
-    : pageMayHaveMoreEvents;
-  const nextMapPageCount = discoveryStats
-    ? Math.min(MAP_EVENT_PAGE_SIZE, Math.max(discoveryStats.total_count - nextEventOffset, 0))
-    : MAP_EVENT_PAGE_SIZE;
 
   useEffect(() => {
     if (!geographyReady) return;
@@ -730,22 +731,27 @@ function MapPage() {
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
     setStatsLoading(true);
-    setLoadingMore(false);
     setDiscoveryStats(null);
-    setPageMayHaveMoreEvents(false);
-    setNextEventOffset(0);
     setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
-    discoverMapEvents({
-      ...mapDiscoveryParams,
-      limit: MAP_EVENT_PAGE_SIZE,
-      offset: 0,
+    loadAllPages<DiscoveredEvent>({
+      pageSize: MAP_EVENT_PAGE_SIZE,
+      getKey: (event) => event.occurrence_id,
+      shouldContinue: () => current && requestVersion === requestVersionRef.current,
+      fetchPage: ({ limit, offset }) =>
+        discoverMapEvents({
+          ...mapDiscoveryParams,
+          limit,
+          offset,
+        }),
+      onFirstPage: (nextEvents) => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setEvents(nextEvents);
+      },
     })
       .then((nextEvents) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
-        setNextEventOffset(nextEvents.length);
-        setPageMayHaveMoreEvents(nextEvents.length === MAP_EVENT_PAGE_SIZE);
         setSelectedEvent(null);
         setSelectedClusterEvents([]);
       })
@@ -777,50 +783,16 @@ function MapPage() {
     };
   }, [geography, geographyReady, mapDiscoveryParams, reloadKey]);
 
-  const loadMoreEvents = async () => {
-    if (loading || loadingMore || !hasMoreEvents) return;
-    const requestVersion = requestVersionRef.current;
-    const offset = nextEventOffset;
-    setLoadingMore(true);
-    setError(null);
-    try {
-      const page = await discoverMapEvents({
-        ...mapDiscoveryParams,
-        limit: MAP_EVENT_PAGE_SIZE,
-        offset,
-      });
-      if (requestVersion !== requestVersionRef.current) return;
-      setEvents((current) => {
-        const known = new Set(current.map((event) => event.occurrence_id));
-        return [...current, ...page.filter((event) => !known.has(event.occurrence_id))];
-      });
-      setNextEventOffset(offset + page.length);
-      setPageMayHaveMoreEvents(page.length === MAP_EVENT_PAGE_SIZE);
-    } catch {
-      if (requestVersion === requestVersionRef.current) {
-        setError("Impossible de charger la page suivante de points.");
-      }
-    } finally {
-      if (requestVersion === requestVersionRef.current) setLoadingMore(false);
-    }
-  };
-
-  const loadMoreMobileList = async () => {
-    if (visibleMobileEventCount < events.length) {
-      setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
-      return;
-    }
-    if (!hasMoreEvents) return;
-    await loadMoreEvents();
+  const loadMoreMobileList = () => {
     setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
   };
 
   useEffect(() => {
     const map = mapInstance;
-    if (!map || !mapReady) return;
+    if (!map || !mapReady || readyStyle?.map !== map) return;
 
     const syncLayers = () => {
-      if (map.isStyleLoaded()) syncClusterLayers(map, eventMapPoints);
+      syncClusterLayers(map, eventMapPoints);
     };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
@@ -929,7 +901,6 @@ function MapPage() {
       map.getCanvas().style.cursor = "";
     };
     syncLayers();
-    map.on("style.load", syncLayers);
     map.on("click", handleMapClick);
     interactiveLayers.forEach((layerId) => {
       map.on("mouseenter", layerId, showPointerCursor);
@@ -937,7 +908,6 @@ function MapPage() {
     });
 
     return () => {
-      map.off("style.load", syncLayers);
       map.off("click", handleMapClick);
       interactiveLayers.forEach((layerId) => {
         map.off("mouseenter", layerId, showPointerCursor);
@@ -945,7 +915,7 @@ function MapPage() {
       });
       resetCursor();
     };
-  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady]);
+  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady, readyStyle]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -979,7 +949,7 @@ function MapPage() {
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
   if (isMobile) {
-    const hasMoreMobileEvents = visibleMobileEventCount < events.length || hasMoreEvents;
+    const hasMoreMobileEvents = visibleMobileEventCount < events.length;
     const mobileSelection = selectedEvent ? (
       <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     ) : selectedClusterEvents.length ? (
@@ -1087,12 +1057,10 @@ function MapPage() {
             {hasMoreMobileEvents && (
               <button
                 type="button"
-                disabled={loadingMore}
-                onClick={() => void loadMoreMobileList()}
+                onClick={loadMoreMobileList}
                 className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 text-sm font-black text-primary disabled:opacity-60"
               >
-                {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                {loadingMore ? t("common.loading") : tr("Afficher plus de sorties")}
+                {tr("Afficher plus de sorties")}
               </button>
             )}
           </div>
@@ -1226,7 +1194,7 @@ function MapPage() {
             </h1>
             <p className="text-xs text-muted-foreground">
               {loading
-                ? "Chargement des premiers points…"
+                ? "Chargement de tous les points…"
                 : statsLoading
                   ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
                   : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}
@@ -1338,20 +1306,6 @@ function MapPage() {
             onClick={() => setShowEvents((value) => !value)}
           />
         </div>
-
-        {hasMoreEvents && (
-          <button
-            type="button"
-            disabled={loadingMore}
-            onClick={() => void loadMoreEvents()}
-            className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/15 disabled:cursor-wait disabled:opacity-70"
-          >
-            {loadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
-            {loadingMore
-              ? "Chargement des points…"
-              : `Afficher ${COUNT_FORMATTER.format(nextMapPageCount)} événements suivants`}
-          </button>
-        )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
           <span>
