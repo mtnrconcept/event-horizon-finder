@@ -64,6 +64,11 @@ import {
   type MapPointProperties,
 } from "@/lib/map-clusters";
 import {
+  clearSessionMapPinCache,
+  loadSessionMapPins,
+  readSessionMapPins,
+} from "@/lib/map-pin-session-cache";
+import {
   mapViewportBoundsKey,
   normalizeMapViewportBounds,
   type MapViewportBounds,
@@ -2535,19 +2540,34 @@ function MapPage() {
     };
   }, [mapInstance, mapReady]);
 
+  const advancedDiscoveryFilters = useMemo(
+    () => toDiscoveryFilters(advancedFilters),
+    [advancedFilters],
+  );
+  const selectedCategorySlugs = useMemo(() => (cats.size ? [...cats].sort() : null), [cats]);
+  const mapPinCacheKey = useMemo(
+    () =>
+      JSON.stringify({
+        range,
+        categorySlugs: selectedCategorySlugs,
+        query: deferredQuery,
+        advanced: advancedDiscoveryFilters,
+      }),
+    [advancedDiscoveryFilters, deferredQuery, range, selectedCategorySlugs],
+  );
   const mapDiscoveryParams = useMemo(
     () =>
       viewportBounds
         ? {
             bounds: viewportBounds,
-            categorySlugs: cats.size ? [...cats] : null,
+            categorySlugs: selectedCategorySlugs,
             query: deferredQuery,
             from,
             to,
-            ...toDiscoveryFilters(advancedFilters),
+            ...advancedDiscoveryFilters,
           }
         : null,
-    [advancedFilters, cats, deferredQuery, from, to, viewportBounds],
+    [advancedDiscoveryFilters, deferredQuery, from, selectedCategorySlugs, to, viewportBounds],
   );
 
   const mapStats = useMemo(
@@ -2563,13 +2583,24 @@ function MapPage() {
 
   useEffect(() => {
     if (!mapDiscoveryParams) return;
+    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);
+    if (cachedPins !== null) {
+      setCompactPins(cachedPins);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     let current = true;
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
     setError(null);
-    closeClusterSelection();
 
-    void discoverMapPinsInBounds(mapDiscoveryParams)
+    void loadSessionMapPins({
+      cacheKey: mapPinCacheKey,
+      viewport: mapDiscoveryParams.bounds,
+      fetchPins: (bounds) => discoverMapPinsInBounds({ ...mapDiscoveryParams, bounds }),
+    })
       .then((nextPins) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setCompactPins(nextPins);
@@ -2584,7 +2615,7 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [closeClusterSelection, mapDiscoveryParams, reloadKey]);
+  }, [mapDiscoveryParams, mapPinCacheKey, reloadKey]);
 
   useEffect(() => {
     if (!mapDiscoveryParams || !listRequested) return;
@@ -2660,10 +2691,13 @@ function MapPage() {
   useEffect(() => {
     const map = mapInstance;
     if (!map || !mapReady || readyStyle?.map !== map) return;
+    syncClusterLayers(map, eventMapPoints);
+  }, [eventMapPoints, mapInstance, mapReady, readyStyle]);
 
-    const syncLayers = () => {
-      syncClusterLayers(map, eventMapPoints);
-    };
+  useEffect(() => {
+    const map = mapInstance;
+    if (!map || !mapReady || readyStyle?.map !== map) return;
+
     const removeHoverPopup = () => {
       hoverRequestRef.current += 1;
       if (hoverTimerRef.current != null) {
@@ -2912,7 +2946,6 @@ function MapPage() {
       removeHoverPopup();
     };
     const clusterHoverLayers = [MAP_CLUSTER_HALO_LAYER_ID] as const;
-    syncLayers();
     map.on("click", handleMapClick);
     clusterHoverLayers.forEach((layerId) => map.on("mouseenter", layerId, handleClusterMouseEnter));
     clusterHoverLayers.forEach((layerId) => map.on("mouseleave", layerId, resetCursor));
@@ -2927,13 +2960,11 @@ function MapPage() {
       clusterHoverLayers.forEach((layerId) => map.off("mouseleave", layerId, resetCursor));
       map.off("mouseenter", MAP_EVENT_POINT_LAYER_ID, handlePointMouseEnter);
       map.off("mouseleave", MAP_EVENT_POINT_LAYER_ID, resetCursor);
-      closeClusterSelection();
       resetCursor();
     };
   }, [
     closeEventSelection,
     closeClusterSelection,
-    eventMapPoints,
     eventsByOccurrenceId,
     formatNumber,
     mapInstance,
@@ -2961,6 +2992,11 @@ function MapPage() {
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
     setShowEvents(true);
+  };
+
+  const retryMapPins = () => {
+    clearSessionMapPinCache(mapPinCacheKey);
+    setReloadKey((key) => key + 1);
   };
 
   const recenterOnUser = () => {
@@ -3007,6 +3043,7 @@ function MapPage() {
         activeFilterCount={mobileActiveFilterCount}
         hasSelection={Boolean(mobileSelection)}
         onMapResizeNeeded={requestMapResize}
+        onMapViewNeeded={() => setListRequested(false)}
         onListViewNeeded={() => setListRequested(true)}
         search={
           <div>
@@ -3033,7 +3070,7 @@ function MapPage() {
                 <button
                   type="button"
                   className="min-h-11 shrink-0 font-bold underline"
-                  onClick={() => setReloadKey((key) => key + 1)}
+                  onClick={retryMapPins}
                 >
                   {t("common.retry")}
                 </button>
@@ -3398,11 +3435,7 @@ function MapPage() {
             <span className="flex items-center gap-1.5">
               <CircleAlert className="h-4 w-4 shrink-0" /> {error}
             </span>
-            <button
-              type="button"
-              className="font-semibold underline"
-              onClick={() => setReloadKey((key) => key + 1)}
-            >
+            <button type="button" className="font-semibold underline" onClick={retryMapPins}>
               {t("common.retry")}
             </button>
           </div>

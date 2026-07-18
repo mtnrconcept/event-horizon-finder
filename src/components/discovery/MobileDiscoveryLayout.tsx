@@ -16,6 +16,7 @@ type MobileDiscoveryLayoutProps = {
   activeFilterCount?: number;
   hasSelection?: boolean;
   onMapResizeNeeded?: () => void;
+  onMapViewNeeded?: () => void;
   onListViewNeeded?: () => void;
 };
 
@@ -29,6 +30,7 @@ export function MobileDiscoveryLayout({
   activeFilterCount = 0,
   hasSelection = false,
   onMapResizeNeeded,
+  onMapViewNeeded,
   onListViewNeeded,
 }: MobileDiscoveryLayoutProps) {
   const { t, formatNumber } = useTranslation();
@@ -102,7 +104,14 @@ export function MobileDiscoveryLayout({
       </div>
 
       <nav className="mobile-discovery-switcher" aria-label={t("discovery.display")}>
-        <button type="button" aria-pressed={view === "map"} onClick={() => setView("map")}>
+        <button
+          type="button"
+          aria-pressed={view === "map"}
+          onClick={() => {
+            onMapViewNeeded?.();
+            setView("map");
+          }}
+        >
           <MapIcon aria-hidden="true" />
           <span>{t("common.map")}</span>
         </button>
