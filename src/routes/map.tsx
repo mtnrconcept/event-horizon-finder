@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -17,6 +17,7 @@ import maplibregl, {
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   computeRange,
+  discoverAllMapPins,
   discoverEventStats,
   discoverMapEvents,
   fetchCategories,
@@ -29,6 +30,7 @@ import {
   type QuickRange,
   type RegionOption,
 } from "@/lib/queries";
+import type { CompactMapPin } from "@/lib/map-pins";
 import {
   countAdvancedFilters,
   DEFAULT_ADVANCED_FILTERS,
@@ -46,6 +48,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
+  buildCompactMapPointCollection,
   buildMapPointCollection,
   isMapCoordinatePlausibleForCountry,
   type MapPointCollection,
@@ -406,6 +409,7 @@ function SelectedClusterEvents({
 
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
+  const navigate = useNavigate();
   const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
   const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
     setMapContainer(node);
@@ -432,6 +436,7 @@ function MapPage() {
   const deferredQuery = useDeferredValue(query.trim());
   const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
+  const [compactPins, setCompactPins] = useState<CompactMapPin[] | null>(null);
   const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
@@ -494,14 +499,24 @@ function MapPage() {
   const selectedCountryCode = selectedCountry?.code ?? null;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
+  const unfilteredWorld =
+    !countryId &&
+    !regionId &&
+    !cityId &&
+    cats.size === 0 &&
+    deferredQuery.length === 0 &&
+    advancedCount === 0 &&
+    range === "year";
   const eventMapPoints = useMemo(
     () =>
-      buildMapPointCollection({
-        events,
-        showEvents,
-        countryCode: selectedCountryCode,
-      }),
-    [events, selectedCountryCode, showEvents],
+      unfilteredWorld && compactPins
+        ? buildCompactMapPointCollection({ pins: compactPins, showEvents })
+        : buildMapPointCollection({
+            events,
+            showEvents,
+            countryCode: selectedCountryCode,
+          }),
+    [compactPins, events, selectedCountryCode, showEvents, unfilteredWorld],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -526,14 +541,6 @@ function MapPage() {
         setRegions(geo.regions);
         setCities(geo.cities);
         setCategories(categoryRows as Category[]);
-        const geneva = geo.cities.find((city) => city.slug === "geneve");
-        if (geneva) {
-          setGeography({
-            countryId: geneva.country_id,
-            regionId: geneva.region_id,
-            cityId: geneva.id,
-          });
-        }
         setGeographyReady(true);
       })
       .catch(() => {
@@ -655,6 +662,17 @@ function MapPage() {
     if (!map || !mapReady) return;
     const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
     if (lastFittedScopeRef.current === scopeKey) return;
+    if (!countryId && !regionId && !cityId) {
+      lastFittedScopeRef.current = scopeKey;
+      map.fitBounds(
+        [
+          [-170, -55],
+          [170, 75],
+        ],
+        { padding: 40, duration: 700 },
+      );
+      return;
+    }
     if (
       selectedCity?.latitude != null &&
       selectedCity.longitude != null &&
@@ -716,14 +734,18 @@ function MapPage() {
 
   const localDiscoveryStats = useMemo<DiscoveryStats>(
     () => ({
-      total_count: events.length,
-      free_count: events.filter((event) => event.is_free).length,
+      total_count: unfilteredWorld && compactPins ? compactPins.length : events.length,
+      free_count:
+        unfilteredWorld && compactPins
+          ? compactPins.reduce((count, pin) => count + pin[4], 0)
+          : events.filter((event) => event.is_free).length,
       verified_count: events.filter((event) => event.is_verified).length,
     }),
-    [events],
+    [compactPins, events, unfilteredWorld],
   );
   const mapStats = discoveryStats ?? localDiscoveryStats;
   const totalEventCount = mapStats.total_count;
+  const loadedPointCount = unfilteredWorld && compactPins ? compactPins.length : events.length;
 
   useEffect(() => {
     if (!geographyReady) return;
@@ -732,26 +754,61 @@ function MapPage() {
     setLoading(true);
     setStatsLoading(true);
     setDiscoveryStats(null);
+    setCompactPins(null);
     setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
-    loadAllPages<DiscoveredEvent>({
-      pageSize: MAP_EVENT_PAGE_SIZE,
-      getKey: (event) => event.occurrence_id,
-      shouldContinue: () => current && requestVersion === requestVersionRef.current,
-      fetchPage: ({ limit, offset }) =>
-        discoverMapEvents({
-          ...mapDiscoveryParams,
-          limit,
-          offset,
-        }),
-      onFirstPage: (nextEvents) => {
+    const loadDetailedPages = () =>
+      loadAllPages<DiscoveredEvent>({
+        pageSize: MAP_EVENT_PAGE_SIZE,
+        getKey: (event) => event.occurrence_id,
+        shouldContinue: () => current && requestVersion === requestVersionRef.current,
+        fetchPage: ({ limit, offset }) =>
+          discoverMapEvents({
+            ...mapDiscoveryParams,
+            limit,
+            offset,
+          }),
+        onFirstPage: (nextEvents) => {
+          if (!current || requestVersion !== requestVersionRef.current) return;
+          setEvents(nextEvents);
+        },
+      });
+
+    const loadPoints = async () => {
+      if (!unfilteredWorld) {
+        const nextEvents = await loadDetailedPages();
+        return { nextEvents, nextPins: null };
+      }
+
+      const firstPagePromise = discoverMapEvents({
+        ...mapDiscoveryParams,
+        limit: MAP_EVENT_PAGE_SIZE,
+        offset: 0,
+      }).then((nextEvents) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
-      },
-    })
-      .then((nextEvents) => {
+        return nextEvents;
+      });
+
+      try {
+        const [nextPins, nextEvents] = await Promise.all([
+          discoverAllMapPins({ from, to }),
+          firstPagePromise,
+        ]);
+        return { nextEvents: nextEvents ?? [], nextPins };
+      } catch {
+        // The detailed endpoint remains an uncapped fallback if the compact
+        // worldwide endpoint is temporarily unavailable.
+        const nextEvents = await loadDetailedPages();
+        return { nextEvents, nextPins: null };
+      }
+    };
+
+    void loadPoints()
+      .then(({ nextEvents, nextPins }) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
+        setCompactPins(nextPins);
         setSelectedEvent(null);
         setSelectedClusterEvents([]);
       })
@@ -781,7 +838,7 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [geography, geographyReady, mapDiscoveryParams, reloadKey]);
+  }, [from, geography, geographyReady, mapDiscoveryParams, reloadKey, to, unfilteredWorld]);
 
   const loadMoreMobileList = () => {
     setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
@@ -833,14 +890,22 @@ function MapPage() {
 
       if (properties?.kind === "event") {
         const selected = eventsByOccurrenceId.get(entityId);
-        if (!selected) return;
-        setSelectedClusterEvents([]);
-        setSelectedEvent(selected);
+        const slug = typeof properties.slug === "string" ? properties.slug : "";
+        if (selected) {
+          setSelectedClusterEvents([]);
+          setSelectedEvent(selected);
+        } else if (slug) {
+          void navigate({ to: "/event/$slug", params: { slug } });
+        } else {
+          return;
+        }
         void trackClientEvent("map_pin_click", {
           entityType: "event_occurrence",
-          entityId: selected.occurrence_id,
+          entityId,
           cityId,
-          metadata: { precision: selected.location_precision },
+          metadata: {
+            precision: selected?.location_precision ?? (properties.approximate ? "city" : "exact"),
+          },
         });
       }
     };
@@ -915,7 +980,7 @@ function MapPage() {
       });
       resetCursor();
     };
-  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady, readyStyle]);
+  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady, navigate, readyStyle]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -927,24 +992,18 @@ function MapPage() {
   };
 
   const resetFilters = () => {
-    const geneva = cities.find((city) => city.slug === "geneve");
     setRange("year");
     setCats(new Set());
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
-    setGeography(
-      geneva
-        ? {
-            countryId: geneva.country_id,
-            regionId: geneva.region_id,
-            cityId: geneva.id,
-          }
-        : { countryId: null, regionId: null, cityId: null },
-    );
+    setGeography({ countryId: null, regionId: null, cityId: null });
     setShowEvents(true);
   };
 
-  const approximateCount = events.filter((event) => event.location_precision === "city").length;
+  const approximateCount =
+    unfilteredWorld && compactPins
+      ? compactPins.reduce((count, pin) => count + pin[5], 0)
+      : events.filter((event) => event.location_precision === "city").length;
   const mobileActiveFilterCount =
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
@@ -981,8 +1040,8 @@ function MapPage() {
               {loading
                 ? "Chargement des événements…"
                 : statsLoading
-                  ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
-                  : `${formatNumber(totalEventCount)} événements · ${formatNumber(events.length)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? t("home.world")}`}
+                  ? `${COUNT_FORMATTER.format(loadedPointCount)} points chargés · calcul du total…`
+                  : `${formatNumber(totalEventCount)} événements · ${formatNumber(loadedPointCount)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? t("home.world")}`}
             </p>
             {error && (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
@@ -1022,7 +1081,7 @@ function MapPage() {
               <span className="text-[10px] text-muted-foreground">
                 {tr("{shown} affichées · {loaded} points chargés", {
                   shown: COUNT_FORMATTER.format(mobileListEvents.length),
-                  loaded: COUNT_FORMATTER.format(events.length),
+                  loaded: COUNT_FORMATTER.format(loadedPointCount),
                 })}
               </span>
             </div>
@@ -1196,13 +1255,13 @@ function MapPage() {
               {loading
                 ? "Chargement de tous les points…"
                 : statsLoading
-                  ? `${COUNT_FORMATTER.format(events.length)} points chargés · calcul du total…`
+                  ? `${COUNT_FORMATTER.format(loadedPointCount)} points chargés · calcul du total…`
                   : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}
             </p>
             {!loading && (
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {tr("{count} points d’événements chargés sur la carte", {
-                  count: COUNT_FORMATTER.format(events.length),
+                  count: COUNT_FORMATTER.format(loadedPointCount),
                 })}
               </p>
             )}
