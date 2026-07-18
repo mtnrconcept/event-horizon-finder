@@ -63,37 +63,37 @@ begin
       where occurrence.starts_at >= $5::timestamptz
         and occurrence.starts_at <= $6::timestamptz
         and occurrence.location is not null
-        and (
-          (
-            $1::double precision <= $3::double precision
-            and occurrence.location operator(public.&&) public.st_setsrid(
+        and case
+          -- A geography rectangle with an exact 180-degree edge is invalid.
+          -- A full-width viewport already includes every longitude. Preserve
+          -- its latitude window without constructing an antipodal polygon.
+          when $1::double precision = -180 and $3::double precision = 180 then
+            public.st_y(occurrence.location::public.geometry)
+              between $2::double precision and $4::double precision
+          when $1::double precision <= $3::double precision then
+            occurrence.location operator(public.&&) public.st_setsrid(
               public.st_makebox2d(
                 public.st_point($1::double precision, $2::double precision),
                 public.st_point($3::double precision, $4::double precision)
               ),
               4326
             )
-          )
-          or (
-            $1::double precision > $3::double precision
-            and (
-              occurrence.location operator(public.&&) public.st_setsrid(
-                public.st_makebox2d(
-                  public.st_point($1::double precision, $2::double precision),
-                  public.st_point(180, $4::double precision)
-                ),
-                4326
-              )
-              or occurrence.location operator(public.&&) public.st_setsrid(
-                public.st_makebox2d(
-                  public.st_point(-180, $2::double precision),
-                  public.st_point($3::double precision, $4::double precision)
-                ),
-                4326
-              )
+          else
+            occurrence.location operator(public.&&) public.st_setsrid(
+              public.st_makebox2d(
+                public.st_point($1::double precision, $2::double precision),
+                public.st_point(180, $4::double precision)
+              ),
+              4326
             )
-          )
-        )
+            or occurrence.location operator(public.&&) public.st_setsrid(
+              public.st_makebox2d(
+                public.st_point(-180, $2::double precision),
+                public.st_point($3::double precision, $4::double precision)
+              ),
+              4326
+            )
+        end
     ),
     fallback_points as materialized (
       select fallback.*
