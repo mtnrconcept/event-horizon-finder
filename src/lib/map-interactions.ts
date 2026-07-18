@@ -13,6 +13,12 @@ export type MapEventPinPreviewResult<T> =
   | { status: "error" }
   | { status: "stale" };
 
+export type MapEventPinSelectionResult<T> =
+  | { status: "ready"; selection: T }
+  | { status: "missing" }
+  | { status: "error" }
+  | { status: "stale" };
+
 const HIT_PRIORITY: Record<MapHitKind, number> = {
   cluster: 2,
   event: 1,
@@ -40,10 +46,23 @@ export async function resolveMapEventPinPreview<T>(
   resolvePreview: (occurrenceId: string) => Promise<T | null>,
   isCurrent: () => boolean,
 ): Promise<MapEventPinPreviewResult<T>> {
+  const result = await resolveMapEventPinSelection(occurrenceId, resolvePreview, isCurrent);
+  return result.status === "ready" ? { status: "ready", preview: result.selection } : result;
+}
+
+/**
+ * Resolves the full in-place selection while preventing a late request from
+ * reopening a dialog that was closed or replacing a more recent pin click.
+ */
+export async function resolveMapEventPinSelection<T>(
+  occurrenceId: string,
+  resolveSelection: (occurrenceId: string) => Promise<T | null>,
+  isCurrent: () => boolean,
+): Promise<MapEventPinSelectionResult<T>> {
   try {
-    const preview = await resolvePreview(occurrenceId);
+    const selection = await resolveSelection(occurrenceId);
     if (!isCurrent()) return { status: "stale" };
-    return preview ? { status: "ready", preview } : { status: "missing" };
+    return selection ? { status: "ready", selection } : { status: "missing" };
   } catch {
     return isCurrent() ? { status: "error" } : { status: "stale" };
   }
