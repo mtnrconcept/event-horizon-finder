@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Calendar, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+import { useEventContentTranslations } from "@/lib/event-content-translations";
 
 export const Route = createFileRoute("/agenda")({
   head: () => ({ meta: [{ title: "Mon agenda — Global Party" }] }),
@@ -58,9 +59,23 @@ function toIcs(items: Item[]) {
 }
 
 function Agenda() {
-  const { tr, t, localeTag } = useTranslation();
+  const { tr, t, locale, localeTag } = useTranslation();
   const [items, setItems] = useState<Item[] | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const translations = useEventContentTranslations(
+    (items ?? []).flatMap((item) => (item.event ? [item.event.id] : [])),
+    locale,
+    "summary",
+  );
+  const localizedItems = items?.map((item) => ({
+    ...item,
+    event: item.event
+      ? {
+          ...item.event,
+          title: translations.get(item.event.id)?.title ?? item.event.title,
+        }
+      : null,
+  }));
 
   const load = async () => {
     const {
@@ -91,8 +106,8 @@ function Agenda() {
   };
 
   const download = () => {
-    if (!items) return;
-    const blob = new Blob([toIcs(items)], { type: "text/calendar" });
+    if (!localizedItems) return;
+    const blob = new Blob([toIcs(localizedItems)], { type: "text/calendar" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -120,7 +135,7 @@ function Agenda() {
     );
   }
 
-  const sorted = [...(items ?? [])].sort((a, b) =>
+  const sorted = [...(localizedItems ?? [])].sort((a, b) =>
     (a.occurrence?.starts_at ?? "").localeCompare(b.occurrence?.starts_at ?? ""),
   );
 

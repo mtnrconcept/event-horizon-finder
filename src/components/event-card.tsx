@@ -17,6 +17,10 @@ import { EventArtworkImage } from "@/components/event-artwork-image";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import {
+  applyTranslationToDiscoveredEvent,
+  useEventContentTranslation,
+} from "@/lib/event-content-translations";
 
 function formatLocalTime(iso: string, tz: string, locale: string) {
   try {
@@ -49,8 +53,10 @@ type EventCardProps = {
   variant?: "default" | "compact";
 };
 
-export function EventCard({ ev, variant = "default" }: EventCardProps) {
-  const { t, tr, categoryLabel, genreLabel, formatNumber, localeTag } = useTranslation();
+export function EventCard({ ev: sourceEvent, variant = "default" }: EventCardProps) {
+  const { t, tr, categoryLabel, genreLabel, formatNumber, locale, localeTag } = useTranslation();
+  const translation = useEventContentTranslation(sourceEvent.event_id, locale, "summary");
+  const ev = applyTranslationToDiscoveredEvent(sourceEvent, translation);
   const compact = variant === "compact";
   const queryClient = useQueryClient();
   const viewer = useQuery({

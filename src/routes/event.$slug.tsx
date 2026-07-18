@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+import {
+  applyTranslationToEventRecord,
+  useEventContentTranslation,
+} from "@/lib/event-content-translations";
 
 export const Route = createFileRoute("/event/$slug")({
   loader: async ({ params }) => {
@@ -72,8 +76,10 @@ function resolveTimeZone(...candidates: unknown[]) {
 }
 
 function EventDetail() {
-  const { tr, t, categoryLabel, localeTag } = useTranslation();
-  const e = Route.useLoaderData();
+  const { tr, t, categoryLabel, locale, localeTag } = useTranslation();
+  const sourceEvent = Route.useLoaderData();
+  const translation = useEventContentTranslation(sourceEvent.id, locale, "full");
+  const e = applyTranslationToEventRecord(sourceEvent, translation);
   const [fav, setFav] = useState(false);
   const [uid, setUid] = useState<string | null>(null);
   const occ =
@@ -83,6 +89,13 @@ function EventDetail() {
     [...(e.occurrences ?? [])].sort((left, right) =>
       right.starts_at.localeCompare(left.starts_at),
     )[0];
+
+  useEffect(() => {
+    document.title = `${e.title} — Global Party`;
+    const description = e.short_description ?? e.description ?? e.title;
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (meta) meta.content = description;
+  }, [e.description, e.short_description, e.title]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -158,7 +171,7 @@ function EventDetail() {
     if (offer.price_min != null && offer.price_max != null && offer.price_min !== offer.price_max) {
       return `${offer.price_min} – ${offer.price_max}${currency}`;
     }
-    return `Dès ${offer.price_min ?? offer.price_max}${currency}`;
+    return tr("Dès {price}", { price: `${offer.price_min ?? offer.price_max}${currency}` });
   })();
 
   return (
@@ -364,7 +377,7 @@ function EventDetail() {
         </div>
 
         <div className="mt-6 text-xs text-muted-foreground">
-          {e.is_demo ? "Données de démonstration Global Party · " : ""}
+          {e.is_demo ? `${tr("Démonstration")} Global Party · ` : ""}
           <Link to="/" className="underline">
             ← {tr("Retour à la découverte")}
           </Link>

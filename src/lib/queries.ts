@@ -353,6 +353,7 @@ export async function fetchMapOccurrencePreviews(
       starts_at,
       timezone,
       event:events!event_occurrences_event_id_fkey!inner(
+        id,
         slug,
         title,
         short_description,
@@ -372,6 +373,7 @@ export async function fetchMapOccurrencePreviews(
       starts_at,
       timezone,
       event:events!event_occurrences_event_id_fkey!inner(
+        id,
         slug,
         title,
         short_description,

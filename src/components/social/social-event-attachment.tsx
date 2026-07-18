@@ -4,6 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { EventArtworkImage } from "@/components/event-artwork-image";
 import type { SocialEvent } from "@/lib/social-queries";
 import { useTranslation } from "@/lib/i18n";
+import {
+  applyTranslationToEventRecord,
+  useEventContentTranslation,
+} from "@/lib/event-content-translations";
 
 function eventDate(event: SocialEvent, localeTag: string, fallback: string) {
   if (!event.starts_at) return fallback;
@@ -21,8 +25,10 @@ function eventDate(event: SocialEvent, localeTag: string, fallback: string) {
   }
 }
 
-export function SocialEventAttachment({ event }: { event: SocialEvent }) {
-  const { tr, t, localeTag } = useTranslation();
+export function SocialEventAttachment({ event: sourceEvent }: { event: SocialEvent }) {
+  const { tr, t, locale, localeTag } = useTranslation();
+  const translation = useEventContentTranslation(sourceEvent.id, locale, "summary");
+  const event = applyTranslationToEventRecord(sourceEvent, translation);
   return (
     <Link
       to="/event/$slug"

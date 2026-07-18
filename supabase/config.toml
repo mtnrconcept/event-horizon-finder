@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.event-cover]
 verify_jwt = false
+
+[functions.translate-event-content]
+verify_jwt = false

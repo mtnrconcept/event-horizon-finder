@@ -13,6 +13,7 @@
     "test:map": "node --test tests/map-clusters.test.ts tests/map-event-details.test.ts tests/map-pin-session-cache.test.ts tests/map-viewport.test.ts",
     "test:mcp": "node --test tests/mcp-server.test.ts",
     "test:i18n": "node --test tests/i18n-coverage.test.mjs",
+    "test:translations": "node --test tests/event-content-translations.test.ts",
     "format": "prettier --write ."
   },
   "dependencies": {

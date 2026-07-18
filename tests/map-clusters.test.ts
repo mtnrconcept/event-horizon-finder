@@ -579,6 +579,7 @@ test("parses safe hover previews and derives venue labels and excerpts", () => {
       starts_at: "2026-11-20T00:00:00+00:00",
       timezone: "Europe/Paris",
       event: {
+        id: "4fda1366-38ca-4aa2-a24d-c7c5a97a597e",
         slug: "haroun",
         title: "Haroun",
         short_description: null,
