@@ -447,10 +447,12 @@ function MapPage() {
   const [visibleMobileEventCount, setVisibleMobileEventCount] = useState(MOBILE_LIST_BATCH_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [mapReady, setMapReady] = useState(false);
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
+  const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null);
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
   const cityRequestVersionRef = useRef(0);
+  const mapReady = mapInstance !== null && readyMap === mapInstance;
 
   const searchCities = useCallback(
     async (cityQuery: string) => {
@@ -558,7 +560,7 @@ function MapPage() {
       ? "mobile"
       : "desktop";
     lastFittedScopeRef.current = null;
-    setMapReady(false);
+    setReadyMap(null);
     setMapUnavailable(null);
     try {
       const canvas = document.createElement("canvas");
@@ -586,10 +588,8 @@ function MapPage() {
       return;
     }
     let switchedToFallback = false;
-    let hasRendered = false;
     const markMapReady = () => {
-      hasRendered = true;
-      setMapReady(true);
+      setReadyMap(map);
     };
     const fallbackTimer = window.setTimeout(() => {
       if (!MAPBOX_STYLE || map.isStyleLoaded()) return;
@@ -600,19 +600,13 @@ function MapPage() {
     // already usable. Do not let the loading veil hide the map indefinitely.
     const revealTimer = window.setTimeout(() => {
       map.resize();
-      setMapReady(true);
+      setReadyMap(map);
     }, 2_500);
-    const unavailableTimer = window.setTimeout(() => {
-      if (hasRendered || map.isStyleLoaded()) return;
-      setMapUnavailable(
-        "Le fond de carte n'a pas pu démarrer. Vérifie la protection anti-pistage du navigateur.",
-      );
-    }, 12_000);
     map.once("render", markMapReady);
     map.on("load", markMapReady);
     map.on("style.load", markMapReady);
     map.on("styledata", () => {
-      if (map.isStyleLoaded()) setMapReady(true);
+      if (map.isStyleLoaded()) setReadyMap(map);
     });
     map.on("error", () => {
       if (MAPBOX_STYLE && !switchedToFallback && !map.isStyleLoaded()) {
@@ -622,6 +616,7 @@ function MapPage() {
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
+    setMapInstance(map);
     let firstResizeFrame = 0;
     let secondResizeFrame = 0;
     const resizeMap = () => {
@@ -641,19 +636,22 @@ function MapPage() {
     return () => {
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
-      window.clearTimeout(unavailableTimer);
       window.cancelAnimationFrame(firstResizeFrame);
       window.cancelAnimationFrame(secondResizeFrame);
       resizeObserver?.disconnect();
       window.visualViewport?.removeEventListener("resize", resizeMap);
       window.removeEventListener("orientationchange", resizeMap);
       map.remove();
-      if (mapRef.current === map) mapRef.current = null;
+      if (mapRef.current === map) {
+        mapRef.current = null;
+        setMapInstance((current) => (current === map ? null : current));
+        setReadyMap((current) => (current === map ? null : current));
+      }
     };
   }, [mapContainer]);
 
   useEffect(() => {
-    const map = mapRef.current;
+    const map = mapInstance;
     if (!map || !mapReady) return;
     const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
     if (lastFittedScopeRef.current === scopeKey) return;
@@ -691,7 +689,16 @@ function MapPage() {
     const bounds = new maplibregl.LngLatBounds();
     locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
     map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [cityId, countryId, events, mapReady, regionId, selectedCity, selectedCountryCode]);
+  }, [
+    cityId,
+    countryId,
+    events,
+    mapInstance,
+    mapReady,
+    regionId,
+    selectedCity,
+    selectedCountryCode,
+  ]);
 
   const mapDiscoveryParams = useMemo(
     () => ({
@@ -816,7 +823,7 @@ function MapPage() {
   };
 
   useEffect(() => {
-    const map = mapRef.current;
+    const map = mapInstance;
     if (!map || !mapReady) return;
 
     const syncLayers = () => {
@@ -945,7 +952,7 @@ function MapPage() {
       });
       resetCursor();
     };
-  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapReady]);
+  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
