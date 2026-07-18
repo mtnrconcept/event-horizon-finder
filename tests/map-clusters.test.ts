@@ -49,7 +49,7 @@ registerHooks({
   },
 });
 
-const { buildCompactMapPointCollection, buildMapPointCollection } =
+const { buildCompactMapPointCollection, buildLoadedMapPointCollection, buildMapPointCollection } =
   await import("../src/lib/map-clusters.ts");
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
@@ -135,6 +135,59 @@ test("builds every compact world pin returned by the uncapped RPC", () => {
       slug: "night-in-new-york",
     },
   });
+});
+
+test("never presents the first 1,000 detailed rows as a complete worldwide map", () => {
+  const firstDetailedPage = Array.from({ length: 1_000 }, (_, index) =>
+    event({
+      occurrence_id: `occurrence-${index}`,
+      longitude: 6.1452 + index / 100_000,
+    }),
+  );
+
+  const points = buildLoadedMapPointCollection({
+    unfilteredWorld: true,
+    compactPins: null,
+    worldPinsReady: false,
+    events: firstDetailedPage,
+    showEvents: true,
+  });
+
+  assert.equal(points.features.length, 0);
+});
+
+test("uses every compact pin once the complete worldwide response is ready", () => {
+  const pins = parseCompactMapPins([
+    ["occurrence-1", 6.1452, 46.2004, "concert", 0, 0, "open-air-geneva"],
+    ["occurrence-2", -74.006, 40.7128, "nightlife", 1, 1, "night-in-new-york"],
+  ]);
+
+  const points = buildLoadedMapPointCollection({
+    unfilteredWorld: true,
+    compactPins: pins,
+    worldPinsReady: true,
+    events: [event()],
+    showEvents: true,
+  });
+
+  assert.equal(points.features.length, 2);
+});
+
+test("preserves the exhaustive detailed fallback when the compact RPC is unavailable", () => {
+  const fallbackEvents = [
+    event({ occurrence_id: "fallback-1" }),
+    event({ occurrence_id: "fallback-2", longitude: 7.4474, latitude: 46.948 }),
+  ];
+
+  const points = buildLoadedMapPointCollection({
+    unfilteredWorld: true,
+    compactPins: null,
+    worldPinsReady: true,
+    events: fallbackEvents,
+    showEvents: true,
+  });
+
+  assert.equal(points.features.length, fallbackEvents.length);
 });
 
 test("selects compact event pins for an in-place dialog without relying on their slug", () => {
