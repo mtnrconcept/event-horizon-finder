@@ -15,9 +15,13 @@ import {
   validateSocialFiles,
 } from "@/lib/social-queries";
 import { useTranslation } from "@/lib/i18n";
+import {
+  applyTranslationToEventRecord,
+  useEventContentTranslations,
+} from "@/lib/event-content-translations";
 
 export function SocialPostComposer({ userId }: { userId: string }) {
-  const { tr } = useTranslation();
+  const { tr, locale } = useTranslation();
   const context = useSocialPostingContext(userId);
   const createPost = useCreateSocialPost();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -26,6 +30,11 @@ export function SocialPostComposer({ userId }: { userId: string }) {
   const [eventId, setEventId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [eventPickerOpen, setEventPickerOpen] = useState(false);
+  const eventTranslations = useEventContentTranslations(
+    context.data?.events.map((event) => event.id) ?? [],
+    locale,
+    "summary",
+  );
 
   useEffect(() => {
     if (!organizerId && context.data?.organizers[0]) {
@@ -79,9 +88,9 @@ export function SocialPostComposer({ userId }: { userId: string }) {
 
   const organizer =
     context.data.organizers.find((item) => item.id === organizerId) ?? context.data.organizers[0];
-  const availableEvents = context.data.events.filter(
-    (event) => event.organizer_id === organizer.id,
-  );
+  const availableEvents = context.data.events
+    .filter((event) => event.organizer_id === organizer.id)
+    .map((event) => applyTranslationToEventRecord(event, eventTranslations.get(event.id)));
   const selectedEvent = availableEvents.find((event) => event.id === eventId) ?? null;
   const canSubmit = Boolean(body.trim() || files.length || eventId) && !createPost.isPending;
 

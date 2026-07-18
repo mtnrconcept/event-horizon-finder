@@ -59,6 +59,12 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
+  applyTranslationToMapDetail,
+  applyTranslationToMapPreview,
+  getEventContentTranslations,
+  useEventContentTranslation,
+} from "@/lib/event-content-translations";
+import {
   buildCompactMapPointCollection,
   type MapPointCollection,
   type MapPointProperties,
@@ -593,8 +599,22 @@ function readableScrapedKey(value: string): string {
   return words ? `${words[0].toLocaleUpperCase()}${words.slice(1)}` : value;
 }
 
+function localizedScrapedDate(value: string, locale: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(
+      new Date(Date.UTC(year, month - 1, day)),
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(Date.parse(value))) return null;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 function ScrapedDetailValue({ value }: { value: MapScrapedValue }) {
-  const { tr } = useTranslation();
+  const { tr, localeTag } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(SCRAPED_VALUE_BATCH_SIZE);
   if (value == null) return null;
   if (typeof value === "boolean") return <span>{value ? tr("Oui") : tr("Non")}</span>;
@@ -602,6 +622,7 @@ function ScrapedDetailValue({ value }: { value: MapScrapedValue }) {
   if (typeof value === "string") {
     const text = detailPlainText(value);
     const url = safeExternalUrl(text);
+    const date = localizedScrapedDate(text, localeTag);
     return url ? (
       <a
         href={url}
@@ -611,6 +632,8 @@ function ScrapedDetailValue({ value }: { value: MapScrapedValue }) {
       >
         {text} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
       </a>
+    ) : date ? (
+      <span>{date}</span>
     ) : (
       <span className="whitespace-pre-line">{text}</span>
     );
@@ -694,8 +717,8 @@ function MapDetailSection({
 
 function SelectedMapEventDialog({
   open,
-  event,
-  detail,
+  event: sourceEvent,
+  detail: sourceDetail,
   loading,
   error,
   onOpenChange,
@@ -709,7 +732,14 @@ function SelectedMapEventDialog({
   onOpenChange: (open: boolean) => void;
   onRetry: () => void;
 }) {
-  const { t, tr, localeTag, categoryLabel, formatNumber } = useTranslation();
+  const { t, tr, locale, localeTag, categoryLabel, formatNumber } = useTranslation();
+  const translation = useEventContentTranslation(
+    sourceDetail?.event_id ?? sourceEvent?.event_id,
+    locale,
+    "full",
+  );
+  const event = sourceEvent ? applyTranslationToMapPreview(sourceEvent, translation) : null;
+  const detail = sourceDetail ? applyTranslationToMapDetail(sourceDetail, translation) : null;
   const [showOccurrenceList, setShowOccurrenceList] = useState(false);
   const [visibleOccurrenceCount, setVisibleOccurrenceCount] = useState(DETAIL_LIST_BATCH_SIZE);
   const [visibleOfferCount, setVisibleOfferCount] = useState(DETAIL_LIST_BATCH_SIZE);
@@ -724,7 +754,11 @@ function SelectedMapEventDialog({
     setVisibleMediaCount(DETAIL_LIST_BATCH_SIZE);
   }, [open, selectionId]);
   const selectedOccurrence = detail?.selected_occurrence ?? null;
-  const title = detail?.title ?? event?.title ?? tr("Événement sélectionné");
+  const title =
+    (translation ? detail?.title : event?.title) ??
+    detail?.title ??
+    event?.title ??
+    tr("Événement sélectionné");
   const sourceImageUrl = safeExternalUrl(scrapedText(detail, "image_url_raw"));
   const imageUrl =
     safeMapPreviewImageUrl(detail?.cover_image_url ?? event?.cover_image_url ?? null) ??
@@ -1898,6 +1932,7 @@ function SelectedClusterEvents({
 function mapPreviewFromDiscoveredEvent(event: DiscoveredEvent): MapOccurrencePreview {
   return {
     occurrence_id: event.occurrence_id,
+    event_id: event.event_id,
     slug: event.slug,
     title: event.title,
     short_description: event.short_description,
@@ -1908,6 +1943,30 @@ function mapPreviewFromDiscoveredEvent(event: DiscoveredEvent): MapOccurrencePre
     venue_name: event.venue_name,
     city_name: event.city_name,
   };
+}
+
+function MapFallbackEventLink({ event: sourceEvent }: { event: DiscoveredEvent }) {
+  const { tr, locale } = useTranslation();
+  const translation = useEventContentTranslation(sourceEvent.event_id, locale, "summary");
+  const event = translation
+    ? {
+        ...sourceEvent,
+        title: translation.title,
+        venue_name: translation.content.venue?.name ?? sourceEvent.venue_name,
+      }
+    : sourceEvent;
+  return (
+    <Link
+      to="/event/$slug"
+      params={{ slug: event.slug }}
+      className="rounded-xl border px-3 py-2 text-xs hover:border-primary hover:bg-accent"
+    >
+      <span className="block truncate font-semibold">{event.title}</span>
+      <span className="block truncate text-muted-foreground">
+        {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
+      </span>
+    </Link>
+  );
 }
 
 function safeMapPreviewImageUrl(value: string | null): string | null {
@@ -2015,7 +2074,7 @@ function createClusterHoverContent(
 }
 
 function MapPage() {
-  const { t, tr, categoryLabel, formatNumber } = useTranslation();
+  const { t, tr, categoryLabel, formatNumber, locale } = useTranslation();
   const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
   const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
     setMapContainer(node);
@@ -2105,6 +2164,27 @@ function MapPage() {
     () => new Map(events.map((event) => [event.occurrence_id, event])),
     [events],
   );
+  const localizePreviews = useCallback(
+    async (previews: MapOccurrencePreview[]): Promise<MapOccurrencePreview[]> => {
+      if (!previews.length) return previews;
+      const translations = await getEventContentTranslations(
+        previews.map((preview) => preview.event_id),
+        locale,
+        "summary",
+      );
+      return previews.map((preview) =>
+        applyTranslationToMapPreview(preview, translations.get(preview.event_id)),
+      );
+    },
+    [locale],
+  );
+  const localizePreview = useCallback(
+    async (preview: MapOccurrencePreview | null): Promise<MapOccurrencePreview | null> => {
+      if (!preview) return null;
+      return (await localizePreviews([preview]))[0] ?? preview;
+    },
+    [localizePreviews],
+  );
   const resolvePreviewBatch = useCallback(async (occurrenceIds: string[]) => {
     const pending: Array<Promise<MapOccurrencePreview | null>> = [];
     const missingIds = occurrenceIds.filter(
@@ -2166,10 +2246,11 @@ function MapPage() {
         );
       }
 
-      return uniqueIds.flatMap((occurrenceId) => {
+      const previews = uniqueIds.flatMap((occurrenceId) => {
         const preview = previewCacheRef.current.get(occurrenceId);
         return preview ? [preview] : [];
       });
+      return previews;
     },
     [eventsByOccurrenceId, resolvePreviewBatch],
   );
@@ -2722,7 +2803,10 @@ function MapPage() {
     };
     const scheduleHoverPreview = (
       coordinates: [number, number],
-      loadContent: () => Promise<HTMLElement>,
+      loadContent: () => Promise<{
+        content: HTMLElement;
+        refreshedContent?: Promise<HTMLElement>;
+      }>,
     ) => {
       const requestVersion = ++hoverRequestRef.current;
       if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
@@ -2731,9 +2815,15 @@ function MapPage() {
         if (requestVersion !== hoverRequestRef.current) return;
         showHoverPopup(coordinates, createLoadingHoverContent(t("common.loading")));
         void loadContent()
-          .then((content) => {
+          .then(({ content, refreshedContent }) => {
             if (requestVersion !== hoverRequestRef.current) return;
             showHoverPopup(coordinates, content);
+            if (refreshedContent) {
+              void refreshedContent.then((nextContent) => {
+                if (requestVersion !== hoverRequestRef.current) return;
+                showHoverPopup(coordinates, nextContent);
+              });
+            }
           })
           .catch(() => {
             if (requestVersion !== hoverRequestRef.current) return;
@@ -2772,6 +2862,10 @@ function MapPage() {
         if (requestVersion !== clusterSelectionRequestRef.current) return;
         setSelectedClusterEvents(previews);
         setClusterSelectionLoading(false);
+        void localizePreviews(previews).then((localizedPreviews) => {
+          if (requestVersion !== clusterSelectionRequestRef.current) return;
+          setSelectedClusterEvents(localizedPreviews);
+        });
         if (!previews.length) {
           setClusterSelectionError(
             "Les événements de ce lieu n’ont pas pu être chargés. Réessaie dans un instant.",
@@ -2844,7 +2938,12 @@ function MapPage() {
       scheduleHoverPreview([Number(longitude), Number(latitude)], async () => {
         const preview = await resolveEventHoverPreview(occurrenceId);
         if (!preview) throw new Error("Missing event preview");
-        return createEventHoverContent(preview, tr("Description à venir."));
+        return {
+          content: createEventHoverContent(preview, tr("Description à venir.")),
+          refreshedContent: localizePreview(preview).then((localizedPreview) =>
+            createEventHoverContent(localizedPreview ?? preview, tr("Description à venir.")),
+          ),
+        };
       });
     };
     const handleClusterMouseEnter = (event: MapLayerMouseEvent) => {
@@ -2883,11 +2982,17 @@ function MapPage() {
           leaves.length >= pointCount &&
           previews.length === uniqueOccurrenceCount &&
           previews.every((preview) => Boolean(preview.venue_name ?? preview.city_name));
-        return createClusterHoverContent(previews, completeVenueCoverage, {
+        const labels = {
           multipleVenues: tr("Plusieurs lieux"),
           groupedEvents: tr("Événements regroupés"),
           eventCount: tr("{count} sorties", { count: formatNumber(pointCount) }),
-        });
+        };
+        return {
+          content: createClusterHoverContent(previews, completeVenueCoverage, labels),
+          refreshedContent: localizePreviews(previews).then((localizedPreviews) =>
+            createClusterHoverContent(localizedPreviews, completeVenueCoverage, labels),
+          ),
+        };
       });
     };
     const interactiveLayers = [
@@ -2967,6 +3072,8 @@ function MapPage() {
     closeClusterSelection,
     eventsByOccurrenceId,
     formatNumber,
+    localizePreview,
+    localizePreviews,
     mapInstance,
     mapReady,
     openEventSelection,
@@ -3446,17 +3553,7 @@ function MapPage() {
             <p className="mb-2 text-xs font-bold">{tr("Événements accessibles sans WebGL")}</p>
             <div className="grid gap-1.5">
               {events.slice(0, 12).map((event) => (
-                <Link
-                  key={event.occurrence_id}
-                  to="/event/$slug"
-                  params={{ slug: event.slug }}
-                  className="rounded-xl border px-3 py-2 text-xs hover:border-primary hover:bg-accent"
-                >
-                  <span className="block truncate font-semibold">{event.title}</span>
-                  <span className="block truncate text-muted-foreground">
-                    {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
-                  </span>
-                </Link>
+                <MapFallbackEventLink key={event.occurrence_id} event={event} />
               ))}
             </div>
           </div>

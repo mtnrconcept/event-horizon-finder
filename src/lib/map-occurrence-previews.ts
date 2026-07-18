@@ -4,6 +4,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 export interface MapOccurrencePreview {
   occurrence_id: string;
+  event_id: string;
   slug: string;
   title: string;
   short_description: string | null;
@@ -23,6 +24,7 @@ type RawMapOccurrencePreviewRow = {
 };
 
 type RawMapEventPreview = {
+  id?: unknown;
   slug?: unknown;
   title?: unknown;
   short_description?: unknown;
@@ -56,6 +58,7 @@ export function parseMapOccurrencePreviewRows(data: unknown): MapOccurrencePrevi
       typeof row?.id !== "string" ||
       typeof row.starts_at !== "string" ||
       typeof row.timezone !== "string" ||
+      typeof event?.id !== "string" ||
       typeof event?.slug !== "string" ||
       typeof event.title !== "string"
     ) {
@@ -69,6 +72,7 @@ export function parseMapOccurrencePreviewRows(data: unknown): MapOccurrencePrevi
     return [
       {
         occurrence_id: row.id,
+        event_id: event.id,
         slug: event.slug,
         title: event.title,
         short_description: optionalString(event.short_description),
