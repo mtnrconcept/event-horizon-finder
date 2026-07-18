@@ -19,20 +19,13 @@ import maplibregl, {
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   computeRange,
-  discoverAllMapPins,
-  discoverEventStats,
-  discoverMapEvents,
+  discoverMapEventsInBounds,
+  discoverMapPinsInBounds,
   fetchCategories,
-  fetchGeographies,
   fetchMapOccurrenceDetail,
   fetchMapOccurrencePreviews,
-  searchGeographyCities,
-  type CityOption,
-  type CountryOption,
-  type DiscoveryStats,
   type DiscoveredEvent,
   type QuickRange,
-  type RegionOption,
 } from "@/lib/queries";
 import type { CompactMapPin } from "@/lib/map-pins";
 import {
@@ -57,7 +50,6 @@ import {
 import { EventCard, EventCardSkeleton } from "@/components/event-card";
 import { EventFilterPanel } from "@/components/event-filter-panel";
 import { MobileDiscoveryLayout } from "@/components/discovery/MobileDiscoveryLayout";
-import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -67,11 +59,15 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
-  buildLoadedMapPointCollection,
-  isMapCoordinatePlausibleForCountry,
+  buildCompactMapPointCollection,
   type MapPointCollection,
   type MapPointProperties,
 } from "@/lib/map-clusters";
+import {
+  mapViewportBoundsKey,
+  normalizeMapViewportBounds,
+  type MapViewportBounds,
+} from "@/lib/map-viewport";
 import {
   eventCategoryTextColor,
   eventCategoryVisual,
@@ -123,15 +119,16 @@ import {
   Video,
   Wifi,
 } from "lucide-react";
-import { loadAllPages } from "@/lib/load-all-pages";
 
 export const Route = createFileRoute("/map")({
   head: () => ({ meta: [{ title: "Carte complète des événements — Global Party" }] }),
   component: MapPage,
 });
 
-const GENEVA_CENTER: [number, number] = [6.1432, 46.2044];
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+const INITIAL_GEOLOCATION_ZOOM = 11.5;
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 160;
+const MAP_ALL_UPCOMING_END = new Date("2100-01-01T00:00:00.000Z");
 
 const RASTER_FALLBACK_STYLE: StyleSpecification = {
   version: 8,
@@ -358,12 +355,17 @@ function MapSurface({
   containerRef,
   mapReady,
   mapUnavailable,
+  fallbackCenter,
 }: {
   containerRef: RefCallback<HTMLDivElement>;
   mapReady: boolean;
   mapUnavailable: string | null;
+  fallbackCenter: { latitude: number; longitude: number } | null;
 }) {
   const { tr } = useTranslation();
+  const openStreetMapHref = fallbackCenter
+    ? `https://www.openstreetmap.org/#map=12/${fallbackCenter.latitude}/${fallbackCenter.longitude}`
+    : "https://www.openstreetmap.org";
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
@@ -374,12 +376,12 @@ function MapSurface({
             <h2 className="text-xl font-black">{tr("Carte en mode accessible")}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{mapUnavailable}</p>
             <a
-              href="https://www.openstreetmap.org/#map=12/46.2044/6.1432"
+              href={openStreetMapHref}
               target="_blank"
               rel="noreferrer"
               className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground"
             >
-              {tr("Ouvrir Genève dans OpenStreetMap")}
+              {tr("Ouvrir ma zone dans OpenStreetMap")}
             </a>
           </div>
         </div>
@@ -396,6 +398,69 @@ function MapSurface({
         </div>
       )}
     </div>
+  );
+}
+
+type GeolocationStatus = "requesting" | "ready" | "denied" | "unavailable" | "error";
+
+function LocationPermissionGate({
+  status,
+  onRetry,
+}: {
+  status: Exclude<GeolocationStatus, "ready">;
+  onRetry: () => void;
+}) {
+  const { tr } = useTranslation();
+  const requesting = status === "requesting";
+  const message =
+    status === "denied"
+      ? tr(
+          "La localisation est désactivée. Autorise-la dans les réglages du navigateur, puis réessaie.",
+        )
+      : status === "unavailable"
+        ? tr("Ce navigateur ne peut pas fournir ta position actuelle.")
+        : status === "error"
+          ? tr("Ta position n’a pas pu être déterminée. Vérifie le GPS et la connexion.")
+          : tr("Autorise la localisation pour ouvrir la carte autour de toi.");
+
+  return (
+    <main className="grid min-h-[calc(100dvh-4rem)] place-items-center bg-[radial-gradient(circle_at_50%_15%,oklch(0.62_0.25_295_/_0.18),transparent_38%),var(--color-background)] p-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="map-location-title"
+        aria-describedby="map-location-description"
+        className="w-full max-w-md rounded-[2rem] border border-primary/35 bg-surface p-6 text-center shadow-2xl"
+      >
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-primary/15 text-primary">
+          {requesting ? (
+            <LoaderCircle className="h-8 w-8 animate-spin" aria-hidden="true" />
+          ) : (
+            <Navigation className="h-8 w-8" aria-hidden="true" />
+          )}
+        </div>
+        <h1 id="map-location-title" className="mt-5 text-2xl font-black">
+          {tr("Localisation requise")}
+        </h1>
+        <p
+          id="map-location-description"
+          role="status"
+          aria-live="polite"
+          className="mt-3 text-sm leading-relaxed text-muted-foreground"
+        >
+          {message}
+        </p>
+        {!requesting && (
+          <Button type="button" onClick={onRetry} className="mt-6 min-h-12 w-full rounded-2xl">
+            <Navigation className="h-4 w-4" aria-hidden="true" />
+            {tr("Activer ma localisation")}
+          </Button>
+        )}
+        <p className="mt-4 text-xs text-muted-foreground">
+          {tr("Ta position sert uniquement à centrer la carte et n’est pas enregistrée.")}
+        </p>
+      </section>
+    </main>
   );
 }
 
@@ -1951,38 +2016,35 @@ function MapPage() {
     setMapContainer(node);
   }, []);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const lastFittedScopeRef = useRef<string | null>(null);
+  const userLocationRef = useRef<{ latitude: number; longitude: number; accuracy: number } | null>(
+    null,
+  );
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastMapCameraRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isMobileRef = useRef(isMobile);
-  const [countries, setCountries] = useState<CountryOption[]>([]);
-  const [regions, setRegions] = useState<RegionOption[]>([]);
-  const [cities, setCities] = useState<CityOption[]>([]);
-  const [cityLoading, setCityLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [geographyReady, setGeographyReady] = useState(false);
-  const [geography, setGeography] = useState<GeographySelection>({
-    countryId: null,
-    regionId: null,
-    cityId: null,
-  });
-  const { countryId, regionId, cityId } = geography;
+  const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>("requesting");
+  const [locationRequestKey, setLocationRequestKey] = useState(0);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  } | null>(null);
+  const [viewportBounds, setViewportBounds] = useState<MapViewportBounds | null>(null);
   const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim());
   const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
-  const [compactPins, setCompactPins] = useState<CompactMapPin[] | null>(null);
-  const [worldPinsReady, setWorldPinsReady] = useState(false);
-  const [worldPinsDetailedFallback, setWorldPinsDetailedFallback] = useState(false);
-  const [worldListRequested, setWorldListRequested] = useState(false);
+  const [compactPins, setCompactPins] = useState<CompactMapPin[]>([]);
+  const [listRequested, setListRequested] = useState(false);
   const [mobileListLoading, setMobileListLoading] = useState(false);
   const [mobileListLoadingMore, setMobileListLoadingMore] = useState(false);
   const [mobileListHasMore, setMobileListHasMore] = useState(false);
   const [mobileListError, setMobileListError] = useState<string | null>(null);
   const [mobileListReloadKey, setMobileListReloadKey] = useState(0);
-  const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [selectedMapEvent, setSelectedMapEvent] = useState<MapOccurrencePreview | null>(null);
   const [selectedMapEventDetail, setSelectedMapEventDetail] = useState<MapOccurrenceDetail | null>(
@@ -2008,7 +2070,7 @@ function MapPage() {
   } | null>(null);
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
-  const cityRequestVersionRef = useRef(0);
+  const mobileListRequestVersionRef = useRef(0);
   const eventSelectionRequestRef = useRef(0);
   const eventSelectionRetryRef = useRef<(() => void) | null>(null);
   const clusterSelectionRequestRef = useRef(0);
@@ -2023,68 +2085,16 @@ function MapPage() {
   const hoverTimerRef = useRef<number | null>(null);
   const hoverRequestRef = useRef(0);
   const mapReady = mapInstance !== null && readyMap === mapInstance;
-
-  const searchCities = useCallback(
-    async (cityQuery: string) => {
-      if (!countryId) return;
-      const requestVersion = ++cityRequestVersionRef.current;
-      setCityLoading(true);
-      try {
-        const rows = await searchGeographyCities({
-          countryId,
-          regionId,
-          query: cityQuery,
-          limit: 100,
-        });
-        if (requestVersion !== cityRequestVersionRef.current) return;
-        setCities((current) => {
-          const merged = new Map(current.map((city) => [city.id, city]));
-          rows.forEach((city) => merged.set(city.id, city));
-          return [...merged.values()];
-        });
-      } catch {
-        // Keep country/region discovery available even when suggestions fail.
-      } finally {
-        if (requestVersion === cityRequestVersionRef.current) setCityLoading(false);
-      }
-    },
-    [countryId, regionId],
-  );
-
-  const selectedCity = useMemo(
-    () => cities.find((city) => city.id === cityId) ?? null,
-    [cities, cityId],
-  );
-  const selectedRegion = useMemo(
-    () => regions.find((region) => region.id === regionId) ?? null,
-    [regions, regionId],
-  );
-  const selectedCountry = useMemo(
-    () => countries.find((country) => country.id === countryId) ?? null,
-    [countries, countryId],
-  );
-  const selectedCountryCode = selectedCountry?.code ?? null;
-  const { from, to } = useMemo(() => computeRange(range), [range]);
+  const { from, to } = useMemo(() => {
+    const selectedRange = computeRange(range);
+    return range === "year"
+      ? { from: selectedRange.from, to: MAP_ALL_UPCOMING_END }
+      : selectedRange;
+  }, [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
-  const unfilteredWorld =
-    !countryId &&
-    !regionId &&
-    !cityId &&
-    cats.size === 0 &&
-    deferredQuery.length === 0 &&
-    advancedCount === 0 &&
-    range === "year";
   const eventMapPoints = useMemo(
-    () =>
-      buildLoadedMapPointCollection({
-        unfilteredWorld,
-        compactPins,
-        worldPinsReady,
-        events,
-        showEvents,
-        countryCode: selectedCountryCode,
-      }),
-    [compactPins, events, selectedCountryCode, showEvents, unfilteredWorld, worldPinsReady],
+    () => buildCompactMapPointCollection({ pins: compactPins, showEvents }),
+    [compactPins, showEvents],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -2297,22 +2307,56 @@ function MapPage() {
   }, [isMobile]);
 
   useEffect(() => {
+    let active = true;
+    let hasPosition = false;
+    if (!window.isSecureContext || !navigator.geolocation) {
+      setGeolocationStatus("unavailable");
+      return;
+    }
+
+    setGeolocationStatus("requesting");
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!active) return;
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          if (!hasPosition) setGeolocationStatus("error");
+          return;
+        }
+        hasPosition = true;
+        const nextLocation = {
+          latitude,
+          longitude,
+          accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : 0,
+        };
+        userLocationRef.current = nextLocation;
+        setUserLocation(nextLocation);
+        setGeolocationStatus("ready");
+      },
+      (locationError) => {
+        if (!active || hasPosition) return;
+        setGeolocationStatus(
+          locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error",
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 15_000 },
+    );
+
+    return () => {
+      active = false;
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [locationRequestKey]);
+
+  useEffect(() => {
     let current = true;
-    Promise.all([fetchGeographies(), fetchCategories()])
-      .then(([geo, categoryRows]) => {
-        if (!current) return;
-        setCountries(geo.countries);
-        setRegions(geo.regions);
-        setCities(geo.cities);
-        setCategories(categoryRows as Category[]);
-        setGeographyReady(true);
+    void fetchCategories()
+      .then((categoryRows) => {
+        if (current) setCategories(categoryRows as Category[]);
       })
       .catch(() => {
-        if (current) {
-          setError("Les filtres géographiques n'ont pas pu être chargés.");
-          // Preserve worldwide discovery if the geography catalogue is down.
-          setGeographyReady(true);
-        }
+        if (current) setError("Les catégories n'ont pas pu être chargées.");
       });
     return () => {
       current = false;
@@ -2321,14 +2365,21 @@ function MapPage() {
 
   useEffect(() => {
     const activeMapContainer = mapContainer;
-    if (!activeMapContainer || mapRef.current) return;
+    const initialLocation = userLocationRef.current;
+    if (
+      !activeMapContainer ||
+      mapRef.current ||
+      geolocationStatus !== "ready" ||
+      !initialLocation
+    ) {
+      return;
+    }
 
     // MapLibre must follow the exact DOM node reported by the callback ref.
     // Hydration and responsive layout changes replace that node entirely.
     activeMapContainer.dataset.mapLayout = activeMapContainer.closest(".mobile-discovery-shell")
       ? "mobile"
       : "desktop";
-    lastFittedScopeRef.current = null;
     setReadyMap(null);
     setReadyStyle(null);
     setMapUnavailable(null);
@@ -2344,12 +2395,16 @@ function MapPage() {
       return;
     }
     let map: maplibregl.Map;
+    const initialCamera = lastMapCameraRef.current ?? {
+      center: [initialLocation.longitude, initialLocation.latitude] as [number, number],
+      zoom: INITIAL_GEOLOCATION_ZOOM,
+    };
     try {
       map = new maplibregl.Map({
         container: activeMapContainer,
         style: PRIMARY_MAP_STYLE,
-        center: GENEVA_CENTER,
-        zoom: 12,
+        center: initialCamera.center,
+        zoom: initialCamera.zoom,
         clickTolerance: 8,
         fadeDuration: 0,
       });
@@ -2404,6 +2459,8 @@ function MapPage() {
     resizeMap();
 
     return () => {
+      const center = map.getCenter();
+      lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
       window.cancelAnimationFrame(firstResizeFrame);
@@ -2411,6 +2468,8 @@ function MapPage() {
       resizeObserver?.disconnect();
       window.visualViewport?.removeEventListener("resize", resizeMap);
       window.removeEventListener("orientationchange", resizeMap);
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
       map.remove();
       if (mapRef.current === map) {
         mapRef.current = null;
@@ -2419,232 +2478,142 @@ function MapPage() {
         setReadyStyle((current) => (current?.map === map ? null : current));
       }
     };
-  }, [mapContainer]);
+  }, [geolocationStatus, mapContainer]);
+
+  useEffect(() => {
+    const map = mapInstance;
+    if (!map || !userLocation) return;
+    if (!userMarkerRef.current) {
+      const markerElement = document.createElement("div");
+      markerElement.className = "map-user-location-marker";
+      markerElement.setAttribute("role", "img");
+      markerElement.setAttribute("aria-label", tr("Ma position"));
+      userMarkerRef.current = new maplibregl.Marker({ element: markerElement })
+        .setLngLat([userLocation.longitude, userLocation.latitude])
+        .addTo(map);
+    } else {
+      userMarkerRef.current.setLngLat([userLocation.longitude, userLocation.latitude]);
+    }
+  }, [mapInstance, tr, userLocation]);
 
   useEffect(() => {
     const map = mapInstance;
     if (!map || !mapReady) return;
-    const scopeKey = `${countryId ?? "world"}:${regionId ?? "all"}:${cityId ?? "all"}`;
-    if (lastFittedScopeRef.current === scopeKey) return;
-    if (!countryId && !regionId && !cityId) {
-      lastFittedScopeRef.current = scopeKey;
-      map.fitBounds(
-        [
-          [-170, -55],
-          [170, 75],
-        ],
-        { padding: 40, duration: 700 },
-      );
-      return;
-    }
-    if (
-      selectedCity?.latitude != null &&
-      selectedCity.longitude != null &&
-      isMapCoordinatePlausibleForCountry(
-        selectedCountryCode,
-        selectedCity.latitude,
-        selectedCity.longitude,
-      )
-    ) {
-      lastFittedScopeRef.current = scopeKey;
-      map.flyTo({
-        center: [selectedCity.longitude, selectedCity.latitude],
-        zoom: selectedCity.slug === "geneve" ? 12 : 11,
+    let refreshTimer: number | null = null;
+
+    const captureViewport = () => {
+      const rawBounds = map.getBounds();
+      const nextBounds = normalizeMapViewportBounds({
+        west: rawBounds.getWest(),
+        south: rawBounds.getSouth(),
+        east: rawBounds.getEast(),
+        north: rawBounds.getNorth(),
       });
-      return;
-    }
-    const locatedEvents = events.filter((event) =>
-      isMapCoordinatePlausibleForCountry(selectedCountryCode, event.latitude, event.longitude),
-    );
-    if ((countryId || regionId) && !locatedEvents.length) return;
-    lastFittedScopeRef.current = scopeKey;
-    if (!locatedEvents.length) {
-      map.fitBounds(
-        [
-          [-170, -55],
-          [170, 75],
-        ],
-        { padding: 40, duration: 700 },
+      if (!nextBounds) return;
+      const center = map.getCenter();
+      lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
+      setViewportBounds((current) =>
+        current && mapViewportBoundsKey(current) === mapViewportBoundsKey(nextBounds)
+          ? current
+          : nextBounds,
       );
-      return;
-    }
-    const bounds = new maplibregl.LngLatBounds();
-    locatedEvents.forEach((event) => bounds.extend([event.longitude!, event.latitude!]));
-    map.fitBounds(bounds, { padding: 60, maxZoom: regionId ? 9 : 6, duration: 700 });
-  }, [
-    cityId,
-    countryId,
-    events,
-    mapInstance,
-    mapReady,
-    regionId,
-    selectedCity,
-    selectedCountryCode,
-  ]);
+    };
+    const scheduleViewportCapture = () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(captureViewport, MAP_VIEWPORT_REFRESH_DELAY_MS);
+    };
+
+    captureViewport();
+    map.on("moveend", scheduleViewportCapture);
+    map.on("zoomend", scheduleViewportCapture);
+    map.on("resize", scheduleViewportCapture);
+    return () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+      map.off("moveend", scheduleViewportCapture);
+      map.off("zoomend", scheduleViewportCapture);
+      map.off("resize", scheduleViewportCapture);
+    };
+  }, [mapInstance, mapReady]);
 
   const mapDiscoveryParams = useMemo(
-    () => ({
-      countryId,
-      regionId,
-      cityId,
-      categorySlugs: cats.size ? [...cats] : null,
-      query: deferredQuery,
-      from,
-      to,
-      ...toDiscoveryFilters(advancedFilters),
-    }),
-    [advancedFilters, cats, cityId, countryId, deferredQuery, from, regionId, to],
+    () =>
+      viewportBounds
+        ? {
+            bounds: viewportBounds,
+            categorySlugs: cats.size ? [...cats] : null,
+            query: deferredQuery,
+            from,
+            to,
+            ...toDiscoveryFilters(advancedFilters),
+          }
+        : null,
+    [advancedFilters, cats, deferredQuery, from, to, viewportBounds],
   );
 
-  const localDiscoveryStats = useMemo<DiscoveryStats>(() => {
-    const readyWorldPins = compactPins ?? (worldPinsReady ? events : null);
-    return {
-      total_count: unfilteredWorld ? (readyWorldPins?.length ?? 0) : events.length,
-      free_count:
-        unfilteredWorld && compactPins
-          ? compactPins.reduce((count, pin) => count + pin[4], 0)
-          : events.filter((event) => event.is_free).length,
-      verified_count: events.filter((event) => event.is_verified).length,
-    };
-  }, [compactPins, events, unfilteredWorld, worldPinsReady]);
-  const mapStats = discoveryStats ?? localDiscoveryStats;
+  const mapStats = useMemo(
+    () => ({
+      total_count: compactPins.length,
+      free_count: compactPins.reduce((count, pin) => count + pin[4], 0),
+    }),
+    [compactPins],
+  );
   const totalEventCount = mapStats.total_count;
-  const loadedPointCount = unfilteredWorld
-    ? (compactPins?.length ?? (worldPinsReady ? events.length : 0))
-    : events.length;
+  const loadedPointCount = compactPins.length;
+  const statsLoading = loading;
 
   useEffect(() => {
-    if (!geographyReady) return;
+    if (!mapDiscoveryParams) return;
     let current = true;
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
-    setStatsLoading(true);
-    setDiscoveryStats(null);
-    setCompactPins(null);
-    setWorldPinsReady(false);
-    setWorldPinsDetailedFallback(false);
-    setEvents([]);
-    setMobileListLoading(false);
-    setMobileListLoadingMore(false);
-    setMobileListHasMore(false);
-    setMobileListError(null);
-    setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
-    const loadDetailedPages = () =>
-      loadAllPages<DiscoveredEvent>({
-        pageSize: MAP_EVENT_PAGE_SIZE,
-        getKey: (event) => event.occurrence_id,
-        shouldContinue: () => current && requestVersion === requestVersionRef.current,
-        fetchPage: ({ limit, offset }) =>
-          discoverMapEvents({
-            ...mapDiscoveryParams,
-            limit,
-            offset,
-          }),
-        onFirstPage: (nextEvents) => {
-          if (!current || requestVersion !== requestVersionRef.current) return;
-          setEvents(nextEvents);
-        },
-      });
+    closeClusterSelection();
 
-    const loadPoints = async () => {
-      if (!unfilteredWorld) {
-        const nextEvents = await loadDetailedPages();
-        return { nextEvents, nextPins: null, usedDetailedFallback: false };
-      }
-
-      try {
-        const nextPins = await discoverAllMapPins({ from, to });
-        return { nextEvents: [], nextPins, usedDetailedFallback: false };
-      } catch {
-        // The detailed endpoint remains an uncapped fallback if the compact
-        // worldwide endpoint is temporarily unavailable.
-        const nextEvents = await loadDetailedPages();
-        return { nextEvents, nextPins: null, usedDetailedFallback: true };
-      }
-    };
-
-    void loadPoints()
-      .then(({ nextEvents, nextPins, usedDetailedFallback }) => {
+    void discoverMapPinsInBounds(mapDiscoveryParams)
+      .then((nextPins) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
-        setEvents(nextEvents);
         setCompactPins(nextPins);
-        setWorldPinsReady(true);
-        setWorldPinsDetailedFallback(usedDetailedFallback);
-        closeEventSelection();
-        closeClusterSelection();
       })
       .catch(() => {
-        if (!current) return;
-        setEvents([]);
-        setWorldPinsReady(false);
-        setError("Impossible de charger les points de la carte. Réessaie dans un instant.");
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setError("Impossible d’actualiser les événements de la zone visible. Réessaie.");
       })
       .finally(() => {
         if (current && requestVersion === requestVersionRef.current) setLoading(false);
       });
-
-    // Keep aggregates independent from point loading so an unavailable count
-    // endpoint never prevents the map itself from rendering.
-    void discoverEventStats(mapDiscoveryParams, { requireCoordinates: true })
-      .then((nextStats) => {
-        if (!current || requestVersion !== requestVersionRef.current) return;
-        setDiscoveryStats(nextStats);
-      })
-      .catch(() => {
-        if (!current || requestVersion !== requestVersionRef.current) return;
-        setDiscoveryStats(null);
-      })
-      .finally(() => {
-        if (current && requestVersion === requestVersionRef.current) setStatsLoading(false);
-      });
     return () => {
       current = false;
     };
-  }, [
-    closeEventSelection,
-    closeClusterSelection,
-    from,
-    geography,
-    geographyReady,
-    mapDiscoveryParams,
-    reloadKey,
-    to,
-    unfilteredWorld,
-  ]);
+  }, [closeClusterSelection, mapDiscoveryParams, reloadKey]);
 
   useEffect(() => {
-    if (
-      !geographyReady ||
-      !unfilteredWorld ||
-      !worldPinsReady ||
-      worldPinsDetailedFallback ||
-      !worldListRequested
-    ) {
-      return;
-    }
+    if (!mapDiscoveryParams || !listRequested) return;
 
     let current = true;
-    const requestVersion = requestVersionRef.current;
+    const requestVersion = ++mobileListRequestVersionRef.current;
     setMobileListLoading(true);
+    setMobileListLoadingMore(false);
+    setMobileListHasMore(false);
     setMobileListError(null);
+    setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
+    setEvents([]);
 
-    void discoverMapEvents({
+    void discoverMapEventsInBounds({
       ...mapDiscoveryParams,
       limit: MAP_EVENT_PAGE_SIZE,
       offset: 0,
     })
       .then((nextEvents) => {
-        if (!current || requestVersion !== requestVersionRef.current) return;
+        if (!current || requestVersion !== mobileListRequestVersionRef.current) return;
         setEvents(nextEvents);
         setMobileListHasMore(nextEvents.length === MAP_EVENT_PAGE_SIZE);
       })
       .catch(() => {
-        if (!current || requestVersion !== requestVersionRef.current) return;
+        if (!current || requestVersion !== mobileListRequestVersionRef.current) return;
         setMobileListError("Impossible de charger la liste. Réessaie dans un instant.");
       })
       .finally(() => {
-        if (current && requestVersion === requestVersionRef.current) {
+        if (current && requestVersion === mobileListRequestVersionRef.current) {
           setMobileListLoading(false);
         }
       });
@@ -2652,33 +2621,25 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [
-    geographyReady,
-    mapDiscoveryParams,
-    mobileListReloadKey,
-    unfilteredWorld,
-    worldListRequested,
-    worldPinsDetailedFallback,
-    worldPinsReady,
-  ]);
+  }, [listRequested, mapDiscoveryParams, mobileListReloadKey]);
 
   const loadMoreMobileList = () => {
     if (visibleMobileEventCount < events.length) {
       setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
       return;
     }
-    if (!unfilteredWorld || !mobileListHasMore || mobileListLoadingMore) return;
+    if (!mapDiscoveryParams || !mobileListHasMore || mobileListLoadingMore) return;
 
-    const requestVersion = requestVersionRef.current;
+    const requestVersion = mobileListRequestVersionRef.current;
     setMobileListLoadingMore(true);
     setMobileListError(null);
-    void discoverMapEvents({
+    void discoverMapEventsInBounds({
       ...mapDiscoveryParams,
       limit: MAP_EVENT_PAGE_SIZE,
       offset: events.length,
     })
       .then((nextEvents) => {
-        if (requestVersion !== requestVersionRef.current) return;
+        if (requestVersion !== mobileListRequestVersionRef.current) return;
         const knownIds = new Set(events.map((event) => event.occurrence_id));
         const additions = nextEvents.filter((event) => !knownIds.has(event.occurrence_id));
         setEvents((current) => [...current, ...additions]);
@@ -2686,11 +2647,13 @@ function MapPage() {
         setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
       })
       .catch(() => {
-        if (requestVersion !== requestVersionRef.current) return;
+        if (requestVersion !== mobileListRequestVersionRef.current) return;
         setMobileListError("Impossible de charger la suite de la liste. Réessaie.");
       })
       .finally(() => {
-        if (requestVersion === requestVersionRef.current) setMobileListLoadingMore(false);
+        if (requestVersion === mobileListRequestVersionRef.current) {
+          setMobileListLoadingMore(false);
+        }
       });
   };
 
@@ -2829,7 +2792,6 @@ function MapPage() {
       void trackClientEvent("map_pin_click", {
         entityType: "event_occurrence",
         entityId,
-        cityId,
         metadata: {
           precision: selected?.location_precision ?? (properties?.approximate ? "city" : "exact"),
         },
@@ -2969,7 +2931,6 @@ function MapPage() {
       resetCursor();
     };
   }, [
-    cityId,
     closeEventSelection,
     closeClusterSelection,
     eventMapPoints,
@@ -2999,21 +2960,35 @@ function MapPage() {
     setCats(new Set());
     setQuery("");
     setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
-    setGeography({ countryId: null, regionId: null, cityId: null });
     setShowEvents(true);
   };
 
-  const approximateCount =
-    unfilteredWorld && compactPins
-      ? compactPins.reduce((count, pin) => count + pin[5], 0)
-      : events.filter((event) => event.location_precision === "city").length;
+  const recenterOnUser = () => {
+    const location = userLocationRef.current;
+    if (!location) return;
+    mapRef.current?.flyTo({
+      center: [location.longitude, location.latitude],
+      zoom: INITIAL_GEOLOCATION_ZOOM,
+      duration: 650,
+    });
+  };
+
+  const approximateCount = compactPins.reduce((count, pin) => count + pin[5], 0);
   const mobileActiveFilterCount =
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
+  if (geolocationStatus !== "ready" || !userLocation) {
+    return (
+      <LocationPermissionGate
+        status={geolocationStatus === "ready" ? "error" : geolocationStatus}
+        onRetry={() => setLocationRequestKey((key) => key + 1)}
+      />
+    );
+  }
+
   if (isMobile) {
     const hasMoreMobileEvents =
-      visibleMobileEventCount < events.length ||
-      (unfilteredWorld && (mobileListHasMore || mobileListLoadingMore));
+      visibleMobileEventCount < events.length || mobileListHasMore || mobileListLoadingMore;
     const mobileSelection = clusterSelectionOpen ? (
       <SelectedClusterEvents
         events={selectedClusterEvents}
@@ -3032,7 +3007,7 @@ function MapPage() {
         activeFilterCount={mobileActiveFilterCount}
         hasSelection={Boolean(mobileSelection)}
         onMapResizeNeeded={requestMapResize}
-        onListViewNeeded={() => setWorldListRequested(true)}
+        onListViewNeeded={() => setListRequested(true)}
         search={
           <div>
             <div className="relative">
@@ -3047,10 +3022,10 @@ function MapPage() {
             </div>
             <p className="mt-1 truncate px-1 text-[10px] text-muted-foreground">
               {loading
-                ? "Chargement des événements…"
-                : statsLoading
-                  ? `${COUNT_FORMATTER.format(loadedPointCount)} points chargés · calcul du total…`
-                  : `${formatNumber(totalEventCount)} événements · ${formatNumber(loadedPointCount)} points chargés · ${selectedCity?.name ?? selectedRegion?.name ?? selectedCountry?.name ?? t("home.world")}`}
+                ? tr("Actualisation des événements de la zone visible…")
+                : tr("{count} événements dans la zone visible", {
+                    count: formatNumber(totalEventCount),
+                  })}
             </p>
             {error && (
               <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
@@ -3072,6 +3047,7 @@ function MapPage() {
               containerRef={containerRef}
               mapReady={mapReady}
               mapUnavailable={mapUnavailable}
+              fallbackCenter={userLocation}
             />
             <SelectedMapEventDialog
               open={eventSelectionOpen}
@@ -3147,7 +3123,7 @@ function MapPage() {
                 <MapPin className="mx-auto mb-3 h-7 w-7 text-primary" />
                 <p className="font-bold">{tr("Aucun événement trouvé")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {tr("Essaie une autre date, ville ou catégorie.")}
+                  {tr("Déplace ou dézoome la carte, ou modifie les filtres.")}
                 </p>
               </div>
             )}
@@ -3168,17 +3144,22 @@ function MapPage() {
         filters={
           <div className="space-y-5">
             <section>
-              <h3 className="mb-2 text-sm font-black">{t("home.destination")}</h3>
-              <GeographyFilter
-                countries={countries}
-                regions={regions}
-                cities={cities}
-                value={geography}
-                cityLoading={cityLoading}
-                onCityQuery={searchCities}
-                onChange={setGeography}
-                compact
-              />
+              <h3 className="mb-2 text-sm font-black">{tr("Zone de recherche")}</h3>
+              <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3 text-xs">
+                <p className="font-black text-primary">{tr("Zone visible de la carte")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {tr(
+                    "Les événements s’actualisent automatiquement après chaque déplacement ou zoom.",
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={recenterOnUser}
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border bg-surface font-bold"
+                >
+                  <Navigation className="h-4 w-4" /> {tr("Recentrer sur ma position")}
+                </button>
+              </div>
             </section>
 
             <section>
@@ -3257,7 +3238,7 @@ function MapPage() {
               </button>
               <button
                 type="button"
-                onClick={() => mapRef.current?.flyTo({ center: GENEVA_CENTER, zoom: 12 })}
+                onClick={recenterOnUser}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border text-xs font-bold"
               >
                 <Navigation className="h-4 w-4" /> {tr("Recentrer")}
@@ -3276,6 +3257,7 @@ function MapPage() {
           containerRef={containerRef}
           mapReady={mapReady}
           mapUnavailable={mapUnavailable}
+          fallbackCenter={userLocation}
         />
       </div>
 
@@ -3286,18 +3268,12 @@ function MapPage() {
               <MapPin className="mr-1 h-3.5 w-3.5" /> {tr("Carte clusterisée")}
             </Badge>
             <h1 className="text-xl font-black">
-              {tr("Sorties")} ·{" "}
-              {selectedCity?.name ??
-                selectedRegion?.name ??
-                selectedCountry?.name ??
-                "monde entier"}
+              {tr("Sorties")} · {tr("zone visible")}
             </h1>
             <p className="text-xs text-muted-foreground">
               {loading
-                ? "Chargement de tous les points…"
-                : statsLoading
-                  ? `${COUNT_FORMATTER.format(loadedPointCount)} points chargés · calcul du total…`
-                  : `${COUNT_FORMATTER.format(totalEventCount)} événements au total · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}
+                ? tr("Actualisation des événements de la zone visible…")
+                : `${COUNT_FORMATTER.format(totalEventCount)} événements visibles · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}
             </p>
             {!loading && (
               <p className="mt-1 text-[11px] text-muted-foreground">
@@ -3315,8 +3291,8 @@ function MapPage() {
           <Button
             size="icon"
             variant="secondary"
-            aria-label={tr("Recentrer sur Genève")}
-            onClick={() => mapRef.current?.flyTo({ center: GENEVA_CENTER, zoom: 12 })}
+            aria-label={tr("Recentrer sur ma position")}
+            onClick={recenterOnUser}
           >
             <Navigation className="h-4 w-4" />
           </Button>
@@ -3333,17 +3309,14 @@ function MapPage() {
           />
         </div>
 
-        <div className="mb-2">
-          <GeographyFilter
-            countries={countries}
-            regions={regions}
-            cities={cities}
-            value={geography}
-            cityLoading={cityLoading}
-            onCityQuery={searchCities}
-            onChange={setGeography}
-            compact
-          />
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs">
+          <Navigation className="h-4 w-4 shrink-0 text-primary" />
+          <span>
+            <strong className="text-primary">{tr("Zone visible")}</strong>
+            <span className="block text-muted-foreground">
+              {tr("Déplace ou zoome la carte pour actualiser les événements.")}
+            </span>
+          </span>
         </div>
 
         <div className="grid grid-cols-1 gap-2">
