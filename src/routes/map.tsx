@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -50,6 +50,7 @@ import { MobileDiscoveryLayout } from "@/components/discovery/MobileDiscoveryLay
 import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -78,6 +79,8 @@ import {
   shouldOpenClusterSelection,
 } from "@/lib/map-cluster-config";
 import {
+  mapEventPinOccurrenceId,
+  resolveMapEventPinPreview,
   selectHighestPriorityMapHit,
   selectNearestMapHit,
   type MapHitCandidate,
@@ -348,38 +351,131 @@ function formatMobileEventDate(
   }
 }
 
-function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClose: () => void }) {
-  const { tr, localeTag } = useTranslation();
+function SelectedMapEventDialog({
+  open,
+  event,
+  loading,
+  error,
+  onOpenChange,
+  onRetry,
+}: {
+  open: boolean;
+  event: MapOccurrencePreview | null;
+  loading: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+  onRetry: () => void;
+}) {
+  const { t, tr, localeTag } = useTranslation();
+  const imageUrl = event ? safeMapPreviewImageUrl(event.cover_image_url) : null;
+  const description = event
+    ? mapPreviewExcerpt(event.short_description ?? event.description, 420)
+    : "";
+
   return (
-    <aside className="relative p-3 pr-14" aria-label={`Événement sélectionné : ${event.title}`}>
-      <button
-        type="button"
-        aria-label={tr("Fermer la fiche")}
-        onClick={onClose}
-        className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full border bg-surface text-lg"
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        closeLabel={tr("Fermer la fiche")}
+        className="map-event-dialog max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-xl gap-0 overflow-hidden rounded-3xl border-border bg-background p-0 shadow-2xl sm:rounded-3xl"
       >
-        ×
-      </button>
-      <Badge className="mb-1.5 border-transparent bg-primary/15 text-primary">
-        {tr("Événement sélectionné")}
-      </Badge>
-      <h2 className="line-clamp-1 text-base font-black">{event.title}</h2>
-      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Clock className="h-3.5 w-3.5 shrink-0" /> {formatMobileEventDate(event, localeTag)}
-      </p>
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-xs text-muted-foreground">
-          {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
-        </p>
-        <Link
-          to="/event/$slug"
-          params={{ slug: event.slug }}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-primary px-3 text-xs font-black text-primary-foreground"
-        >
-          {tr("Voir la fiche")}
-        </Link>
-      </div>
-    </aside>
+        {event ? (
+          <>
+            <div className="relative h-[min(13rem,30dvh)] overflow-hidden bg-gradient-to-br from-primary via-secondary to-primary/70 sm:h-[min(16rem,32dvh)]">
+              <div className="absolute inset-0 grid place-items-center text-4xl text-primary-foreground">
+                ✦
+              </div>
+              {imageUrl && (
+                <img
+                  key={imageUrl}
+                  src={imageUrl}
+                  alt=""
+                  loading="eager"
+                  referrerPolicy="no-referrer"
+                  onError={(imageEvent) => {
+                    imageEvent.currentTarget.hidden = true;
+                  }}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              )}
+              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background to-transparent" />
+            </div>
+            <div className="max-h-[58dvh] overflow-y-auto p-5 pt-3 sm:p-6 sm:pt-3">
+              <Badge className="mb-3 border-transparent bg-primary/15 text-primary">
+                {tr("Événement sélectionné")}
+              </Badge>
+              <DialogTitle className="pr-8 text-2xl font-black leading-tight">
+                {event.title}
+              </DialogTitle>
+              <div className="mt-4 grid gap-2 text-sm text-muted-foreground">
+                <p className="flex items-start gap-2">
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{formatMobileEventDate(event, localeTag)}</span>
+                </p>
+                <p className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}</span>
+                </p>
+              </div>
+              <DialogDescription
+                role="status"
+                aria-live="polite"
+                aria-busy={loading}
+                className="mt-5 whitespace-pre-line text-sm leading-6 text-foreground/80"
+              >
+                {loading && !description ? (
+                  <span className="flex items-center gap-2 font-bold text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+                    {t("common.loading")}
+                  </span>
+                ) : (
+                  description || tr("Description à venir.")
+                )}
+              </DialogDescription>
+              {error && !loading && (
+                <div
+                  role="alert"
+                  className="mt-5 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+                >
+                  <p>{error}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-3 min-h-11"
+                    onClick={onRetry}
+                  >
+                    {t("common.retry")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="grid min-h-64 place-items-center p-8 text-center">
+            <div>
+              <DialogTitle className="text-xl font-black">
+                {tr("Événement sélectionné")}
+              </DialogTitle>
+              <DialogDescription
+                role="status"
+                aria-live="polite"
+                aria-busy={loading}
+                className="mt-2 text-sm"
+              >
+                {error ?? t("common.loading")}
+              </DialogDescription>
+              {loading && (
+                <LoaderCircle className="mx-auto mt-6 h-8 w-8 animate-spin text-primary" />
+              )}
+              {error && !loading && (
+                <Button type="button" className="mt-6 min-h-11" onClick={onRetry}>
+                  {t("common.retry")}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -390,6 +486,7 @@ function SelectedClusterEvents({
   error,
   onClose,
   onRetry,
+  onSelect,
 }: {
   events: MapOccurrencePreview[];
   expectedCount: number;
@@ -397,6 +494,7 @@ function SelectedClusterEvents({
   error: string | null;
   onClose: () => void;
   onRetry: () => void;
+  onSelect: (event: MapOccurrencePreview) => void;
 }) {
   const { t, tr, localeTag } = useTranslation();
   return (
@@ -431,11 +529,11 @@ function SelectedClusterEvents({
       )}
       <div className="mt-2 grid gap-2">
         {events.map((event) => (
-          <Link
+          <button
+            type="button"
             key={event.occurrence_id}
-            to="/event/$slug"
-            params={{ slug: event.slug }}
-            className="rounded-xl border bg-background px-3 py-2 text-left hover:border-primary"
+            onClick={() => onSelect(event)}
+            className="min-h-11 w-full rounded-xl border bg-background px-3 py-2 text-left hover:border-primary"
             style={{ contentVisibility: "auto", containIntrinsicSize: "0 52px" }}
           >
             <span className="block truncate text-xs font-black">{event.title}</span>
@@ -443,7 +541,7 @@ function SelectedClusterEvents({
               {formatMobileEventDate(event, localeTag)} ·{" "}
               {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
             </span>
-          </Link>
+          </button>
         ))}
       </div>
     </aside>
@@ -571,7 +669,6 @@ function createClusterHoverContent(
 
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
-  const navigate = useNavigate();
   const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
   const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
     setMapContainer(node);
@@ -602,7 +699,10 @@ function MapPage() {
   const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
+  const [selectedMapEvent, setSelectedMapEvent] = useState<MapOccurrencePreview | null>(null);
+  const [eventSelectionOpen, setEventSelectionOpen] = useState(false);
+  const [eventSelectionLoading, setEventSelectionLoading] = useState(false);
+  const [eventSelectionError, setEventSelectionError] = useState<string | null>(null);
   const [selectedClusterEvents, setSelectedClusterEvents] = useState<MapOccurrencePreview[]>([]);
   const [clusterSelectionOpen, setClusterSelectionOpen] = useState(false);
   const [clusterSelectionLoading, setClusterSelectionLoading] = useState(false);
@@ -621,6 +721,8 @@ function MapPage() {
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
   const cityRequestVersionRef = useRef(0);
+  const eventSelectionRequestRef = useRef(0);
+  const eventSelectionRetryRef = useRef<(() => void) | null>(null);
   const clusterSelectionRequestRef = useRef(0);
   const clusterSelectionRetryRef = useRef<(() => void) | null>(null);
   const previewCacheRef = useRef(new Map<string, MapOccurrencePreview | null>());
@@ -788,7 +890,7 @@ function MapPage() {
       void request.then(
         (preview) => {
           previewCacheRef.current.set(occurrenceId, preview);
-          fullPreviewIdsRef.current.add(occurrenceId);
+          if (preview) fullPreviewIdsRef.current.add(occurrenceId);
           if (fullPreviewInFlightRef.current.get(occurrenceId) === request) {
             fullPreviewInFlightRef.current.delete(occurrenceId);
           }
@@ -817,6 +919,61 @@ function MapPage() {
     setClusterSelectionExpectedCount(0);
     setSelectedClusterEvents([]);
   }, []);
+  const closeEventSelection = useCallback(() => {
+    eventSelectionRequestRef.current += 1;
+    eventSelectionRetryRef.current = null;
+    setEventSelectionOpen(false);
+    setEventSelectionLoading(false);
+    setEventSelectionError(null);
+    setSelectedMapEvent(null);
+  }, []);
+  const openEventSelection = useCallback(
+    function openSelectedMapEvent(
+      occurrenceId: string,
+      initialPreview: MapOccurrencePreview | null = null,
+      preserveClusterSelection = false,
+    ) {
+      if (!occurrenceId) return;
+
+      const requestVersion = ++eventSelectionRequestRef.current;
+      const localEvent = eventsByOccurrenceId.get(occurrenceId);
+      const immediatePreview =
+        initialPreview ??
+        (localEvent ? mapPreviewFromDiscoveredEvent(localEvent) : null) ??
+        previewCacheRef.current.get(occurrenceId) ??
+        null;
+      const hasDescription = Boolean(
+        immediatePreview &&
+        mapPreviewExcerpt(immediatePreview.short_description ?? immediatePreview.description, 1),
+      );
+
+      if (!preserveClusterSelection) closeClusterSelection();
+      eventSelectionRetryRef.current = () => {
+        openSelectedMapEvent(occurrenceId, initialPreview, preserveClusterSelection);
+      };
+      setEventSelectionOpen(true);
+      setSelectedMapEvent(immediatePreview);
+      setEventSelectionError(null);
+      setEventSelectionLoading(!hasDescription);
+
+      if (hasDescription) return;
+
+      void resolveMapEventPinPreview(
+        occurrenceId,
+        resolveEventHoverPreview,
+        () => requestVersion === eventSelectionRequestRef.current,
+      ).then((result) => {
+        if (result.status === "stale") return;
+        setEventSelectionLoading(false);
+        if (result.status === "ready") {
+          setSelectedMapEvent(result.preview);
+        } else {
+          setEventSelectionError(tr("Aperçu momentanément indisponible"));
+        }
+      });
+    },
+    [closeClusterSelection, eventsByOccurrenceId, resolveEventHoverPreview, tr],
+  );
 
   useEffect(() => {
     isMobileRef.current = isMobile;
@@ -1099,7 +1256,7 @@ function MapPage() {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
         setCompactPins(nextPins);
-        setSelectedEvent(null);
+        closeEventSelection();
         closeClusterSelection();
       })
       .catch(() => {
@@ -1129,6 +1286,7 @@ function MapPage() {
       current = false;
     };
   }, [
+    closeEventSelection,
     closeClusterSelection,
     from,
     geography,
@@ -1205,7 +1363,7 @@ function MapPage() {
       clusterSelectionRetryRef.current = () => {
         void loadClusterSelection(source, clusterId, pointCount);
       };
-      setSelectedEvent(null);
+      closeEventSelection();
       setClusterSelectionOpen(true);
       setClusterSelectionLoading(true);
       setClusterSelectionError(null);
@@ -1246,7 +1404,7 @@ function MapPage() {
       const [longitude, latitude] = feature.geometry.coordinates;
       const pointCount = mapClusterPointCount(feature.properties?.point_count);
 
-      setSelectedEvent(null);
+      closeEventSelection();
       if (map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM) {
         void loadClusterSelection(source, clusterId, pointCount);
         return;
@@ -1270,29 +1428,19 @@ function MapPage() {
     };
     const openPoint = (feature: MapGeoJSONFeature) => {
       const properties = feature.properties as Partial<MapPointProperties> | undefined;
-      const entityId = typeof properties?.entity_id === "string" ? properties.entity_id : "";
+      const entityId = mapEventPinOccurrenceId(properties);
+      if (!entityId) return;
 
-      if (properties?.kind === "event") {
-        const selected = eventsByOccurrenceId.get(entityId);
-        const slug = typeof properties.slug === "string" ? properties.slug : "";
-        if (selected) {
-          closeClusterSelection();
-          setSelectedEvent(selected);
-        } else if (slug) {
-          closeClusterSelection();
-          void navigate({ to: "/event/$slug", params: { slug } });
-        } else {
-          return;
-        }
-        void trackClientEvent("map_pin_click", {
-          entityType: "event_occurrence",
-          entityId,
-          cityId,
-          metadata: {
-            precision: selected?.location_precision ?? (properties.approximate ? "city" : "exact"),
-          },
-        });
-      }
+      const selected = eventsByOccurrenceId.get(entityId);
+      openEventSelection(entityId, selected ? mapPreviewFromDiscoveredEvent(selected) : null);
+      void trackClientEvent("map_pin_click", {
+        entityType: "event_occurrence",
+        entityId,
+        cityId,
+        metadata: {
+          precision: selected?.location_precision ?? (properties?.approximate ? "city" : "exact"),
+        },
+      });
     };
     const handlePointMouseEnter = (event: MapLayerMouseEvent) => {
       map.getCanvas().style.cursor = "pointer";
@@ -1429,13 +1577,14 @@ function MapPage() {
     };
   }, [
     cityId,
+    closeEventSelection,
     closeClusterSelection,
     eventMapPoints,
     eventsByOccurrenceId,
     formatNumber,
     mapInstance,
     mapReady,
-    navigate,
+    openEventSelection,
     readyStyle,
     resolveEventHoverPreview,
     resolveOccurrencePreviews,
@@ -1470,9 +1619,7 @@ function MapPage() {
 
   if (isMobile) {
     const hasMoreMobileEvents = visibleMobileEventCount < events.length;
-    const mobileSelection = selectedEvent ? (
-      <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-    ) : clusterSelectionOpen ? (
+    const mobileSelection = clusterSelectionOpen ? (
       <SelectedClusterEvents
         events={selectedClusterEvents}
         expectedCount={clusterSelectionExpectedCount}
@@ -1480,6 +1627,7 @@ function MapPage() {
         error={clusterSelectionError}
         onClose={closeClusterSelection}
         onRetry={() => clusterSelectionRetryRef.current?.()}
+        onSelect={(event) => openEventSelection(event.occurrence_id, event, true)}
       />
     ) : null;
 
@@ -1523,11 +1671,23 @@ function MapPage() {
           </div>
         }
         map={
-          <MapSurface
-            containerRef={containerRef}
-            mapReady={mapReady}
-            mapUnavailable={mapUnavailable}
-          />
+          <>
+            <MapSurface
+              containerRef={containerRef}
+              mapReady={mapReady}
+              mapUnavailable={mapUnavailable}
+            />
+            <SelectedMapEventDialog
+              open={eventSelectionOpen}
+              event={selectedMapEvent}
+              loading={eventSelectionLoading}
+              error={eventSelectionError}
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) closeEventSelection();
+              }}
+              onRetry={() => eventSelectionRetryRef.current?.()}
+            />
+          </>
         }
         selection={mobileSelection}
         list={
@@ -1881,22 +2041,6 @@ function MapPage() {
         )}
       </div>
 
-      {selectedEvent && (
-        <div className="absolute inset-x-3 bottom-20 z-10 md:inset-x-auto md:bottom-6 md:left-[32rem] md:w-80">
-          <div className="map-overlay-panel relative rounded-2xl p-1">
-            <button
-              type="button"
-              aria-label={tr("Fermer la fiche")}
-              onClick={() => setSelectedEvent(null)}
-              className="absolute -top-3 right-2 z-20 h-8 w-8 rounded-full border bg-background text-xs shadow-lg"
-            >
-              ×
-            </button>
-            <EventCard ev={selectedEvent} />
-          </div>
-        </div>
-      )}
-
       {clusterSelectionOpen && (
         <div className="map-overlay-panel absolute bottom-6 left-[32rem] z-10 w-80 rounded-3xl">
           <SelectedClusterEvents
@@ -1906,9 +2050,21 @@ function MapPage() {
             error={clusterSelectionError}
             onClose={closeClusterSelection}
             onRetry={() => clusterSelectionRetryRef.current?.()}
+            onSelect={(event) => openEventSelection(event.occurrence_id, event, true)}
           />
         </div>
       )}
+
+      <SelectedMapEventDialog
+        open={eventSelectionOpen}
+        event={selectedMapEvent}
+        loading={eventSelectionLoading}
+        error={eventSelectionError}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) closeEventSelection();
+        }}
+        onRetry={() => eventSelectionRetryRef.current?.()}
+      />
     </div>
   );
 }

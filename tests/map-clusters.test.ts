@@ -17,7 +17,12 @@ import {
   eventCategoryVisual,
   normalizeEventCategorySlug,
 } from "../src/lib/event-category-style.ts";
-import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
+import {
+  mapEventPinOccurrenceId,
+  resolveMapEventPinPreview,
+  selectHighestPriorityMapHit,
+  selectNearestMapHit,
+} from "../src/lib/map-interactions.ts";
 import { parseCompactMapPins } from "../src/lib/map-pins.ts";
 import {
   chunkOccurrenceIds,
@@ -129,6 +134,72 @@ test("builds every compact world pin returned by the uncapped RPC", () => {
       slug: "night-in-new-york",
     },
   });
+});
+
+test("selects compact event pins for an in-place dialog without relying on their slug", () => {
+  assert.equal(
+    mapEventPinOccurrenceId({
+      kind: "event",
+      entity_id: "occurrence-world-2501",
+      slug: "must-not-trigger-navigation",
+    }),
+    "occurrence-world-2501",
+  );
+  assert.equal(mapEventPinOccurrenceId({ kind: "venue", entity_id: "venue-1" }), null);
+  assert.equal(mapEventPinOccurrenceId({ kind: "event", entity_id: "  " }), null);
+});
+
+test("resolves a compact pin preview for the modal by occurrence id", async () => {
+  const requests: string[] = [];
+  const preview = { title: "World event" };
+
+  const result = await resolveMapEventPinPreview(
+    "occurrence-world-2501",
+    async (occurrenceId) => {
+      requests.push(occurrenceId);
+      return preview;
+    },
+    () => true,
+  );
+
+  assert.deepEqual(requests, ["occurrence-world-2501"]);
+  assert.deepEqual(result, { status: "ready", preview });
+});
+
+test("ignores a pin preview that resolves after the modal was closed", async () => {
+  let selectionIsCurrent = true;
+  let resolvePending!: (preview: { title: string } | null) => void;
+  const pending = new Promise<{ title: string } | null>((resolve) => {
+    resolvePending = resolve;
+  });
+  const resultPromise = resolveMapEventPinPreview(
+    "occurrence-1",
+    async () => pending,
+    () => selectionIsCurrent,
+  );
+
+  selectionIsCurrent = false;
+  resolvePending({ title: "Late event" });
+
+  assert.deepEqual(await resultPromise, { status: "stale" });
+});
+
+test("keeps compact pin loading failures inside the modal", async () => {
+  const missing = await resolveMapEventPinPreview(
+    "occurrence-missing",
+    async () => null,
+    () => true,
+  );
+  const failed = await resolveMapEventPinPreview(
+    "occurrence-offline",
+    async () => {
+      throw new Error("offline");
+    },
+    () => true,
+  );
+
+  assert.deepEqual(missing, { status: "missing" });
+  assert.deepEqual(failed, { status: "error" });
 });
 
 test("drops malformed compact pin rows without imposing a result limit", () => {
