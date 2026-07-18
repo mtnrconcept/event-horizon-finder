@@ -67,8 +67,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 import {
-  buildCompactMapPointCollection,
-  buildMapPointCollection,
+  buildLoadedMapPointCollection,
   isMapCoordinatePlausibleForCountry,
   type MapPointCollection,
   type MapPointProperties,
@@ -1974,6 +1973,14 @@ function MapPage() {
   const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
   const [compactPins, setCompactPins] = useState<CompactMapPin[] | null>(null);
+  const [worldPinsReady, setWorldPinsReady] = useState(false);
+  const [worldPinsDetailedFallback, setWorldPinsDetailedFallback] = useState(false);
+  const [worldListRequested, setWorldListRequested] = useState(false);
+  const [mobileListLoading, setMobileListLoading] = useState(false);
+  const [mobileListLoadingMore, setMobileListLoadingMore] = useState(false);
+  const [mobileListHasMore, setMobileListHasMore] = useState(false);
+  const [mobileListError, setMobileListError] = useState<string | null>(null);
+  const [mobileListReloadKey, setMobileListReloadKey] = useState(0);
   const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
@@ -2069,14 +2076,15 @@ function MapPage() {
     range === "year";
   const eventMapPoints = useMemo(
     () =>
-      unfilteredWorld && compactPins
-        ? buildCompactMapPointCollection({ pins: compactPins, showEvents })
-        : buildMapPointCollection({
-            events,
-            showEvents,
-            countryCode: selectedCountryCode,
-          }),
-    [compactPins, events, selectedCountryCode, showEvents, unfilteredWorld],
+      buildLoadedMapPointCollection({
+        unfilteredWorld,
+        compactPins,
+        worldPinsReady,
+        events,
+        showEvents,
+        countryCode: selectedCountryCode,
+      }),
+    [compactPins, events, selectedCountryCode, showEvents, unfilteredWorld, worldPinsReady],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -2488,20 +2496,22 @@ function MapPage() {
     [advancedFilters, cats, cityId, countryId, deferredQuery, from, regionId, to],
   );
 
-  const localDiscoveryStats = useMemo<DiscoveryStats>(
-    () => ({
-      total_count: unfilteredWorld && compactPins ? compactPins.length : events.length,
+  const localDiscoveryStats = useMemo<DiscoveryStats>(() => {
+    const readyWorldPins = compactPins ?? (worldPinsReady ? events : null);
+    return {
+      total_count: unfilteredWorld ? (readyWorldPins?.length ?? 0) : events.length,
       free_count:
         unfilteredWorld && compactPins
           ? compactPins.reduce((count, pin) => count + pin[4], 0)
           : events.filter((event) => event.is_free).length,
       verified_count: events.filter((event) => event.is_verified).length,
-    }),
-    [compactPins, events, unfilteredWorld],
-  );
+    };
+  }, [compactPins, events, unfilteredWorld, worldPinsReady]);
   const mapStats = discoveryStats ?? localDiscoveryStats;
   const totalEventCount = mapStats.total_count;
-  const loadedPointCount = unfilteredWorld && compactPins ? compactPins.length : events.length;
+  const loadedPointCount = unfilteredWorld
+    ? (compactPins?.length ?? (worldPinsReady ? events.length : 0))
+    : events.length;
 
   useEffect(() => {
     if (!geographyReady) return;
@@ -2511,6 +2521,13 @@ function MapPage() {
     setStatsLoading(true);
     setDiscoveryStats(null);
     setCompactPins(null);
+    setWorldPinsReady(false);
+    setWorldPinsDetailedFallback(false);
+    setEvents([]);
+    setMobileListLoading(false);
+    setMobileListLoadingMore(false);
+    setMobileListHasMore(false);
+    setMobileListError(null);
     setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
     setError(null);
     const loadDetailedPages = () =>
@@ -2533,44 +2550,34 @@ function MapPage() {
     const loadPoints = async () => {
       if (!unfilteredWorld) {
         const nextEvents = await loadDetailedPages();
-        return { nextEvents, nextPins: null };
+        return { nextEvents, nextPins: null, usedDetailedFallback: false };
       }
 
-      const firstPagePromise = discoverMapEvents({
-        ...mapDiscoveryParams,
-        limit: MAP_EVENT_PAGE_SIZE,
-        offset: 0,
-      }).then((nextEvents) => {
-        if (!current || requestVersion !== requestVersionRef.current) return;
-        setEvents(nextEvents);
-        return nextEvents;
-      });
-
       try {
-        const [nextPins, nextEvents] = await Promise.all([
-          discoverAllMapPins({ from, to }),
-          firstPagePromise,
-        ]);
-        return { nextEvents: nextEvents ?? [], nextPins };
+        const nextPins = await discoverAllMapPins({ from, to });
+        return { nextEvents: [], nextPins, usedDetailedFallback: false };
       } catch {
         // The detailed endpoint remains an uncapped fallback if the compact
         // worldwide endpoint is temporarily unavailable.
         const nextEvents = await loadDetailedPages();
-        return { nextEvents, nextPins: null };
+        return { nextEvents, nextPins: null, usedDetailedFallback: true };
       }
     };
 
     void loadPoints()
-      .then(({ nextEvents, nextPins }) => {
+      .then(({ nextEvents, nextPins, usedDetailedFallback }) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setEvents(nextEvents);
         setCompactPins(nextPins);
+        setWorldPinsReady(true);
+        setWorldPinsDetailedFallback(usedDetailedFallback);
         closeEventSelection();
         closeClusterSelection();
       })
       .catch(() => {
         if (!current) return;
         setEvents([]);
+        setWorldPinsReady(false);
         setError("Impossible de charger les points de la carte. Réessaie dans un instant.");
       })
       .finally(() => {
@@ -2606,8 +2613,85 @@ function MapPage() {
     unfilteredWorld,
   ]);
 
+  useEffect(() => {
+    if (
+      !geographyReady ||
+      !unfilteredWorld ||
+      !worldPinsReady ||
+      worldPinsDetailedFallback ||
+      !worldListRequested
+    ) {
+      return;
+    }
+
+    let current = true;
+    const requestVersion = requestVersionRef.current;
+    setMobileListLoading(true);
+    setMobileListError(null);
+
+    void discoverMapEvents({
+      ...mapDiscoveryParams,
+      limit: MAP_EVENT_PAGE_SIZE,
+      offset: 0,
+    })
+      .then((nextEvents) => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setEvents(nextEvents);
+        setMobileListHasMore(nextEvents.length === MAP_EVENT_PAGE_SIZE);
+      })
+      .catch(() => {
+        if (!current || requestVersion !== requestVersionRef.current) return;
+        setMobileListError("Impossible de charger la liste. Réessaie dans un instant.");
+      })
+      .finally(() => {
+        if (current && requestVersion === requestVersionRef.current) {
+          setMobileListLoading(false);
+        }
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [
+    geographyReady,
+    mapDiscoveryParams,
+    mobileListReloadKey,
+    unfilteredWorld,
+    worldListRequested,
+    worldPinsDetailedFallback,
+    worldPinsReady,
+  ]);
+
   const loadMoreMobileList = () => {
-    setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
+    if (visibleMobileEventCount < events.length) {
+      setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
+      return;
+    }
+    if (!unfilteredWorld || !mobileListHasMore || mobileListLoadingMore) return;
+
+    const requestVersion = requestVersionRef.current;
+    setMobileListLoadingMore(true);
+    setMobileListError(null);
+    void discoverMapEvents({
+      ...mapDiscoveryParams,
+      limit: MAP_EVENT_PAGE_SIZE,
+      offset: events.length,
+    })
+      .then((nextEvents) => {
+        if (requestVersion !== requestVersionRef.current) return;
+        const knownIds = new Set(events.map((event) => event.occurrence_id));
+        const additions = nextEvents.filter((event) => !knownIds.has(event.occurrence_id));
+        setEvents((current) => [...current, ...additions]);
+        setMobileListHasMore(nextEvents.length === MAP_EVENT_PAGE_SIZE && additions.length > 0);
+        setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
+      })
+      .catch(() => {
+        if (requestVersion !== requestVersionRef.current) return;
+        setMobileListError("Impossible de charger la suite de la liste. Réessaie.");
+      })
+      .finally(() => {
+        if (requestVersion === requestVersionRef.current) setMobileListLoadingMore(false);
+      });
   };
 
   useEffect(() => {
@@ -2927,7 +3011,9 @@ function MapPage() {
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
   if (isMobile) {
-    const hasMoreMobileEvents = visibleMobileEventCount < events.length;
+    const hasMoreMobileEvents =
+      visibleMobileEventCount < events.length ||
+      (unfilteredWorld && (mobileListHasMore || mobileListLoadingMore));
     const mobileSelection = clusterSelectionOpen ? (
       <SelectedClusterEvents
         events={selectedClusterEvents}
@@ -2942,10 +3028,11 @@ function MapPage() {
 
     return (
       <MobileDiscoveryLayout
-        resultCount={totalEventCount}
+        resultCount={statsLoading ? null : totalEventCount}
         activeFilterCount={mobileActiveFilterCount}
         hasSelection={Boolean(mobileSelection)}
         onMapResizeNeeded={requestMapResize}
+        onListViewNeeded={() => setWorldListRequested(true)}
         search={
           <div>
             <div className="relative">
@@ -3021,10 +3108,27 @@ function MapPage() {
               </span>
             </div>
 
-            {loading && events.length === 0 ? (
+            {mobileListError && (
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-2xl bg-destructive/10 p-3 text-xs text-destructive">
+                <span>{mobileListError}</span>
+                <button
+                  type="button"
+                  className="min-h-11 shrink-0 font-black underline"
+                  onClick={() =>
+                    events.length > 0
+                      ? loadMoreMobileList()
+                      : setMobileListReloadKey((key) => key + 1)
+                  }
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+            )}
+
+            {(loading || mobileListLoading) && events.length === 0 ? (
               <div className="grid gap-3">
                 {Array.from({ length: 4 }, (_, index) => (
-                  <EventCardSkeleton key={index} />
+                  <EventCardSkeleton key={index} variant="compact" />
                 ))}
               </div>
             ) : mobileListEvents.length > 0 ? (
@@ -3032,9 +3136,9 @@ function MapPage() {
                 {mobileListEvents.map((event) => (
                   <div
                     key={event.occurrence_id}
-                    style={{ contentVisibility: "auto", containIntrinsicSize: "0 360px" }}
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "0 160px" }}
                   >
-                    <EventCard ev={event} />
+                    <EventCard ev={event} variant="compact" />
                   </div>
                 ))}
               </div>
@@ -3052,9 +3156,11 @@ function MapPage() {
               <button
                 type="button"
                 onClick={loadMoreMobileList}
+                disabled={mobileListLoadingMore}
                 className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 text-sm font-black text-primary disabled:opacity-60"
               >
-                {tr("Afficher plus de sorties")}
+                {mobileListLoadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                {mobileListLoadingMore ? t("common.loading") : tr("Afficher plus de sorties")}
               </button>
             )}
           </div>
