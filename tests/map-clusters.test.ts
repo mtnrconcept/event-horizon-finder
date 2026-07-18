@@ -20,6 +20,7 @@ import {
 import {
   mapEventPinOccurrenceId,
   resolveMapEventPinPreview,
+  resolveMapEventPinSelection,
   selectHighestPriorityMapHit,
   selectNearestMapHit,
 } from "../src/lib/map-interactions.ts";
@@ -200,6 +201,35 @@ test("keeps compact pin loading failures inside the modal", async () => {
 
   assert.deepEqual(missing, { status: "missing" });
   assert.deepEqual(failed, { status: "error" });
+});
+
+test("resolves the full pin selection used by the in-place modal", async () => {
+  const detail = { occurrence_id: "occurrence-world-2501", offers: ["all"] };
+  const result = await resolveMapEventPinSelection(
+    "occurrence-world-2501",
+    async () => detail,
+    () => true,
+  );
+
+  assert.deepEqual(result, { status: "ready", selection: detail });
+});
+
+test("does not apply a full event response after the map modal is closed", async () => {
+  let current = true;
+  let complete!: (value: { title: string }) => void;
+  const pending = new Promise<{ title: string }>((resolve) => {
+    complete = resolve;
+  });
+  const result = resolveMapEventPinSelection(
+    "occurrence-1",
+    () => pending,
+    () => current,
+  );
+
+  current = false;
+  complete({ title: "Too late" });
+
+  assert.deepEqual(await result, { status: "stale" });
 });
 
 test("drops malformed compact pin rows without imposing a result limit", () => {

@@ -2,11 +2,21 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { parseCompactMapPins, type CompactMapPin } from "@/lib/map-pins";
 import {
+  attachMapOccurrenceDetailCollections,
+  assertMapOccurrenceId,
+  parseMapOccurrenceDetailRow,
+  type MapOccurrenceDetailCollections,
+  type MapOccurrenceDetail,
+} from "@/lib/map-event-details";
+import {
   MAP_PREVIEW_QUERY_BATCH_SIZE,
   chunkOccurrenceIds,
   parseMapOccurrencePreviewRows,
   type MapOccurrencePreview,
 } from "@/lib/map-occurrence-previews";
+import { loadAllPages } from "@/lib/load-all-pages";
+
+const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
 export type QuickRange =
   | "now"
@@ -323,6 +333,229 @@ export async function fetchMapOccurrencePreviews(
     .in("event.status", ["published", "cancelled", "postponed", "sold_out"]);
   if (error) throw error;
   return parseMapOccurrencePreviewRows(data);
+}
+
+async function fetchMapOccurrenceDetailCollections(
+  eventId: string,
+): Promise<MapOccurrenceDetailCollections> {
+  const [occurrences, offers, media, performers] = await Promise.all([
+    loadAllPages<{ id: string }>({
+      pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
+      getKey: (row) => row.id,
+      fetchPage: async ({ limit, offset }) => {
+        const { data, error } = await supabase
+          .from("event_occurrences")
+          .select(
+            `
+              id,
+              starts_at,
+              ends_at,
+              doors_open_at,
+              timezone,
+              all_day,
+              time_precision,
+              local_start_date,
+              local_end_date,
+              status,
+              ticket_status,
+              capacity,
+              latitude,
+              longitude
+            `,
+          )
+          .eq("event_id", eventId)
+          .order("id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (error) throw error;
+        return data ?? [];
+      },
+    }),
+    loadAllPages<{ id: string }>({
+      pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
+      getKey: (row) => row.id,
+      fetchPage: async ({ limit, offset }) => {
+        const { data, error } = await supabase
+          .from("ticket_offers")
+          .select("id,name,price_min,price_max,currency,is_free,ticket_url,status")
+          .eq("event_id", eventId)
+          .order("id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (error) throw error;
+        return data ?? [];
+      },
+    }),
+    loadAllPages<{ id: string }>({
+      pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
+      getKey: (row) => row.id,
+      fetchPage: async ({ limit, offset }) => {
+        const { data, error } = await supabase
+          .from("event_media")
+          .select("id,url,media_type,attribution,license,source_url,sort_order")
+          .eq("event_id", eventId)
+          .order("id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (error) throw error;
+        return data ?? [];
+      },
+    }),
+    loadAllPages<{ performer_id: string }>({
+      pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
+      getKey: (row) => row.performer_id,
+      fetchPage: async ({ limit, offset }) => {
+        const { data, error } = await supabase
+          .from("event_performers")
+          .select(
+            `
+              performer_id,
+              is_headliner,
+              performer:performers!event_performers_performer_id_fkey(
+                id,
+                slug,
+                name,
+                type,
+                bio,
+                image_url
+              )
+            `,
+          )
+          .eq("event_id", eventId)
+          .order("performer_id", { ascending: true })
+          .range(offset, offset + limit - 1);
+        if (error) throw error;
+        return data ?? [];
+      },
+    }),
+  ]);
+
+  return { occurrences, offers, media, performers };
+}
+
+/**
+ * Loads the complete public event record behind one map occurrence.
+ *
+ * This intentionally remains separate from the lightweight hover query: the
+ * larger relation graph is downloaded only after a pin is opened. The cast is
+ * kept at this query boundary until the generated Database type includes the
+ * public event_scraped_details relation.
+ */
+export async function fetchMapOccurrenceDetail(
+  occurrenceId: string,
+): Promise<MapOccurrenceDetail | null> {
+  const normalizedId = assertMapOccurrenceId(occurrenceId);
+  const detailSelect = `
+      id,
+      starts_at,
+      ends_at,
+      doors_open_at,
+      timezone,
+      all_day,
+      time_precision,
+      local_start_date,
+      local_end_date,
+      status,
+      ticket_status,
+      capacity,
+      latitude,
+      longitude,
+      event:events!event_occurrences_event_id_fkey!inner(
+        id,
+        slug,
+        title,
+        short_description,
+        description,
+        cover_image_url,
+        official_url,
+        age_restriction,
+        genres,
+        language,
+        is_free,
+        is_verified,
+        is_demo,
+        status,
+        verification_level,
+        category:event_categories!events_category_id_fkey(
+          slug,
+          name_fr,
+          name_en,
+          icon
+        ),
+        organizer:organizers!events_organizer_id_fkey(
+          id,
+          slug,
+          name,
+          description,
+          website,
+          logo_url,
+          is_verified
+        ),
+        venue:venues!events_venue_id_fkey(
+          id,
+          slug,
+          name,
+          address,
+          postal_code,
+          description,
+          capacity,
+          website,
+          cover_image_url,
+          is_verified,
+          latitude,
+          longitude,
+          city:cities!venues_city_id_fkey(
+            id,
+            slug,
+            name,
+            timezone,
+            region:regions!cities_region_id_fkey(id,name),
+            country:countries!cities_country_id_fkey(id,code,name)
+          ),
+          country:countries!venues_country_id_fkey(id,code,name)
+        ),
+        city:cities!events_city_id_fkey(
+          id,
+          slug,
+          name,
+          timezone,
+          region:regions!cities_region_id_fkey(id,name),
+          country:countries!cities_country_id_fkey(id,code,name)
+        ),
+        accessibility:event_accessibility!event_accessibility_event_id_fkey(
+          wheelchair,
+          hearing_loop,
+          sign_language,
+          quiet_space,
+          notes
+        ),
+        scraped:event_scraped_details(details)
+      )
+    `;
+  const runDetailQuery = (select: string) =>
+    // Keep this cast at the boundary so a rolling deploy still works while
+    // PostgREST refreshes the new public relation in its schema cache.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("event_occurrences")
+      .select(select)
+      .eq("id", normalizedId)
+      .eq("event.is_demo", false)
+      .in("event.status", ["published", "cancelled", "postponed", "sold_out"])
+      .maybeSingle();
+
+  let { data, error } = await runDetailQuery(detailSelect);
+  if (error && ["42P01", "PGRST200", "PGRST205"].includes(error.code ?? "")) {
+    ({ data, error } = await runDetailQuery(
+      detailSelect.replace(",\n        scraped:event_scraped_details(details)", ""),
+    ));
+  }
+  if (error) throw error;
+  const baseDetail = parseMapOccurrenceDetailRow(data);
+  if (!baseDetail) return null;
+
+  const collections = await fetchMapOccurrenceDetailCollections(baseDetail.event_id);
+  return (
+    parseMapOccurrenceDetailRow(attachMapOccurrenceDetailCollections(data, collections)) ??
+    baseDetail
+  );
 }
 
 export async function discoverEventStats(
