@@ -11,6 +11,7 @@ import {
 import maplibregl, {
   type GeoJSONSource,
   type MapGeoJSONFeature,
+  type MapLayerMouseEvent,
   type MapMouseEvent,
   type StyleSpecification,
 } from "maplibre-gl";
@@ -22,6 +23,7 @@ import {
   discoverMapEvents,
   fetchCategories,
   fetchGeographies,
+  fetchMapOccurrencePreviews,
   searchGeographyCities,
   type CityOption,
   type CountryOption,
@@ -31,6 +33,12 @@ import {
   type RegionOption,
 } from "@/lib/queries";
 import type { CompactMapPin } from "@/lib/map-pins";
+import {
+  chunkOccurrenceIds,
+  mapPreviewExcerpt,
+  mapPreviewVenueNames,
+  type MapOccurrencePreview,
+} from "@/lib/map-occurrence-previews";
 import {
   countAdvancedFilters,
   DEFAULT_ADVANCED_FILTERS,
@@ -66,6 +74,8 @@ import {
   clusterExpansionTargetZoom,
   eventClusterCircleRadiusExpression,
   eventClusterTextSizeExpression,
+  loadAllClusterLeaves,
+  shouldOpenClusterSelection,
 } from "@/lib/map-cluster-config";
 import {
   selectHighestPriorityMapHit,
@@ -77,6 +87,7 @@ import {
   CalendarDays,
   CircleAlert,
   Clock,
+  LoaderCircle,
   MapPin,
   Navigation,
   RotateCcw,
@@ -123,6 +134,9 @@ const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
 const MAP_EVENT_LABEL_LAYER_ID = "eventa-map-event-labels";
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
+const CLUSTER_PREVIEW_CONCURRENCY = 4;
+const CLUSTER_HOVER_SAMPLE_SIZE = 12;
+const MAP_HOVER_DELAY_MS = 120;
 
 const MAP_RANGES: { value: QuickRange; label: UiTranslationPhrase }[] = [
   { value: "tonight", label: "Ce soir" },
@@ -316,7 +330,10 @@ function MapSurface({
   );
 }
 
-function formatMobileEventDate(event: DiscoveredEvent, locale: string): string {
+function formatMobileEventDate(
+  event: Pick<DiscoveredEvent, "starts_at" | "timezone"> | MapOccurrencePreview,
+  locale: string,
+): string {
   try {
     return new Intl.DateTimeFormat(locale, {
       timeZone: event.timezone,
@@ -368,14 +385,22 @@ function MobileSelectedEvent({ event, onClose }: { event: DiscoveredEvent; onClo
 
 function SelectedClusterEvents({
   events,
+  expectedCount,
+  loading,
+  error,
   onClose,
+  onRetry,
 }: {
-  events: DiscoveredEvent[];
+  events: MapOccurrencePreview[];
+  expectedCount: number;
+  loading: boolean;
+  error: string | null;
   onClose: () => void;
+  onRetry: () => void;
 }) {
-  const { tr, localeTag } = useTranslation();
+  const { t, tr, localeTag } = useTranslation();
   return (
-    <aside className="relative max-h-64 overflow-y-auto p-3 pr-14">
+    <aside className="relative max-h-80 overflow-y-auto p-3 pr-14" aria-live="polite">
       <button
         type="button"
         aria-label={tr("Fermer la fiche")}
@@ -387,24 +412,161 @@ function SelectedClusterEvents({
       <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
         {tr("Résultats")}
       </Badge>
-      <h2 className="text-base font-black">{tr("{count} sorties", { count: events.length })}</h2>
+      <h2 className="text-base font-black">
+        {tr("{count} sorties", { count: expectedCount || events.length })}
+      </h2>
+      {loading && (
+        <div className="mt-3 flex min-h-20 items-center justify-center gap-2 rounded-xl border bg-surface px-3 text-xs font-bold">
+          <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+          {t("common.loading")}
+        </div>
+      )}
+      {error && !loading && (
+        <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+          <p>{error}</p>
+          <button type="button" className="mt-2 min-h-11 font-black underline" onClick={onRetry}>
+            {t("common.retry")}
+          </button>
+        </div>
+      )}
       <div className="mt-2 grid gap-2">
-        {events.slice(0, 25).map((event) => (
+        {events.map((event) => (
           <Link
             key={event.occurrence_id}
             to="/event/$slug"
             params={{ slug: event.slug }}
-            className="rounded-xl border bg-background/70 px-3 py-2 text-left hover:border-primary"
+            className="rounded-xl border bg-background px-3 py-2 text-left hover:border-primary"
+            style={{ contentVisibility: "auto", containIntrinsicSize: "0 52px" }}
           >
             <span className="block truncate text-xs font-black">{event.title}</span>
             <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-              {formatMobileEventDate(event, localeTag)} · {event.venue_name ?? event.city_name}
+              {formatMobileEventDate(event, localeTag)} ·{" "}
+              {event.venue_name ?? event.city_name ?? tr("Lieu à confirmer")}
             </span>
           </Link>
         ))}
       </div>
     </aside>
   );
+}
+
+function mapPreviewFromDiscoveredEvent(event: DiscoveredEvent): MapOccurrencePreview {
+  return {
+    occurrence_id: event.occurrence_id,
+    slug: event.slug,
+    title: event.title,
+    short_description: event.short_description,
+    description: null,
+    cover_image_url: event.cover_image_url,
+    starts_at: event.starts_at,
+    timezone: event.timezone,
+    venue_name: event.venue_name,
+    city_name: event.city_name,
+  };
+}
+
+function safeMapPreviewImageUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value, window.location.origin);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function createMapHoverFallback(): HTMLDivElement {
+  const fallback = document.createElement("div");
+  fallback.className = "map-event-hover-fallback";
+  fallback.textContent = "✦";
+  return fallback;
+}
+
+function mapClusterPointCount(value: unknown): number {
+  const pointCount = Number(value);
+  return Number.isFinite(pointCount) ? Math.max(2, Math.floor(pointCount)) : 2;
+}
+
+function createLoadingHoverContent(label: string): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "map-hover-loading";
+  container.textContent = label;
+  return container;
+}
+
+function createEventHoverContent(
+  preview: MapOccurrencePreview,
+  descriptionFallback: string,
+): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "map-event-hover-card";
+
+  const imageUrl = safeMapPreviewImageUrl(preview.cover_image_url);
+  if (imageUrl) {
+    const image = document.createElement("img");
+    image.src = imageUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => image.replaceWith(createMapHoverFallback()), {
+      once: true,
+    });
+    container.append(image);
+  } else {
+    container.append(createMapHoverFallback());
+  }
+
+  const copy = document.createElement("div");
+  copy.className = "map-event-hover-copy";
+  const title = document.createElement("strong");
+  title.textContent = preview.title;
+  copy.append(title);
+
+  const venue = preview.venue_name ?? preview.city_name;
+  if (venue) {
+    const venueLine = document.createElement("span");
+    venueLine.textContent = venue;
+    copy.append(venueLine);
+  }
+
+  const description = document.createElement("p");
+  description.textContent =
+    mapPreviewExcerpt(preview.short_description ?? preview.description, 150) || descriptionFallback;
+  copy.append(description);
+  container.append(copy);
+  return container;
+}
+
+function createClusterHoverContent(
+  previews: MapOccurrencePreview[],
+  completeVenueCoverage: boolean,
+  labels: { multipleVenues: string; groupedEvents: string; eventCount: string },
+): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "map-cluster-hover-card";
+  const venueNames = mapPreviewVenueNames(previews);
+
+  const title = document.createElement("strong");
+  title.textContent =
+    completeVenueCoverage && venueNames.length === 1
+      ? venueNames[0]
+      : completeVenueCoverage && venueNames.length > 1
+        ? labels.multipleVenues
+        : labels.groupedEvents;
+  container.append(title);
+
+  if (venueNames.length > 1) {
+    const venues = document.createElement("span");
+    const visibleNames = venueNames.slice(0, 3);
+    const remaining = Math.max(0, venueNames.length - visibleNames.length);
+    venues.textContent = `${visibleNames.join(" · ")}${remaining ? ` · +${remaining}` : ""}`;
+    container.append(venues);
+  }
+
+  const count = document.createElement("small");
+  count.textContent = labels.eventCount;
+  container.append(count);
+  return container;
 }
 
 function MapPage() {
@@ -441,7 +603,11 @@ function MapPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
-  const [selectedClusterEvents, setSelectedClusterEvents] = useState<DiscoveredEvent[]>([]);
+  const [selectedClusterEvents, setSelectedClusterEvents] = useState<MapOccurrencePreview[]>([]);
+  const [clusterSelectionOpen, setClusterSelectionOpen] = useState(false);
+  const [clusterSelectionLoading, setClusterSelectionLoading] = useState(false);
+  const [clusterSelectionError, setClusterSelectionError] = useState<string | null>(null);
+  const [clusterSelectionExpectedCount, setClusterSelectionExpectedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [visibleMobileEventCount, setVisibleMobileEventCount] = useState(MOBILE_LIST_BATCH_SIZE);
   const [error, setError] = useState<string | null>(null);
@@ -455,6 +621,15 @@ function MapPage() {
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
   const cityRequestVersionRef = useRef(0);
+  const clusterSelectionRequestRef = useRef(0);
+  const clusterSelectionRetryRef = useRef<(() => void) | null>(null);
+  const previewCacheRef = useRef(new Map<string, MapOccurrencePreview | null>());
+  const previewInFlightRef = useRef(new Map<string, Promise<MapOccurrencePreview | null>>());
+  const fullPreviewIdsRef = useRef(new Set<string>());
+  const fullPreviewInFlightRef = useRef(new Map<string, Promise<MapOccurrencePreview | null>>());
+  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const hoverRequestRef = useRef(0);
   const mapReady = mapInstance !== null && readyMap === mapInstance;
 
   const searchCities = useCallback(
@@ -522,11 +697,126 @@ function MapPage() {
     () => new Map(events.map((event) => [event.occurrence_id, event])),
     [events],
   );
+  const resolvePreviewBatch = useCallback(async (occurrenceIds: string[]) => {
+    const pending: Array<Promise<MapOccurrencePreview | null>> = [];
+    const missingIds = occurrenceIds.filter(
+      (occurrenceId) =>
+        !previewCacheRef.current.has(occurrenceId) && !previewInFlightRef.current.has(occurrenceId),
+    );
+
+    if (missingIds.length) {
+      const batchPromise = fetchMapOccurrencePreviews(missingIds).then(
+        (previews) => new Map(previews.map((preview) => [preview.occurrence_id, preview])),
+      );
+      for (const occurrenceId of missingIds) {
+        const itemPromise = batchPromise.then((previews) => previews.get(occurrenceId) ?? null);
+        previewInFlightRef.current.set(occurrenceId, itemPromise);
+        void itemPromise.then(
+          (preview) => {
+            if (!fullPreviewIdsRef.current.has(occurrenceId)) {
+              previewCacheRef.current.set(occurrenceId, preview);
+            }
+            if (previewInFlightRef.current.get(occurrenceId) === itemPromise) {
+              previewInFlightRef.current.delete(occurrenceId);
+            }
+          },
+          () => {
+            if (previewInFlightRef.current.get(occurrenceId) === itemPromise) {
+              previewInFlightRef.current.delete(occurrenceId);
+            }
+          },
+        );
+      }
+    }
+
+    for (const occurrenceId of occurrenceIds) {
+      if (previewCacheRef.current.has(occurrenceId)) {
+        pending.push(Promise.resolve(previewCacheRef.current.get(occurrenceId) ?? null));
+      } else {
+        const request = previewInFlightRef.current.get(occurrenceId);
+        if (request) pending.push(request);
+      }
+    }
+    return Promise.all(pending);
+  }, []);
+  const resolveOccurrencePreviews = useCallback(
+    async (occurrenceIds: string[]) => {
+      const batches = chunkOccurrenceIds(occurrenceIds);
+      const uniqueIds = batches.flat();
+      for (const occurrenceId of uniqueIds) {
+        const localEvent = eventsByOccurrenceId.get(occurrenceId);
+        if (localEvent && !previewCacheRef.current.has(occurrenceId)) {
+          previewCacheRef.current.set(occurrenceId, mapPreviewFromDiscoveredEvent(localEvent));
+        }
+      }
+
+      for (let offset = 0; offset < batches.length; offset += CLUSTER_PREVIEW_CONCURRENCY) {
+        await Promise.all(
+          batches
+            .slice(offset, offset + CLUSTER_PREVIEW_CONCURRENCY)
+            .map((batch) => resolvePreviewBatch(batch)),
+        );
+      }
+
+      return uniqueIds.flatMap((occurrenceId) => {
+        const preview = previewCacheRef.current.get(occurrenceId);
+        return preview ? [preview] : [];
+      });
+    },
+    [eventsByOccurrenceId, resolvePreviewBatch],
+  );
+  const resolveEventHoverPreview = useCallback(
+    async (occurrenceId: string): Promise<MapOccurrencePreview | null> => {
+      const localEvent = eventsByOccurrenceId.get(occurrenceId);
+      if (localEvent && mapPreviewExcerpt(localEvent.short_description, 150)) {
+        return mapPreviewFromDiscoveredEvent(localEvent);
+      }
+
+      const cached = previewCacheRef.current.get(occurrenceId);
+      if (cached && mapPreviewExcerpt(cached.short_description ?? cached.description, 150)) {
+        return cached;
+      }
+      if (fullPreviewIdsRef.current.has(occurrenceId)) return cached ?? null;
+
+      const activeRequest = fullPreviewInFlightRef.current.get(occurrenceId);
+      if (activeRequest) return activeRequest;
+
+      const request = fetchMapOccurrencePreviews([occurrenceId], {
+        includeDescription: true,
+      }).then((previews) => previews[0] ?? null);
+      fullPreviewInFlightRef.current.set(occurrenceId, request);
+      void request.then(
+        (preview) => {
+          previewCacheRef.current.set(occurrenceId, preview);
+          fullPreviewIdsRef.current.add(occurrenceId);
+          if (fullPreviewInFlightRef.current.get(occurrenceId) === request) {
+            fullPreviewInFlightRef.current.delete(occurrenceId);
+          }
+        },
+        () => {
+          if (fullPreviewInFlightRef.current.get(occurrenceId) === request) {
+            fullPreviewInFlightRef.current.delete(occurrenceId);
+          }
+        },
+      );
+      return request;
+    },
+    [eventsByOccurrenceId],
+  );
   const mobileListEvents = useMemo(
     () => events.slice(0, visibleMobileEventCount),
     [events, visibleMobileEventCount],
   );
   const requestMapResize = useCallback(() => mapRef.current?.resize(), []);
+  const closeClusterSelection = useCallback(() => {
+    clusterSelectionRequestRef.current += 1;
+    clusterSelectionRetryRef.current = null;
+    setClusterSelectionOpen(false);
+    setClusterSelectionLoading(false);
+    setClusterSelectionError(null);
+    setClusterSelectionExpectedCount(0);
+    setSelectedClusterEvents([]);
+  }, []);
 
   useEffect(() => {
     isMobileRef.current = isMobile;
@@ -810,7 +1100,7 @@ function MapPage() {
         setEvents(nextEvents);
         setCompactPins(nextPins);
         setSelectedEvent(null);
-        setSelectedClusterEvents([]);
+        closeClusterSelection();
       })
       .catch(() => {
         if (!current) return;
@@ -838,7 +1128,16 @@ function MapPage() {
     return () => {
       current = false;
     };
-  }, [from, geography, geographyReady, mapDiscoveryParams, reloadKey, to, unfilteredWorld]);
+  }, [
+    closeClusterSelection,
+    from,
+    geography,
+    geographyReady,
+    mapDiscoveryParams,
+    reloadKey,
+    to,
+    unfilteredWorld,
+  ]);
 
   const loadMoreMobileList = () => {
     setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
@@ -851,37 +1150,122 @@ function MapPage() {
     const syncLayers = () => {
       syncClusterLayers(map, eventMapPoints);
     };
+    const removeHoverPopup = () => {
+      hoverRequestRef.current += 1;
+      if (hoverTimerRef.current != null) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      hoverPopupRef.current?.remove();
+      hoverPopupRef.current = null;
+    };
+    const showHoverPopup = (coordinates: [number, number], content: HTMLElement) => {
+      hoverPopupRef.current?.remove();
+      hoverPopupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        className: "eventa-map-popup",
+        maxWidth: "340px",
+        offset: 22,
+      })
+        .setLngLat(coordinates)
+        .setDOMContent(content)
+        .addTo(map);
+    };
+    const scheduleHoverPreview = (
+      coordinates: [number, number],
+      loadContent: () => Promise<HTMLElement>,
+    ) => {
+      const requestVersion = ++hoverRequestRef.current;
+      if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = window.setTimeout(() => {
+        hoverTimerRef.current = null;
+        if (requestVersion !== hoverRequestRef.current) return;
+        showHoverPopup(coordinates, createLoadingHoverContent(t("common.loading")));
+        void loadContent()
+          .then((content) => {
+            if (requestVersion !== hoverRequestRef.current) return;
+            showHoverPopup(coordinates, content);
+          })
+          .catch(() => {
+            if (requestVersion !== hoverRequestRef.current) return;
+            showHoverPopup(
+              coordinates,
+              createLoadingHoverContent(tr("Aperçu momentanément indisponible")),
+            );
+          });
+      }, MAP_HOVER_DELAY_MS);
+    };
+    const loadClusterSelection = async (
+      source: GeoJSONSource,
+      clusterId: number,
+      pointCount: number,
+    ) => {
+      const requestVersion = ++clusterSelectionRequestRef.current;
+      clusterSelectionRetryRef.current = () => {
+        void loadClusterSelection(source, clusterId, pointCount);
+      };
+      setSelectedEvent(null);
+      setClusterSelectionOpen(true);
+      setClusterSelectionLoading(true);
+      setClusterSelectionError(null);
+      setClusterSelectionExpectedCount(pointCount);
+      setSelectedClusterEvents([]);
+
+      try {
+        const leaves = await loadAllClusterLeaves(pointCount, (limit, offset) =>
+          source.getClusterLeaves(clusterId, limit, offset),
+        );
+        const occurrenceIds = leaves.flatMap((leaf) => {
+          const occurrenceId = leaf.properties?.entity_id;
+          return typeof occurrenceId === "string" ? [occurrenceId] : [];
+        });
+        const previews = await resolveOccurrencePreviews(occurrenceIds);
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+        setSelectedClusterEvents(previews);
+        setClusterSelectionLoading(false);
+        if (!previews.length) {
+          setClusterSelectionError(
+            "Les événements de ce lieu n’ont pas pu être chargés. Réessaie dans un instant.",
+          );
+        }
+      } catch {
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+        setClusterSelectionLoading(false);
+        setClusterSelectionError(
+          "Impossible de charger les événements regroupés. Vérifie ta connexion puis réessaie.",
+        );
+      }
+    };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
       const clusterId = Number(feature.properties?.cluster_id);
       if (!Number.isFinite(clusterId)) return;
       const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
       if (!source) return;
+      const [longitude, latitude] = feature.geometry.coordinates;
+      const pointCount = mapClusterPointCount(feature.properties?.point_count);
+
+      setSelectedEvent(null);
+      if (map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM) {
+        void loadClusterSelection(source, clusterId, pointCount);
+        return;
+      }
 
       try {
         const expansionZoom = await source.getClusterExpansionZoom(clusterId);
-        const [longitude, latitude] = feature.geometry.coordinates;
-        setSelectedEvent(null);
-        if (expansionZoom > EVENT_CLUSTER_MAX_ZOOM) {
-          const leaves = await source.getClusterLeaves(clusterId, 25, 0);
-          const leafEvents = leaves.flatMap((leaf) => {
-            const entityId = String(leaf.properties?.entity_id ?? "");
-            const event = eventsByOccurrenceId.get(entityId);
-            return event ? [event] : [];
-          });
-          if (leafEvents.length > 1) {
-            setSelectedClusterEvents(leafEvents);
-            return;
-          }
+        if (shouldOpenClusterSelection(map.getZoom(), expansionZoom)) {
+          void loadClusterSelection(source, clusterId, pointCount);
+          return;
         }
-        setSelectedClusterEvents([]);
+        closeClusterSelection();
         map.easeTo({
           center: [Number(longitude), Number(latitude)],
           zoom: clusterExpansionTargetZoom(map.getZoom(), expansionZoom),
           duration: 450,
         });
       } catch {
-        // The style may have switched to the OSM fallback during the async lookup.
+        setError("Impossible d’ouvrir ce groupe de points. Réessaie dans un instant.");
       }
     };
     const openPoint = (feature: MapGeoJSONFeature) => {
@@ -892,9 +1276,10 @@ function MapPage() {
         const selected = eventsByOccurrenceId.get(entityId);
         const slug = typeof properties.slug === "string" ? properties.slug : "";
         if (selected) {
-          setSelectedClusterEvents([]);
+          closeClusterSelection();
           setSelectedEvent(selected);
         } else if (slug) {
+          closeClusterSelection();
           void navigate({ to: "/event/$slug", params: { slug } });
         } else {
           return;
@@ -909,12 +1294,72 @@ function MapPage() {
         });
       }
     };
+    const handlePointMouseEnter = (event: MapLayerMouseEvent) => {
+      map.getCanvas().style.cursor = "pointer";
+      if (isMobileRef.current) return;
+      const feature = event.features?.[0];
+      if (!feature || feature.geometry.type !== "Point") return;
+      const properties = feature.properties as Partial<MapPointProperties> | undefined;
+      const occurrenceId = typeof properties?.entity_id === "string" ? properties.entity_id : "";
+      const [longitude, latitude] = feature.geometry.coordinates;
+      if (!occurrenceId || !Number.isFinite(longitude) || !Number.isFinite(latitude)) return;
+
+      scheduleHoverPreview([Number(longitude), Number(latitude)], async () => {
+        const preview = await resolveEventHoverPreview(occurrenceId);
+        if (!preview) throw new Error("Missing event preview");
+        return createEventHoverContent(preview, tr("Description à venir."));
+      });
+    };
+    const handleClusterMouseEnter = (event: MapLayerMouseEvent) => {
+      map.getCanvas().style.cursor = "pointer";
+      if (isMobileRef.current) return;
+      const feature = event.features?.find((candidate) => candidate.properties?.cluster_id != null);
+      if (!feature || feature.geometry.type !== "Point") return;
+      const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
+      const clusterId = Number(feature.properties?.cluster_id);
+      const pointCount = mapClusterPointCount(feature.properties?.point_count);
+      const [longitude, latitude] = feature.geometry.coordinates;
+      if (
+        !source ||
+        !Number.isFinite(clusterId) ||
+        !Number.isFinite(longitude) ||
+        !Number.isFinite(latitude)
+      ) {
+        return;
+      }
+
+      scheduleHoverPreview([Number(longitude), Number(latitude)], async () => {
+        const terminalCluster = map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM;
+        const sampleSize = Math.min(pointCount, CLUSTER_HOVER_SAMPLE_SIZE);
+        const leaves = terminalCluster
+          ? await loadAllClusterLeaves(pointCount, (limit, offset) =>
+              source.getClusterLeaves(clusterId, limit, offset),
+            )
+          : await source.getClusterLeaves(clusterId, sampleSize, 0);
+        const occurrenceIds = leaves.flatMap((leaf) => {
+          const occurrenceId = leaf.properties?.entity_id;
+          return typeof occurrenceId === "string" ? [occurrenceId] : [];
+        });
+        const previews = await resolveOccurrencePreviews(occurrenceIds);
+        const uniqueOccurrenceCount = new Set(occurrenceIds).size;
+        const completeVenueCoverage =
+          leaves.length >= pointCount &&
+          previews.length === uniqueOccurrenceCount &&
+          previews.every((preview) => Boolean(preview.venue_name ?? preview.city_name));
+        return createClusterHoverContent(previews, completeVenueCoverage, {
+          multipleVenues: tr("Plusieurs lieux"),
+          groupedEvents: tr("Événements regroupés"),
+          eventCount: tr("{count} sorties", { count: formatNumber(pointCount) }),
+        });
+      });
+    };
     const interactiveLayers = [
       MAP_CLUSTER_HALO_LAYER_ID,
       MAP_CLUSTER_LAYER_ID,
       MAP_EVENT_POINT_LAYER_ID,
     ] as const;
     const handleMapClick = (event: MapMouseEvent) => {
+      removeHoverPopup();
       const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
       if (!renderedLayers.length) return;
 
@@ -959,28 +1404,44 @@ function MapPage() {
         openPoint(selected.value);
       }
     };
-    const showPointerCursor = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
     const resetCursor = () => {
       map.getCanvas().style.cursor = "";
+      removeHoverPopup();
     };
+    const clusterHoverLayers = [MAP_CLUSTER_HALO_LAYER_ID] as const;
     syncLayers();
     map.on("click", handleMapClick);
-    interactiveLayers.forEach((layerId) => {
-      map.on("mouseenter", layerId, showPointerCursor);
-      map.on("mouseleave", layerId, resetCursor);
-    });
+    clusterHoverLayers.forEach((layerId) => map.on("mouseenter", layerId, handleClusterMouseEnter));
+    clusterHoverLayers.forEach((layerId) => map.on("mouseleave", layerId, resetCursor));
+    map.on("mouseenter", MAP_EVENT_POINT_LAYER_ID, handlePointMouseEnter);
+    map.on("mouseleave", MAP_EVENT_POINT_LAYER_ID, resetCursor);
 
     return () => {
       map.off("click", handleMapClick);
-      interactiveLayers.forEach((layerId) => {
-        map.off("mouseenter", layerId, showPointerCursor);
-        map.off("mouseleave", layerId, resetCursor);
-      });
+      clusterHoverLayers.forEach((layerId) =>
+        map.off("mouseenter", layerId, handleClusterMouseEnter),
+      );
+      clusterHoverLayers.forEach((layerId) => map.off("mouseleave", layerId, resetCursor));
+      map.off("mouseenter", MAP_EVENT_POINT_LAYER_ID, handlePointMouseEnter);
+      map.off("mouseleave", MAP_EVENT_POINT_LAYER_ID, resetCursor);
+      closeClusterSelection();
       resetCursor();
     };
-  }, [cityId, eventMapPoints, eventsByOccurrenceId, mapInstance, mapReady, navigate, readyStyle]);
+  }, [
+    cityId,
+    closeClusterSelection,
+    eventMapPoints,
+    eventsByOccurrenceId,
+    formatNumber,
+    mapInstance,
+    mapReady,
+    navigate,
+    readyStyle,
+    resolveEventHoverPreview,
+    resolveOccurrencePreviews,
+    t,
+    tr,
+  ]);
 
   const toggleCategory = (slug: string) => {
     setCats((current) => {
@@ -1011,10 +1472,14 @@ function MapPage() {
     const hasMoreMobileEvents = visibleMobileEventCount < events.length;
     const mobileSelection = selectedEvent ? (
       <MobileSelectedEvent event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-    ) : selectedClusterEvents.length ? (
+    ) : clusterSelectionOpen ? (
       <SelectedClusterEvents
         events={selectedClusterEvents}
-        onClose={() => setSelectedClusterEvents([])}
+        expectedCount={clusterSelectionExpectedCount}
+        loading={clusterSelectionLoading}
+        error={clusterSelectionError}
+        onClose={closeClusterSelection}
+        onRetry={() => clusterSelectionRetryRef.current?.()}
       />
     ) : null;
 
@@ -1238,7 +1703,7 @@ function MapPage() {
         />
       </div>
 
-      <div className="glass absolute left-3 right-3 top-3 z-10 max-h-[calc(100vh-6.5rem)] overflow-y-auto rounded-3xl p-3 shadow-[var(--shadow-card)] md:left-6 md:right-auto md:w-[30rem]">
+      <div className="map-overlay-panel absolute left-3 right-3 top-3 z-10 max-h-[calc(100vh-6.5rem)] overflow-y-auto rounded-3xl p-3 md:left-6 md:right-auto md:w-[30rem]">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <Badge className="mb-2 border-transparent bg-primary/15 text-primary">
@@ -1288,7 +1753,7 @@ function MapPage() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("home.searchPlaceholder")}
             aria-label={t("home.searchAria")}
-            className="h-11 rounded-2xl bg-background/80 pl-9"
+            className="h-11 rounded-2xl bg-background pl-9"
           />
         </div>
 
@@ -1310,7 +1775,7 @@ function MapPage() {
             value={range}
             onChange={(event) => setRange(event.target.value as QuickRange)}
             aria-label={t("home.date")}
-            className="h-11 rounded-2xl border bg-background/80 px-3 text-sm outline-none focus:border-primary"
+            className="h-11 rounded-2xl border bg-background px-3 text-sm outline-none focus:border-primary"
           >
             {MAP_RANGES.map((item) => (
               <option key={item.value} value={item.value}>
@@ -1343,7 +1808,7 @@ function MapPage() {
           })}
         </div>
 
-        <details className="rounded-2xl border" open={advancedCount > 0}>
+        <details className="rounded-2xl border bg-surface/75" open={advancedCount > 0}>
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold">
             <span className="inline-flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4 text-primary" /> {t("home.advanced")}
@@ -1418,12 +1883,12 @@ function MapPage() {
 
       {selectedEvent && (
         <div className="absolute inset-x-3 bottom-20 z-10 md:inset-x-auto md:bottom-6 md:left-[32rem] md:w-80">
-          <div className="relative">
+          <div className="map-overlay-panel relative rounded-2xl p-1">
             <button
               type="button"
               aria-label={tr("Fermer la fiche")}
               onClick={() => setSelectedEvent(null)}
-              className="glass absolute -top-3 right-2 z-20 h-7 w-7 rounded-full text-xs"
+              className="absolute -top-3 right-2 z-20 h-8 w-8 rounded-full border bg-background text-xs shadow-lg"
             >
               ×
             </button>
@@ -1432,11 +1897,15 @@ function MapPage() {
         </div>
       )}
 
-      {selectedClusterEvents.length > 0 && (
-        <div className="glass absolute bottom-6 left-[32rem] z-10 w-80 rounded-3xl shadow-[var(--shadow-card)]">
+      {clusterSelectionOpen && (
+        <div className="map-overlay-panel absolute bottom-6 left-[32rem] z-10 w-80 rounded-3xl">
           <SelectedClusterEvents
             events={selectedClusterEvents}
-            onClose={() => setSelectedClusterEvents([])}
+            expectedCount={clusterSelectionExpectedCount}
+            loading={clusterSelectionLoading}
+            error={clusterSelectionError}
+            onClose={closeClusterSelection}
+            onRetry={() => clusterSelectionRetryRef.current?.()}
           />
         </div>
       )}
