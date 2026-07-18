@@ -118,3 +118,33 @@ export function buildCompactMapPointCollection({
 
   return { type: "FeatureCollection", features };
 }
+
+export function buildLoadedMapPointCollection({
+  unfilteredWorld,
+  compactPins,
+  worldPinsReady,
+  events,
+  showEvents,
+  countryCode = null,
+}: {
+  unfilteredWorld: boolean;
+  compactPins: CompactMapPin[] | null;
+  worldPinsReady: boolean;
+  events: DiscoveredEvent[];
+  showEvents: boolean;
+  countryCode?: string | null;
+}): MapPointCollection {
+  if (unfilteredWorld) {
+    // The detailed list endpoint returns 1,000 rows at a time. Never expose
+    // that first page as if it were the complete worldwide map while the
+    // uncapped compact response is still loading.
+    if (!worldPinsReady) {
+      return buildCompactMapPointCollection({ pins: [], showEvents });
+    }
+    if (compactPins) {
+      return buildCompactMapPointCollection({ pins: compactPins, showEvents });
+    }
+  }
+
+  return buildMapPointCollection({ events, showEvents, countryCode });
+}

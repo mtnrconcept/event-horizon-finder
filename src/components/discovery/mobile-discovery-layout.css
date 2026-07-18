@@ -79,15 +79,12 @@
 }
 
 .mobile-discovery-map-view {
-  display: flex;
-  visibility: hidden;
+  display: none;
   flex-direction: column;
-  pointer-events: none;
 }
 
 .mobile-discovery-map-view[data-active="true"] {
-  visibility: visible;
-  pointer-events: auto;
+  display: flex;
 }
 
 .mobile-discovery-map {
@@ -122,6 +119,7 @@
 .mobile-discovery-list-view {
   display: none;
   overflow-y: auto;
+  background: var(--color-background);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
