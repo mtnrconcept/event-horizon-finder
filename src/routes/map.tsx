@@ -105,7 +105,10 @@ const POI_FREE_STYLE: StyleSpecification = {
       attribution: "© OpenStreetMap contributors © CARTO",
     },
   },
-  layers: [{ id: "poi-free-basemap", type: "raster", source: "basemap" }],
+  layers: [
+    { id: "map-background", type: "background", paint: { "background-color": "#e8eef2" } },
+    { id: "poi-free-basemap", type: "raster", source: "basemap" },
+  ],
 };
 
 type Category = { slug: string; name_fr: string; icon: string | null };
@@ -546,14 +549,17 @@ function MapPage() {
   }, []);
 
   useEffect(() => {
-    if (!mapContainer || mapRef.current) return;
+    const activeMapContainer = mapContainer;
+    if (!activeMapContainer || mapRef.current) return;
 
-    // The responsive route replaces its map element during hydration and when
-    // crossing the mobile breakpoint. Bind MapLibre to the actual mounted node
-    // from the callback ref; a callback ref has no `.current` property.
+    // MapLibre must follow the exact DOM node reported by the callback ref.
+    // Hydration and responsive layout changes replace that node entirely.
+    activeMapContainer.dataset.mapLayout = activeMapContainer.closest(".mobile-discovery-shell")
+      ? "mobile"
+      : "desktop";
+    lastFittedScopeRef.current = null;
     setMapReady(false);
     setMapUnavailable(null);
-    lastFittedScopeRef.current = null;
     try {
       const canvas = document.createElement("canvas");
       const webgl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
@@ -568,7 +574,7 @@ function MapPage() {
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
-        container: mapContainer,
+        container: activeMapContainer,
         style: MAPBOX_STYLE ?? POI_FREE_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
@@ -580,12 +586,31 @@ function MapPage() {
       return;
     }
     let switchedToFallback = false;
+    let hasRendered = false;
+    const markMapReady = () => {
+      hasRendered = true;
+      setMapReady(true);
+    };
     const fallbackTimer = window.setTimeout(() => {
       if (!MAPBOX_STYLE || map.isStyleLoaded()) return;
       switchedToFallback = true;
       map.setStyle(POI_FREE_STYLE);
     }, 6_000);
-    map.on("load", () => setMapReady(true));
+    // A raster provider can be slow or blocked while the WebGL canvas is
+    // already usable. Do not let the loading veil hide the map indefinitely.
+    const revealTimer = window.setTimeout(() => {
+      map.resize();
+      setMapReady(true);
+    }, 2_500);
+    const unavailableTimer = window.setTimeout(() => {
+      if (hasRendered || map.isStyleLoaded()) return;
+      setMapUnavailable(
+        "Le fond de carte n'a pas pu démarrer. Vérifie la protection anti-pistage du navigateur.",
+      );
+    }, 12_000);
+    map.once("render", markMapReady);
+    map.on("load", markMapReady);
+    map.on("style.load", markMapReady);
     map.on("styledata", () => {
       if (map.isStyleLoaded()) setMapReady(true);
     });
@@ -608,13 +633,15 @@ function MapPage() {
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeMap);
-    resizeObserver?.observe(mapContainer);
+    resizeObserver?.observe(activeMapContainer);
     window.visualViewport?.addEventListener("resize", resizeMap);
     window.addEventListener("orientationchange", resizeMap);
     resizeMap();
 
     return () => {
       window.clearTimeout(fallbackTimer);
+      window.clearTimeout(revealTimer);
+      window.clearTimeout(unavailableTimer);
       window.cancelAnimationFrame(firstResizeFrame);
       window.cancelAnimationFrame(secondResizeFrame);
       resizeObserver?.disconnect();
