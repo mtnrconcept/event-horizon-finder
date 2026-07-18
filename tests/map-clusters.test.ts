@@ -16,6 +16,7 @@ import {
 } from "../src/lib/event-category-style.ts";
 import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
 import type { DiscoveredEvent } from "../src/lib/queries.ts";
+import { loadAllPages } from "../src/lib/load-all-pages.ts";
 
 // The production build resolves the @ alias through Vite. Register the one
 // runtime alias used by map-clusters so this dependency-free Node test follows
@@ -90,6 +91,49 @@ test("builds a lightweight event-only GeoJSON feature with its category visual",
       approximate: 0,
     },
   });
+});
+
+test("loads every map page without imposing a global result limit", async () => {
+  const source = Array.from({ length: 2_505 }, (_, index) => ({ id: `event-${index}` }));
+  const requests: Array<{ limit: number; offset: number }> = [];
+  const firstPageSnapshots: number[] = [];
+
+  const loaded = await loadAllPages({
+    pageSize: 1_000,
+    getKey: (item) => item.id,
+    fetchPage: async (request) => {
+      requests.push(request);
+      return source.slice(request.offset, request.offset + request.limit);
+    },
+    onFirstPage: (items) => firstPageSnapshots.push(items.length),
+  });
+
+  assert.equal(loaded.length, source.length);
+  assert.deepEqual(firstPageSnapshots, [1_000]);
+  assert.deepEqual(requests, [
+    { limit: 1_000, offset: 0 },
+    { limit: 1_000, offset: 1_000 },
+    { limit: 1_000, offset: 2_000 },
+  ]);
+});
+
+test("stops stale map pagination before requesting another page", async () => {
+  let current = true;
+  let requests = 0;
+
+  const loaded = await loadAllPages({
+    pageSize: 2,
+    getKey: (item) => item.id,
+    shouldContinue: () => current,
+    fetchPage: async () => {
+      requests += 1;
+      current = false;
+      return [{ id: "event-1" }, { id: "event-2" }];
+    },
+  });
+
+  assert.equal(requests, 1);
+  assert.deepEqual(loaded, []);
 });
 
 test("respects the event layer toggle and drops invalid world coordinates", () => {
