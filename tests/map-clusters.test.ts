@@ -15,6 +15,7 @@ import {
   normalizeEventCategorySlug,
 } from "../src/lib/event-category-style.ts";
 import { selectHighestPriorityMapHit, selectNearestMapHit } from "../src/lib/map-interactions.ts";
+import { parseCompactMapPins } from "../src/lib/map-pins.ts";
 import type { DiscoveredEvent } from "../src/lib/queries.ts";
 import { loadAllPages } from "../src/lib/load-all-pages.ts";
 
@@ -33,7 +34,8 @@ registerHooks({
   },
 });
 
-const { buildMapPointCollection } = await import("../src/lib/map-clusters.ts");
+const { buildCompactMapPointCollection, buildMapPointCollection } =
+  await import("../src/lib/map-clusters.ts");
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   return {
@@ -89,8 +91,50 @@ test("builds a lightweight event-only GeoJSON feature with its category visual",
       category_icon_image: "event-category-concerts",
       is_free: 0,
       approximate: 0,
+      slug: "open-air-geneva",
     },
   });
+});
+
+test("builds every compact world pin returned by the uncapped RPC", () => {
+  const pins = parseCompactMapPins([
+    ["occurrence-1", 6.1452, 46.2004, "concert", 0, 0, "open-air-geneva"],
+    ["occurrence-2", -74.006, 40.7128, "nightlife", 1, 1, "night-in-new-york"],
+  ]);
+  const points = buildCompactMapPointCollection({ pins, showEvents: true });
+
+  assert.equal(points.features.length, 2);
+  assert.deepEqual(points.features[1], {
+    type: "Feature",
+    id: "event:occurrence-2",
+    geometry: { type: "Point", coordinates: [-74.006, 40.7128] },
+    properties: {
+      kind: "event",
+      entity_id: "occurrence-2",
+      label: "",
+      category_slug: "soirees",
+      category_color: "#4338ca",
+      category_icon_image: "event-category-soirees",
+      is_free: 1,
+      approximate: 1,
+      slug: "night-in-new-york",
+    },
+  });
+});
+
+test("drops malformed compact pin rows without imposing a result limit", () => {
+  const validRows = Array.from({ length: 2_505 }, (_, index) => [
+    `occurrence-${index}`,
+    6.1,
+    46.2,
+    "concerts",
+    0,
+    0,
+    `event-${index}`,
+  ]);
+  const pins = parseCompactMapPins([...validRows, ["broken"]]);
+
+  assert.equal(pins.length, 2_505);
 });
 
 test("loads every map page without imposing a global result limit", async () => {

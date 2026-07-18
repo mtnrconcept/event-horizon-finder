@@ -1,8 +1,16 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { parseCompactMapPins, type CompactMapPin } from "@/lib/map-pins";
 
 export type QuickRange =
-  "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
+  | "now"
+  | "tonight"
+  | "today"
+  | "tomorrow"
+  | "weekend"
+  | "week"
+  | "month"
+  | "year";
 
 /**
  * "Ce soir" = nuit événementielle 18h → 6h le lendemain (heure locale de l'utilisateur).
@@ -232,6 +240,22 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
   const { data, error } = await (supabase as any).rpc("discover_map_events", args as any);
   if (error) throw error;
   return (data ?? []) as DiscoveredEvent[];
+}
+
+export async function discoverAllMapPins({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): Promise<CompactMapPin[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("discover_all_map_pins_v1", {
+    _from: from.toISOString(),
+    _to: to.toISOString(),
+  });
+  if (error) throw error;
+  return parseCompactMapPins(data);
 }
 
 export async function discoverEventStats(

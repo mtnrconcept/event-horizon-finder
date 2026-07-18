@@ -1,5 +1,6 @@
 import type { Feature, FeatureCollection, Point } from "geojson";
 import { eventCategoryVisual, normalizeEventCategorySlug } from "@/lib/event-category-style";
+import type { CompactMapPin } from "@/lib/map-pins";
 import type { DiscoveredEvent } from "@/lib/queries";
 
 export type MapPointProperties = {
@@ -11,6 +12,7 @@ export type MapPointProperties = {
   category_icon_image: string;
   is_free: 0 | 1;
   approximate: 0 | 1;
+  slug: string;
 };
 
 export type MapPointCollection = FeatureCollection<Point, MapPointProperties>;
@@ -73,9 +75,45 @@ export function buildMapPointCollection({
           category_icon_image: categoryVisual.imageId,
           is_free: event.is_free ? 1 : 0,
           approximate: event.location_precision === "city" ? 1 : 0,
+          slug: event.slug,
         },
       });
     }
+  }
+
+  return { type: "FeatureCollection", features };
+}
+
+export function buildCompactMapPointCollection({
+  pins,
+  showEvents,
+}: {
+  pins: CompactMapPin[];
+  showEvents: boolean;
+}): MapPointCollection {
+  if (!showEvents) return { type: "FeatureCollection", features: [] };
+
+  const features: Array<Feature<Point, MapPointProperties>> = [];
+  for (const [entityId, longitude, latitude, rawCategorySlug, isFree, approximate, slug] of pins) {
+    if (!validLongitude(longitude) || !validLatitude(latitude)) continue;
+    const categorySlug = normalizeEventCategorySlug(rawCategorySlug);
+    const categoryVisual = eventCategoryVisual(categorySlug);
+    features.push({
+      type: "Feature",
+      id: `event:${entityId}`,
+      geometry: { type: "Point", coordinates: [longitude, latitude] },
+      properties: {
+        kind: "event",
+        entity_id: entityId,
+        label: "",
+        category_slug: categorySlug,
+        category_color: categoryVisual.color,
+        category_icon_image: categoryVisual.imageId,
+        is_free: isFree,
+        approximate,
+        slug,
+      },
+    });
   }
 
   return { type: "FeatureCollection", features };
