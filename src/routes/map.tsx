@@ -546,15 +546,11 @@ function MapPage() {
   }, []);
 
   useEffect(() => {
-    const mapContainer = containerRef.current;
     if (!mapContainer || mapRef.current) return;
 
-    // The server renders the desktop route first. On a mobile browser React
-    // replaces that container after hydration, so MapLibre must be recreated
-    // against the new DOM node instead of remaining attached to the discarded
-    // desktop container. The same rule keeps breakpoint changes reliable.
-    mapContainer.dataset.mapLayout = isMobile ? "mobile" : "desktop";
-    lastFittedScopeRef.current = null;
+    // The responsive route replaces its map element during hydration and when
+    // crossing the mobile breakpoint. Bind MapLibre to the actual mounted node
+    // from the callback ref; a callback ref has no `.current` property.
     setMapReady(false);
     setMapUnavailable(null);
     lastFittedScopeRef.current = null;
@@ -627,7 +623,7 @@ function MapPage() {
       map.remove();
       if (mapRef.current === map) mapRef.current = null;
     };
-  }, [isMobile]);
+  }, [mapContainer]);
 
   useEffect(() => {
     const map = mapRef.current;
