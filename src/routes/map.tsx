@@ -89,20 +89,17 @@ export const Route = createFileRoute("/map")({
 });
 
 const GENEVA_CENTER: [number, number] = [6.1432, 46.2044];
-const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
-const MAPBOX_STYLE = MAPBOX_ACCESS_TOKEN
-  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${MAPBOX_ACCESS_TOKEN}`
-  : null;
+const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 
-const POI_FREE_STYLE: StyleSpecification = {
+const RASTER_FALLBACK_STYLE: StyleSpecification = {
   version: 8,
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
     basemap: {
       type: "raster",
-      tiles: ["https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"],
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
-      attribution: "© OpenStreetMap contributors © CARTO",
+      attribution: "© OpenStreetMap contributors",
     },
   },
   layers: [
@@ -577,7 +574,7 @@ function MapPage() {
     try {
       map = new maplibregl.Map({
         container: activeMapContainer,
-        style: MAPBOX_STYLE ?? POI_FREE_STYLE,
+        style: PRIMARY_MAP_STYLE,
         center: GENEVA_CENTER,
         zoom: 12,
         clickTolerance: 8,
@@ -587,15 +584,14 @@ function MapPage() {
       setMapUnavailable("La carte interactive ne peut pas démarrer dans ce navigateur.");
       return;
     }
-    let switchedToFallback = false;
+    let primaryStyleLoaded = false;
     const markMapReady = () => {
       setReadyMap(map);
     };
     const fallbackTimer = window.setTimeout(() => {
-      if (!MAPBOX_STYLE || map.isStyleLoaded()) return;
-      switchedToFallback = true;
-      map.setStyle(POI_FREE_STYLE);
-    }, 6_000);
+      if (primaryStyleLoaded) return;
+      map.setStyle(RASTER_FALLBACK_STYLE);
+    }, 8_000);
     // A raster provider can be slow or blocked while the WebGL canvas is
     // already usable. Do not let the loading veil hide the map indefinitely.
     const revealTimer = window.setTimeout(() => {
@@ -604,15 +600,12 @@ function MapPage() {
     }, 2_500);
     map.once("render", markMapReady);
     map.on("load", markMapReady);
-    map.on("style.load", markMapReady);
+    map.on("style.load", () => {
+      primaryStyleLoaded = true;
+      markMapReady();
+    });
     map.on("styledata", () => {
       if (map.isStyleLoaded()) setReadyMap(map);
-    });
-    map.on("error", () => {
-      if (MAPBOX_STYLE && !switchedToFallback && !map.isStyleLoaded()) {
-        switchedToFallback = true;
-        map.setStyle(POI_FREE_STYLE);
-      }
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
