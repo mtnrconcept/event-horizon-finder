@@ -169,10 +169,14 @@ sudo bash /tmp/bootstrap_ovh_vps.sh \
   --ref "$RELEASE_SHA"
 ```
 
-Le script vérifie Ubuntu et la résolution DNS avant tout démarrage, installe
-Docker depuis son dépôt officiel, active les mises à jour de sécurité, UFW et
-Fail2ban, vérifie le commit Git immuable, génère les trois secrets sur le VPS et
-lance la pile avec ses sondes de santé. Il est relançable : les secrets
+Le script vérifie Ubuntu et les enregistrements DNS publics avant tout
+démarrage, sans confondre une entrée locale de `/etc/hosts` avec l’adresse
+publique. L’enregistrement A doit correspondre au VPS. Si un enregistrement
+AAAA est publié, il doit également correspondre au VPS ; en son absence, la
+passerelle reste accessible en IPv4. Le script installe Docker depuis son dépôt
+officiel, active les mises à jour de sécurité, UFW et Fail2ban, vérifie le commit
+Git immuable, génère les trois secrets sur le VPS et lance la pile avec ses
+sondes de santé. Il est relançable : les secrets
 existants sont strictement conservés. Ils restent
 dans `/opt/globalparty/event-horizon-finder/infra/searxng/.env`, lisible
 uniquement par `root`, et ne doivent être ni affichés dans une CI, ni copiés
