@@ -265,10 +265,10 @@ for _ in $(seq 1 18); do
   : >"$dns_ipv6_answers"
   ipv4_lookup_ok=false
   ipv6_lookup_ok=false
-  if dig +time=3 +tries=1 +short A "${PUBLIC_HOST}." >"$dns_ipv4_answers" 2>/dev/null; then
+  if dig +time=3 +tries=1 +short "${PUBLIC_HOST}." A >"$dns_ipv4_answers" 2>/dev/null; then
     ipv4_lookup_ok=true
   fi
-  if dig +time=3 +tries=1 +short AAAA "${PUBLIC_HOST}." >"$dns_ipv6_answers" 2>/dev/null; then
+  if dig +time=3 +tries=1 +short "${PUBLIC_HOST}." AAAA >"$dns_ipv6_answers" 2>/dev/null; then
     ipv6_lookup_ok=true
   fi
   if [[ "$ipv4_lookup_ok" == true && "$ipv6_lookup_ok" == true ]]; then
