@@ -157,6 +157,11 @@ jobs:
           supabase db start
           supabase db reset --local --no-seed
 
+      - name: Exercise the GeoNames import RPC on the disposable database
+        run: >-
+          supabase db query --local
+          --file tests/global-city-import-smoke.sql
+
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
         run: supabase stop --no-backup
