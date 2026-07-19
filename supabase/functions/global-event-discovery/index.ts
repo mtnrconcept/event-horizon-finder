@@ -17,6 +17,7 @@ import {
   type EventSourceContext,
   type NormalizedEvent,
 } from "../_shared/event-precision.ts";
+import { buildPublicEventSummary, publicScrapedImageUrl } from "../_shared/event-publication.ts";
 import {
   buildMultilingualDiscoveryQueries,
   canonicalizeHttpUrl,
@@ -1156,11 +1157,13 @@ function createSerializedRobotsFetcher(
 }
 
 function eventPayload(event: NormalizedEvent): JsonObject {
+  const publicDescription = buildPublicEventSummary(event);
+  const publicImageUrl = publicScrapedImageUrl();
   return {
     source_url: event.sourceUrl,
     external_identifier: event.externalId,
     title: event.title,
-    description: event.description,
+    description: publicDescription,
     starts_at: event.startDate,
     ends_at: event.endDate,
     timezone: event.timezone,
@@ -1188,12 +1191,12 @@ function eventPayload(event: NormalizedEvent): JsonObject {
     currency: event.currency,
     ticket_url: event.ticketUrl,
     ticket_status: event.isFree ? "free" : event.ticketUrl ? "available" : "unknown",
-    image_url: event.imageUrl,
+    image_url: publicImageUrl,
     is_free: event.isFree,
     performers: event.performers.map((performer) => ({
       name: performer.name,
       type: performer.type,
-      image_url: performer.imageUrl,
+      image_url: null,
       is_headliner: performer.isHeadliner,
     })),
     accessibility: event.accessibility
@@ -1240,7 +1243,7 @@ function persistenceEventEnvelope(event: NormalizedEvent, job: CrawlJob): Queued
       external_id: event.externalId,
       starts_at: event.startDate,
       venue_name: event.venueName,
-      image_url: event.imageUrl,
+      image_url: publicScrapedImageUrl(),
       ticket_url: event.ticketUrl,
     },
   };

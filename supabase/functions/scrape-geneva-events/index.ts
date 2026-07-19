@@ -9,6 +9,7 @@ import {
   type EventSourceContext,
   type NormalizedEvent,
 } from "../_shared/event-precision.ts";
+import { buildPublicEventSummary, publicScrapedImageUrl } from "../_shared/event-publication.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": Deno.env.get("APP_ALLOWED_ORIGINS") ?? "*",
@@ -367,7 +368,7 @@ Deno.serve(async (req) => {
                     source_url: event.sourceUrl,
                     external_identifier: event.externalId,
                     title: event.title,
-                    description: event.description,
+                    description: buildPublicEventSummary(event),
                     starts_at: event.startDate,
                     ends_at: event.endDate,
                     timezone: event.timezone,
@@ -396,7 +397,7 @@ Deno.serve(async (req) => {
                       : event.ticketUrl
                         ? "available"
                         : "unknown",
-                    image_url: event.imageUrl,
+                    image_url: publicScrapedImageUrl(),
                     is_free: event.isFree,
                     quality_score: event.qualityScore,
                     warnings: event.warnings,
