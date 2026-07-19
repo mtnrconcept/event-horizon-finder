@@ -4,7 +4,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { scrapeDirectEventSource } from "../_shared/direct-event-scraper.ts";
 import {
   deduplicateNormalizedEvents,
-  extractJsonLdCandidates,
   normalizeEventCandidate,
   type EventCandidate,
   type EventSourceContext,
@@ -23,68 +22,10 @@ const MAX_BATCH_SIZE = 4;
 // Supabase Edge requests are terminated after roughly 150 seconds. Keep every
 // source comfortably below that ceiling, including the deterministic fallback
 // and database writes.
-const FIRECRAWL_TIMEOUT_MS = 50_000;
 const DIRECT_TIMEOUT_MS = 12_000;
 const DIRECT_DETAIL_LIMIT = 3;
 const STALE_JOB_AFTER_MS = 3 * 60_000;
 const UPSERT_CONCURRENCY = 6;
-
-const EXTRACTION_SCHEMA = {
-  type: "object",
-  properties: {
-    events: {
-      type: "array",
-      maxItems: 60,
-      items: {
-        type: "object",
-        properties: {
-          externalId: { type: ["string", "null"] },
-          title: { type: "string" },
-          description: { type: ["string", "null"] },
-          startDate: {
-            type: ["string", "null"],
-            description: "ISO 8601 date-time including the UTC offset when a time is known",
-          },
-          endDate: { type: ["string", "null"] },
-          timezone: { type: ["string", "null"] },
-          timePrecision: {
-            type: ["string", "null"],
-            enum: ["exact", "date", "tbd", "unknown", null],
-          },
-          allDay: { type: ["boolean", "null"] },
-          venueName: { type: ["string", "null"] },
-          address: { type: ["string", "null"] },
-          city: { type: ["string", "null"] },
-          region: { type: ["string", "null"] },
-          countryCode: { type: ["string", "null"] },
-          latitude: { type: ["number", "null"] },
-          longitude: { type: ["number", "null"] },
-          organizerName: { type: ["string", "null"] },
-          organizerUrl: { type: ["string", "null"] },
-          status: { type: ["string", "null"] },
-          language: { type: ["string", "null"] },
-          category: { type: ["string", "null"] },
-          genres: {
-            type: ["array", "null"],
-            maxItems: 8,
-            items: { type: "string" },
-            description: "Styles musicaux explicitement mentionnés, sans déduction",
-          },
-          capacity: { type: ["integer", "null"] },
-          priceMin: { type: ["number", "null"] },
-          priceMax: { type: ["number", "null"] },
-          currency: { type: ["string", "null"] },
-          ticketUrl: { type: ["string", "null"] },
-          imageUrl: { type: ["string", "null"] },
-          isFree: { type: ["boolean", "null"] },
-          sourceUrl: { type: ["string", "null"] },
-        },
-        required: ["title", "startDate"],
-      },
-    },
-  },
-  required: ["events"],
-};
 
 type DataSource = {
   id: string;
@@ -112,17 +53,6 @@ type SourceTask = {
   source: DataSource;
   page: number;
   url: string;
-};
-
-type FirecrawlPayload = {
-  data?: {
-    markdown?: string;
-    rawHtml?: string;
-    json?: { events?: EventCandidate[] };
-    metadata?: Record<string, unknown>;
-  };
-  message?: string;
-  error?: string;
 };
 
 function json(body: unknown, status = 200): Response {
@@ -182,7 +112,10 @@ function timingSafeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): Promise<boolean> {
+async function isAllowed(
+  req: Request,
+  hasElevatedRole: (userId: string) => Promise<boolean>,
+): Promise<boolean> {
   const configuredSecret = Deno.env.get("GENEVA_SCRAPER_SECRET")?.trim();
   const providedSecret = req.headers.get("x-geneva-scraper-secret")?.trim();
   if (configuredSecret && providedSecret && timingSafeEqual(providedSecret, configuredSecret)) {
@@ -200,95 +133,11 @@ async function isAllowed(req: Request, admin: ReturnType<typeof createClient>): 
     data: { user },
   } = await userClient.auth.getUser();
   if (!user) return false;
-  const { data } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .in("role", ["admin", "moderator"]);
-  return Boolean(data?.length);
-}
-
-async function scrapeWithFirecrawl(apiKey: string, task: SourceTask): Promise<FirecrawlPayload> {
-  let lastError = "unknown_error";
-  // A retry is handled by the scheduler. Retrying inside the same Edge request
-  // can consume the complete runtime budget before the direct fallback starts.
-  const attemptLimit = Math.max(1, safeInteger(task.source.metadata?.firecrawl_attempts, 1, 1));
-  const requestTimeoutMs = Math.max(
-    15_000,
-    safeInteger(
-      task.source.metadata?.firecrawl_timeout_ms,
-      FIRECRAWL_TIMEOUT_MS,
-      FIRECRAWL_TIMEOUT_MS,
-    ),
-  );
-  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-    try {
-      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: task.url,
-          onlyMainContent: true,
-          timeout: Math.min(90_000, Math.max(10_000, requestTimeoutMs - 5_000)),
-          maxAge: 3_600_000,
-          formats: [
-            "markdown",
-            "rawHtml",
-            {
-              type: "json",
-              schema: EXTRACTION_SCHEMA,
-              prompt:
-                `Nous sommes le ${new Date().toISOString().slice(0, 10)}. ` +
-                "Extrais tous les événements futurs distincts visibles sur cette page de liste. " +
-                "Une ligne par occurrence, jamais de texte de navigation ni d'événement inventé. " +
-                `Utilise la date ISO 8601 avec le fuseau ${task.source.city?.timezone ?? "local indiqué par la source"}, ` +
-                "le lien de la fiche détaillée comme sourceUrl, " +
-                "l'image réelle de l'événement et les coordonnées uniquement lorsqu'elles sont explicites. " +
-                "Conserve les dates sans heure comme date-only (timePrecision=date, allDay uniquement si annoncé), " +
-                "et n'invente jamais minuit lorsqu'une heure est inconnue (timePrecision=tbd). " +
-                "Renseigne ville, pays, statut, organisateur, genres, prix, devise et capacité uniquement s'ils sont " +
-                "écrits dans la source; ne complète rien par déduction.",
-            },
-          ],
-          ...(task.source.city?.country?.code
-            ? {
-                location: {
-                  country: task.source.city.country.code,
-                  languages:
-                    typeof task.source.metadata?.locale === "string" &&
-                    task.source.metadata.locale !== "auto"
-                      ? [task.source.metadata.locale]
-                      : undefined,
-                },
-              }
-            : {}),
-        }),
-        signal: controller.signal,
-      });
-      const responseText = await response.text();
-      let body: FirecrawlPayload = {};
-      try {
-        body = responseText ? (JSON.parse(responseText) as FirecrawlPayload) : {};
-      } catch {
-        body = {};
-      }
-      if (response.ok) return body;
-      lastError = body.message ?? body.error ?? responseText.slice(0, 500) ?? "unknown_error";
-      if (response.status !== 429 && response.status < 500) break;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : "firecrawl_request_failed";
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (attempt + 1 < attemptLimit) await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  throw new Error(`Firecrawl: ${lastError}`);
+  return hasElevatedRole(user.id);
 }
 
 type CollectedCandidates = {
-  mode: "firecrawl" | "direct";
+  mode: "direct";
   rawContent: string;
   markdown: string | null;
   rawJson: unknown;
@@ -299,90 +148,36 @@ type CollectedCandidates = {
 
 async function collectCandidates(
   task: SourceTask,
-  firecrawlKey: string | undefined,
   directOnly: boolean,
 ): Promise<CollectedCandidates> {
   const sourceContext = task.source as EventSourceContext;
-  let firecrawlFailure: string | null = null;
-  let emptyFirecrawlResult: CollectedCandidates | null = null;
-
-  if (firecrawlKey && !directOnly) {
-    try {
-      const firecrawl = await scrapeWithFirecrawl(firecrawlKey, task);
-      const aiCandidates = Array.isArray(firecrawl.data?.json?.events)
-        ? (firecrawl.data?.json?.events ?? []).map((event) => ({
-            ...event,
-            extractionMethod: "ai" as const,
-          }))
-        : [];
-      const deterministicCandidates = extractJsonLdCandidates(
-        firecrawl.data?.rawHtml,
-        task.url,
-        sourceContext,
-      );
-      const result: CollectedCandidates = {
-        mode: "firecrawl",
-        rawContent:
-          firecrawl.data?.rawHtml ??
-          firecrawl.data?.markdown ??
-          JSON.stringify(firecrawl.data?.json ?? {}),
-        markdown: firecrawl.data?.markdown ?? null,
-        rawJson: firecrawl.data?.json ?? null,
-        metadata: { ...(firecrawl.data?.metadata ?? {}), transport: "firecrawl" },
-        aiCandidates,
-        deterministicCandidates,
-      };
-      if (aiCandidates.length || deterministicCandidates.length) return result;
-      emptyFirecrawlResult = result;
-      firecrawlFailure = "firecrawl_no_event_candidates";
-    } catch (error) {
-      firecrawlFailure = error instanceof Error ? error.message : "firecrawl_failed";
-    }
-  }
-
-  try {
-    const directTimeoutMs = Math.max(
-      5_000,
-      safeInteger(task.source.metadata?.direct_timeout_ms, DIRECT_TIMEOUT_MS, 15_000),
-    );
-    const directDetailLimit = safeInteger(
-      task.source.metadata?.direct_detail_limit,
-      DIRECT_DETAIL_LIMIT,
-      DIRECT_DETAIL_LIMIT,
-    );
-    const direct = await scrapeDirectEventSource(
-      { url: task.url, source: sourceContext },
-      { timeoutMs: directTimeoutMs, detailPageLimit: directDetailLimit },
-    );
-    return {
-      mode: "direct",
-      rawContent: direct.rootHtml,
-      markdown: null,
-      rawJson: null,
-      metadata: {
-        ...direct.metadata,
-        transport: "direct",
-        directOnly,
-        firecrawlConfigured: Boolean(firecrawlKey),
-        ...(firecrawlFailure ? { firecrawlFallbackReason: firecrawlFailure.slice(0, 500) } : {}),
-      },
-      aiCandidates: [],
-      deterministicCandidates: direct.candidates,
-    };
-  } catch (directError) {
-    const directMessage =
-      directError instanceof Error ? directError.message : "direct_scrape_failed";
-    if (emptyFirecrawlResult) {
-      emptyFirecrawlResult.metadata = {
-        ...emptyFirecrawlResult.metadata,
-        directFallbackError: directMessage.slice(0, 500),
-      };
-      return emptyFirecrawlResult;
-    }
-    throw new Error(
-      [firecrawlFailure, `Direct: ${directMessage}`].filter(Boolean).join("; ").slice(0, 1_000),
-    );
-  }
+  const directTimeoutMs = Math.max(
+    5_000,
+    safeInteger(task.source.metadata?.direct_timeout_ms, DIRECT_TIMEOUT_MS, 15_000),
+  );
+  const directDetailLimit = safeInteger(
+    task.source.metadata?.direct_detail_limit,
+    DIRECT_DETAIL_LIMIT,
+    DIRECT_DETAIL_LIMIT,
+  );
+  const direct = await scrapeDirectEventSource(
+    { url: task.url, source: sourceContext },
+    { timeoutMs: directTimeoutMs, detailPageLimit: directDetailLimit },
+  );
+  return {
+    mode: "direct",
+    rawContent: direct.rootHtml,
+    markdown: null,
+    rawJson: null,
+    metadata: {
+      ...direct.metadata,
+      transport: "direct",
+      directOnly,
+      paidProvidersDisabled: true,
+    },
+    aiCandidates: [],
+    deterministicCandidates: direct.candidates,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -393,9 +188,15 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
-  if (!(await isAllowed(req, admin))) return json({ error: "unauthorized" }, 401);
-
-  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY")?.trim();
+  const allowed = await isAllowed(req, async (userId) => {
+    const { data, error } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .in("role", ["admin", "moderator"]);
+    return !error && Boolean(data?.length);
+  });
+  if (!allowed) return json({ error: "unauthorized" }, 401);
 
   // A platform timeout cannot execute the normal catch/finalizer. Reconcile
   // jobs left running by a previous terminated invocation before starting a
@@ -424,7 +225,7 @@ Deno.serve(async (req) => {
   const cursor = safeInteger(body.cursor, 0, 10_000);
   const batchSize = Math.max(1, safeInteger(body.batchSize, 3, MAX_BATCH_SIZE));
   const force = body.force === true;
-  const directOnly = body.directOnly === true;
+  const directOnly = true;
   const parsedRunStartedAt = body.runStartedAt ? Date.parse(body.runStartedAt) : Number.NaN;
   const runStartedAt = Number.isFinite(parsedRunStartedAt) ? parsedRunStartedAt : null;
   const sourceIds = Array.isArray(body.sourceIds)
@@ -445,7 +246,7 @@ Deno.serve(async (req) => {
   const { data: sourceRows, error: sourcesError } = await sourceQuery;
   if (sourcesError) return json({ error: sourcesError.message }, 500);
 
-  const sources = (sourceRows ?? []) as DataSource[];
+  const sources = (sourceRows ?? []) as unknown as DataSource[];
   const tasks = sources
     .filter((source) => source.metadata?.derived_city_source !== true)
     .filter((source) => source.metadata?.import_only !== true)
@@ -480,7 +281,7 @@ Deno.serve(async (req) => {
         batchSize,
         totalTasks: tasks.length,
         directOnly,
-        firecrawlConfigured: Boolean(firecrawlKey),
+        paidProvidersDisabled: true,
         sources: batch.map((task) => ({
           id: task.source.id,
           name: task.source.name,
@@ -500,7 +301,7 @@ Deno.serve(async (req) => {
       let rejected = 0;
       const upsertErrors: string[] = [];
       try {
-        const collected = await collectCandidates(task, firecrawlKey, directOnly);
+        const collected = await collectCandidates(task, directOnly);
         const sourceContext = task.source as EventSourceContext;
         const aiCandidates = collected.aiCandidates;
         const jsonLdCandidates = collected.deterministicCandidates;

@@ -15,6 +15,36 @@ export type EventSourceContext = {
   city: EventSourceCity | null;
 };
 
+export type EventCandidatePerformer = {
+  name?: string | null;
+  type?: string | null;
+  imageUrl?: string | null;
+  isHeadliner?: boolean | null;
+};
+
+export type EventCandidateAccessibility = {
+  wheelchair?: boolean | null;
+  hearingLoop?: boolean | null;
+  signLanguage?: boolean | null;
+  quietSpace?: boolean | null;
+  notes?: string | null;
+};
+
+export type NormalizedEventPerformer = {
+  name: string;
+  type: string | null;
+  imageUrl: string | null;
+  isHeadliner: boolean;
+};
+
+export type NormalizedEventAccessibility = {
+  wheelchair: boolean;
+  hearingLoop: boolean;
+  signLanguage: boolean;
+  quietSpace: boolean;
+  notes: string | null;
+};
+
 export type EventCandidate = {
   externalId?: string | null;
   title?: string | null;
@@ -25,7 +55,9 @@ export type EventCandidate = {
   timePrecision?: string | null;
   allDay?: boolean | null;
   venueName?: string | null;
+  venueUrl?: string | null;
   address?: string | null;
+  postalCode?: string | null;
   city?: string | null;
   region?: string | null;
   countryCode?: string | null;
@@ -37,6 +69,9 @@ export type EventCandidate = {
   language?: string | null;
   category?: string | null;
   genres?: string[] | null;
+  performers?: EventCandidatePerformer[] | null;
+  ageRestriction?: string | null;
+  accessibility?: EventCandidateAccessibility | null;
   capacity?: number | null;
   priceMin?: number | null;
   priceMax?: number | null;
@@ -59,7 +94,9 @@ export type NormalizedEvent = {
   timePrecision: "exact" | "date" | "tbd" | "unknown";
   allDay: boolean;
   venueName: string | null;
+  venueUrl: string | null;
   address: string | null;
+  postalCode: string | null;
   city: string;
   region: string | null;
   countryCode: string | null;
@@ -71,6 +108,9 @@ export type NormalizedEvent = {
   language: string;
   category: string | null;
   genres: string[];
+  performers: NormalizedEventPerformer[];
+  ageRestriction: string | null;
+  accessibility: NormalizedEventAccessibility | null;
   capacity: number | null;
   priceMin: number | null;
   priceMax: number | null;
@@ -544,6 +584,58 @@ function normalizedCurrency(value: unknown): string | null {
   return /^[A-Z]{3}$/.test(currency) ? currency : null;
 }
 
+function normalizeCandidatePerformers(
+  value: EventCandidate["performers"],
+  baseUrl: string,
+): NormalizedEventPerformer[] {
+  const performers = new Map<string, NormalizedEventPerformer>();
+  for (const candidate of value ?? []) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const name = cleanEventText(candidate.name, 180);
+    if (!name) continue;
+    const key = normalizeEventText(name);
+    if (!key) continue;
+    const type = cleanEventText(candidate.type, 80) || null;
+    const imageUrl = canonicalEventUrl(candidate.imageUrl, baseUrl);
+    const existing = performers.get(key);
+    if (existing) {
+      existing.type ??= type;
+      existing.imageUrl ??= imageUrl;
+      existing.isHeadliner ||= candidate.isHeadliner === true;
+      continue;
+    }
+    performers.set(key, {
+      name,
+      type,
+      imageUrl,
+      isHeadliner: candidate.isHeadliner === true,
+    });
+    if (performers.size >= 100) break;
+  }
+  return [...performers.values()];
+}
+
+function normalizeCandidateAccessibility(
+  value: EventCandidate["accessibility"],
+): NormalizedEventAccessibility | null {
+  if (!value || typeof value !== "object") return null;
+  const notes = cleanEventText(value.notes, 1_000) || null;
+  const hasExplicitValue =
+    typeof value.wheelchair === "boolean" ||
+    typeof value.hearingLoop === "boolean" ||
+    typeof value.signLanguage === "boolean" ||
+    typeof value.quietSpace === "boolean" ||
+    Boolean(notes);
+  if (!hasExplicitValue) return null;
+  return {
+    wheelchair: value.wheelchair === true,
+    hearingLoop: value.hearingLoop === true,
+    signLanguage: value.signLanguage === true,
+    quietSpace: value.quietSpace === true,
+    notes,
+  };
+}
+
 const COUNTRY_NAME_CODES: Record<string, string> = {
   australia: "AU",
   austria: "AT",
@@ -606,7 +698,33 @@ function normalizedCountryCode(value: unknown, fallback: string | null | undefin
 
 function currencyForCountry(countryCode: string | null | undefined): string | null {
   const currencies: Record<string, string> = {
+    AD: "EUR",
+    AT: "EUR",
+    BE: "EUR",
     CH: "CHF",
+    CY: "EUR",
+    DE: "EUR",
+    EE: "EUR",
+    ES: "EUR",
+    FI: "EUR",
+    FR: "EUR",
+    GR: "EUR",
+    HR: "EUR",
+    IE: "EUR",
+    IT: "EUR",
+    LT: "EUR",
+    LU: "EUR",
+    LV: "EUR",
+    MC: "EUR",
+    ME: "EUR",
+    MT: "EUR",
+    NL: "EUR",
+    PT: "EUR",
+    SI: "EUR",
+    SK: "EUR",
+    SM: "EUR",
+    VA: "EUR",
+    XK: "EUR",
     GB: "GBP",
     US: "USD",
     CA: "CAD",
@@ -627,7 +745,9 @@ function currencyForCountry(countryCode: string | null | undefined): string | nu
     MA: "MAD",
   };
   if (!countryCode) return null;
-  return currencies[countryCode.toUpperCase()] ?? "EUR";
+  // Never invent EUR for an unmapped country. A missing currency is more
+  // truthful than a plausible-looking but incorrect price denomination.
+  return currencies[countryCode.toUpperCase()] ?? null;
 }
 
 function stableFingerprint(parts: string[]): string {
@@ -690,6 +810,7 @@ export function normalizeEventCandidate(
   }
   const ticketUrl = canonicalEventUrl(candidate.ticketUrl, sourceUrl);
   const organizerUrl = canonicalEventUrl(candidate.organizerUrl, sourceUrl);
+  const venueUrl = canonicalEventUrl(candidate.venueUrl, sourceUrl);
   const images = [candidate.imageUrl, ...(candidate.imageUrls ?? [])]
     .map((value) => canonicalEventUrl(value, sourceUrl))
     .filter((value): value is string => Boolean(value))
@@ -741,8 +862,12 @@ export function normalizeEventCandidate(
   const description = cleanEventText(candidate.description, 6_000) || null;
   const venueName = cleanEventText(candidate.venueName, 180) || null;
   const address = cleanEventText(candidate.address, 300) || null;
+  const postalCode = cleanEventText(candidate.postalCode, 40) || null;
   const category = classifyCategory(candidate, source);
   const genres = normalizeGenres(candidate.genres, candidate);
+  const performers = normalizeCandidatePerformers(candidate.performers, sourceUrl);
+  const ageRestriction = cleanEventText(candidate.ageRestriction, 80) || null;
+  const accessibility = normalizeCandidateAccessibility(candidate.accessibility);
   const capacity = safeNumber(candidate.capacity, 1, 1_000_000);
   let priceMin = safeNumber(candidate.priceMin, 0, 100_000);
   let priceMax = safeNumber(candidate.priceMax, 0, 100_000);
@@ -828,7 +953,9 @@ export function normalizeEventCandidate(
       timePrecision: allDay ? "date" : precision,
       allDay,
       venueName,
+      venueUrl,
       address,
+      postalCode,
       city,
       region: cleanEventText(candidate.region, 120) || null,
       countryCode,
@@ -840,6 +967,9 @@ export function normalizeEventCandidate(
       language: cleanEventText(candidate.language, 10).toLowerCase() || "und",
       category,
       genres,
+      performers,
+      ageRestriction,
+      accessibility,
       capacity: capacity == null ? null : Math.round(capacity),
       priceMin,
       priceMax,
@@ -873,6 +1003,12 @@ function firstText(value: unknown): string {
 
 function absoluteUrl(value: unknown, baseUrl: string): string | null {
   return canonicalEventUrl(firstText(value), baseUrl);
+}
+
+function imageUrlValue(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  return row.contentUrl ?? row.url ?? row["@id"] ?? row.thumbnailUrl;
 }
 
 function asList(value: unknown): unknown[] {
@@ -918,6 +1054,204 @@ function offerData(
     priceMax: prices.length ? Math.max(...prices) : null,
     currency,
     ticketUrl,
+  };
+}
+
+function schemaTypeName(value: unknown): string | null {
+  for (const item of asList(value)) {
+    if (typeof item !== "string") continue;
+    const type = cleanEventText(item, 200);
+    if (!type) continue;
+    try {
+      const parsed = new URL(type);
+      const fragment = parsed.hash.replace(/^#/, "");
+      const pathName = parsed.pathname.split("/").filter(Boolean).at(-1) ?? "";
+      const name = cleanEventText(fragment || pathName, 80);
+      if (name) return name;
+    } catch {
+      const name = cleanEventText(type, 80);
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
+function jsonLdPerformers(
+  node: Record<string, unknown>,
+  baseUrl: string,
+): EventCandidatePerformer[] {
+  const performers = new Map<string, EventCandidatePerformer>();
+  const add = (value: unknown, isHeadliner: boolean) => {
+    for (const item of asList(value)) {
+      const row =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : null;
+      const name = row ? firstText(row.name) : firstText(item);
+      if (!name) continue;
+      const key = normalizeEventText(name);
+      if (!key) continue;
+      const candidate: EventCandidatePerformer = {
+        name,
+        type: row ? schemaTypeName(row["@type"]) : null,
+        imageUrl: row ? absoluteUrl(row.image, baseUrl) : null,
+        isHeadliner: isHeadliner || row?.isHeadliner === true,
+      };
+      const existing = performers.get(key);
+      if (existing) {
+        existing.type ??= candidate.type;
+        existing.imageUrl ??= candidate.imageUrl;
+        existing.isHeadliner = existing.isHeadliner === true || candidate.isHeadliner === true;
+      } else {
+        performers.set(key, candidate);
+      }
+      if (performers.size >= 100) return;
+    }
+  };
+  add(node.performer, false);
+  add(node.performers, false);
+  add(node.actor, false);
+  add(node.actors, false);
+  // `headliner` is not inferred from performer ordering. It is honored only
+  // when the publisher labels the performer explicitly.
+  add(node.headliner, true);
+  return [...performers.values()];
+}
+
+function formattedAge(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
+}
+
+function ageNumber(value: unknown): number | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return safeNumber((value as Record<string, unknown>).value, 0, 150);
+  }
+  return safeNumber(value, 0, 150);
+}
+
+function jsonLdAgeRestriction(node: Record<string, unknown>): string | null {
+  const direct = cleanEventText(firstText(node.typicalAgeRange ?? node.ageRestriction), 80);
+  if (direct) return direct;
+  for (const value of asList(node.audience)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const audience = value as Record<string, unknown>;
+    const range = cleanEventText(firstText(audience.typicalAgeRange), 80);
+    if (range) return range;
+    const minimum = ageNumber(audience.suggestedMinAge);
+    const maximum = ageNumber(audience.suggestedMaxAge);
+    if (minimum != null && maximum != null && minimum <= maximum) {
+      return minimum === maximum
+        ? formattedAge(minimum)
+        : `${formattedAge(minimum)}-${formattedAge(maximum)}`;
+    }
+    if (minimum != null && maximum == null) return `${formattedAge(minimum)}+`;
+    if (maximum != null && minimum == null) return `<=${formattedAge(maximum)}`;
+  }
+  return null;
+}
+
+function jsonLdVenueUrl(location: Record<string, unknown>, baseUrl: string): string | null {
+  const direct = absoluteUrl(location.url ?? location.sameAs, baseUrl);
+  if (direct) return direct;
+  const identifier = firstText(location["@id"]);
+  return /^https?:\/\//i.test(identifier) ? canonicalEventUrl(identifier, baseUrl) : null;
+}
+
+type AccessibilityFlag = "wheelchair" | "hearingLoop" | "signLanguage" | "quietSpace";
+
+const ACCESSIBILITY_FEATURES: Record<AccessibilityFlag, Set<string>> = {
+  wheelchair: new Set([
+    "wheelchair",
+    "wheelchairaccess",
+    "wheelchairaccessible",
+    "wheelchairaccessibility",
+  ]),
+  hearingLoop: new Set(["hearingloop", "inductionloop", "audioinductionloop"]),
+  signLanguage: new Set(["signlanguage", "signlanguageinterpretation", "signlanguageinterpreter"]),
+  quietSpace: new Set(["quietspace", "sensoryfriendly", "sensoryfriendlyspace"]),
+};
+
+function accessibilityFlag(value: unknown): AccessibilityFlag | null {
+  const feature = normalizeEventText(value).replace(/\s+/g, "");
+  if (!feature) return null;
+  for (const [flag, names] of Object.entries(ACCESSIBILITY_FEATURES) as Array<
+    [AccessibilityFlag, Set<string>]
+  >) {
+    if (names.has(feature)) return flag;
+  }
+  return null;
+}
+
+function explicitBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const literal = (value as Record<string, unknown>)["@value"];
+    return typeof literal === "boolean" ? literal : null;
+  }
+  return null;
+}
+
+function jsonLdAccessibility(
+  node: Record<string, unknown>,
+  location: Record<string, unknown>,
+): EventCandidateAccessibility | null {
+  const flags: Record<AccessibilityFlag, boolean | null> = {
+    wheelchair: null,
+    hearingLoop: null,
+    signLanguage: null,
+    quietSpace: null,
+  };
+  const readFeatures = (value: unknown, requireTrueValue: boolean) => {
+    for (const item of asList(value)) {
+      if (typeof item === "string") {
+        if (requireTrueValue) continue;
+        const flag = accessibilityFlag(item);
+        if (flag) flags[flag] = true;
+        continue;
+      }
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const row = item as Record<string, unknown>;
+      const enabled = explicitBoolean(row.value);
+      if (enabled === false || (requireTrueValue && enabled !== true)) continue;
+      const flag = accessibilityFlag(row.name ?? row.valueReference);
+      if (flag) flags[flag] = true;
+    }
+  };
+  readFeatures(node.accessibilityFeature, false);
+  readFeatures(location.accessibilityFeature, false);
+  readFeatures(node.amenityFeature, true);
+  readFeatures(location.amenityFeature, true);
+
+  const explicitProperties: Array<[AccessibilityFlag, unknown[]]> = [
+    ["wheelchair", [node.wheelchairAccessible, location.wheelchairAccessible]],
+    ["hearingLoop", [node.hearingLoop, location.hearingLoop]],
+    ["signLanguage", [node.signLanguage, location.signLanguage]],
+    ["quietSpace", [node.quietSpace, location.quietSpace]],
+  ];
+  for (const [flag, values] of explicitProperties) {
+    for (const value of values) {
+      const enabled = explicitBoolean(value);
+      if (enabled != null) flags[flag] = enabled;
+    }
+  }
+
+  const notes =
+    [
+      ...new Set(
+        [node.accessibilitySummary, location.accessibilitySummary]
+          .map((value) => cleanEventText(firstText(value), 1_000))
+          .filter(Boolean),
+      ),
+    ]
+      .join(" · ")
+      .slice(0, 1_000) || null;
+  if (Object.values(flags).every((value) => value == null) && !notes) return null;
+  return {
+    wheelchair: flags.wheelchair ?? false,
+    hearingLoop: flags.hearingLoop ?? false,
+    signLanguage: flags.signLanguage ?? false,
+    quietSpace: flags.quietSpace ?? false,
+    notes,
   };
 }
 
@@ -1006,8 +1340,10 @@ function jsonLdCandidate(
       ? (node.organizer as Record<string, unknown>)
       : {};
   const imageUrls = asList(node.image)
-    .map((image) => absoluteUrl(image, pageUrl))
+    .map((image) => absoluteUrl(imageUrlValue(image), pageUrl))
     .filter((url): url is string => Boolean(url));
+  const performers = jsonLdPerformers(node, pageUrl);
+  const accessibility = jsonLdAccessibility(node, location);
   const categories = asList(node.eventType ?? node.category)
     .map(firstText)
     .filter(Boolean);
@@ -1027,7 +1363,9 @@ function jsonLdCandidate(
     timePrecision: /^\d{4}-\d{2}-\d{2}$/.test(firstText(node.startDate)) ? "date" : "exact",
     allDay: /^\d{4}-\d{2}-\d{2}$/.test(firstText(node.startDate)),
     venueName: firstText(location.name),
+    venueUrl: jsonLdVenueUrl(location, pageUrl),
     address,
+    postalCode: firstText(addressRow?.postalCode),
     city: firstText(addressRow?.addressLocality) || source.city?.name,
     region: firstText(addressRow?.addressRegion),
     countryCode: firstText(addressRow?.addressCountry),
@@ -1039,6 +1377,9 @@ function jsonLdCandidate(
     language: firstText(node.inLanguage),
     category: categories[0] ?? null,
     genres: categories,
+    performers,
+    ageRestriction: jsonLdAgeRestriction(node),
+    accessibility,
     priceMin: offers.priceMin,
     priceMax: offers.priceMax,
     currency: offers.currency,
@@ -1103,9 +1444,50 @@ function similarity(left: string, right: string): number {
   return (2 * overlap) / (firstSize + secondSize);
 }
 
+function mergeNormalizedPerformers(
+  left: NormalizedEventPerformer[],
+  right: NormalizedEventPerformer[],
+): NormalizedEventPerformer[] {
+  const performers = new Map<string, NormalizedEventPerformer>();
+  for (const performer of [...left, ...right]) {
+    const key = normalizeEventText(performer.name);
+    if (!key) continue;
+    const existing = performers.get(key);
+    if (existing) {
+      existing.type ??= performer.type;
+      existing.imageUrl ??= performer.imageUrl;
+      existing.isHeadliner ||= performer.isHeadliner;
+    } else {
+      performers.set(key, { ...performer });
+    }
+  }
+  return [...performers.values()].slice(0, 100);
+}
+
+function mergeNormalizedAccessibility(
+  left: NormalizedEventAccessibility | null,
+  right: NormalizedEventAccessibility | null,
+): NormalizedEventAccessibility | null {
+  if (!left) return right ? { ...right } : null;
+  if (!right) return { ...left };
+  const notes = !left.notes
+    ? right.notes
+    : !right.notes || left.notes.length >= right.notes.length
+      ? left.notes
+      : right.notes;
+  return {
+    wheelchair: left.wheelchair || right.wheelchair,
+    hearingLoop: left.hearingLoop || right.hearingLoop,
+    signLanguage: left.signLanguage || right.signLanguage,
+    quietSpace: left.quietSpace || right.quietSpace,
+    notes,
+  };
+}
+
 function mergeNormalizedEvents(left: NormalizedEvent, right: NormalizedEvent): NormalizedEvent {
-  const primary = right.qualityScore > left.qualityScore ? { ...right } : { ...left };
-  const secondary = primary.fingerprint === right.fingerprint ? left : right;
+  const rightIsPrimary = right.qualityScore > left.qualityScore;
+  const primary = { ...(rightIsPrimary ? right : left) };
+  const secondary = rightIsPrimary ? left : right;
   const prefer = (current: string | null, candidate: string | null) => {
     if (!current) return candidate;
     if (!candidate) return current;
@@ -1113,7 +1495,9 @@ function mergeNormalizedEvents(left: NormalizedEvent, right: NormalizedEvent): N
   };
   primary.description = prefer(primary.description, secondary.description);
   primary.venueName = prefer(primary.venueName, secondary.venueName);
+  primary.venueUrl ??= secondary.venueUrl;
   primary.address = prefer(primary.address, secondary.address);
+  primary.postalCode = prefer(primary.postalCode, secondary.postalCode);
   primary.organizerName = prefer(primary.organizerName, secondary.organizerName);
   primary.ticketUrl ??= secondary.ticketUrl;
   primary.imageUrl ??= secondary.imageUrl;
@@ -1122,6 +1506,12 @@ function mergeNormalizedEvents(left: NormalizedEvent, right: NormalizedEvent): N
   primary.longitude ??= secondary.longitude;
   primary.externalId ??= secondary.externalId;
   primary.genres = [...new Set([...primary.genres, ...secondary.genres])].slice(0, 8);
+  primary.performers = mergeNormalizedPerformers(primary.performers, secondary.performers);
+  primary.ageRestriction = prefer(primary.ageRestriction, secondary.ageRestriction);
+  primary.accessibility = mergeNormalizedAccessibility(
+    primary.accessibility,
+    secondary.accessibility,
+  );
   primary.warnings = [...new Set([...primary.warnings, ...secondary.warnings])];
   primary.qualityScore = Math.max(primary.qualityScore, secondary.qualityScore);
   if (primary.currency === secondary.currency || !primary.currency || !secondary.currency) {

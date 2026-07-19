@@ -14,3 +14,8 @@ verify_jwt = false
 
 [functions.translate-event-content]
 verify_jwt = false
+
+[functions.global-event-discovery]
+# Scheduled workers call this endpoint with GLOBAL_SCRAPER_SECRET. The function
+# performs its own constant-time secret/JWT + role verification.
+verify_jwt = false

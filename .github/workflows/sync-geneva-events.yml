@@ -9,9 +9,9 @@ on:
         default: true
         type: boolean
       direct_only:
-        description: Bypass Firecrawl and use deterministic direct scraping
+        description: Use deterministic direct scraping (paid providers stay disabled)
         required: false
-        default: false
+        default: true
         type: boolean
   push:
     branches:
@@ -99,8 +99,6 @@ jobs:
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'workflow_dispatch' && inputs.deploy
         run: |
-          supabase functions deploy firecrawl-scrape-event-url
-          supabase functions deploy firecrawl-webhook --no-verify-jwt
           supabase functions deploy scrape-geneva-events --no-verify-jwt
 
       - name: Test the Geneva Python collector
@@ -109,7 +107,7 @@ jobs:
       - name: Scrape all due worldwide event sources in resilient batches
         timeout-minutes: 330
         env:
-          DIRECT_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.direct_only }}
+          DIRECT_ONLY: true
         run: |
           extra_args=()
           if [ "$DIRECT_ONLY" = "true" ]; then

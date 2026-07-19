@@ -3,8 +3,8 @@
 
 Production mode orchestrates the protected Supabase Edge Function in resilient
 batches. Direct mode can inspect official pages locally, extract schema.org
-Event JSON-LD, optionally fall back to Firecrawl, and write through EVENTA's
-service-role-only ``upsert_ingested_event`` RPC.
+Event JSON-LD deterministically, and write through EVENTA's service-role-only
+``upsert_ingested_event`` RPC. Paid extraction providers are disabled.
 
 Secrets are read exclusively from environment variables; never pass them on
 the command line or commit them to the repository.
@@ -31,8 +31,7 @@ from urllib.request import Request, urlopen
 
 
 USER_AGENT = "EVENTA-Geneva-Event-Collector/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)"
-# A server batch may perform two 72-second Firecrawl attempts plus backoff.
-# The client must wait longer or it will retry a still-running batch.
+# Keep enough time for a bounded batch of direct pages plus domain backoff.
 DEFAULT_TIMEOUT = 210
 MAX_BATCH_SIZE = 4
 MAX_DIRECT_LINKS = 40
@@ -643,166 +642,6 @@ def _source_page_url(source: Source, page: int) -> str:
     return source.base_url
 
 
-def _firecrawl_events(source: Source, page_url: str, api_key: str, timeout: int) -> list[Event]:
-    schema = {
-        "type": "object",
-        "properties": {
-            "events": {
-                "type": "array",
-                "maxItems": 100,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "externalId": {"type": ["string", "null"]},
-                        "title": {"type": "string"},
-                        "description": {"type": ["string", "null"]},
-                        "startDate": {"type": ["string", "null"]},
-                        "endDate": {"type": ["string", "null"]},
-                        "timePrecision": {"type": ["string", "null"]},
-                        "allDay": {"type": ["boolean", "null"]},
-                        "venueName": {"type": ["string", "null"]},
-                        "address": {"type": ["string", "null"]},
-                        "city": {"type": ["string", "null"]},
-                        "countryCode": {"type": ["string", "null"]},
-                        "latitude": {"type": ["number", "null"]},
-                        "longitude": {"type": ["number", "null"]},
-                        "status": {"type": ["string", "null"]},
-                        "language": {"type": ["string", "null"]},
-                        "category": {"type": ["string", "null"]},
-                        "genres": {"type": ["array", "null"], "items": {"type": "string"}},
-                        "capacity": {"type": ["integer", "null"]},
-                        "priceMin": {"type": ["number", "null"]},
-                        "priceMax": {"type": ["number", "null"]},
-                        "currency": {"type": ["string", "null"]},
-                        "ticketUrl": {"type": ["string", "null"]},
-                        "imageUrl": {"type": ["string", "null"]},
-                        "isFree": {"type": ["boolean", "null"]},
-                        "sourceUrl": {"type": ["string", "null"]},
-                    },
-                    "required": ["title", "startDate"],
-                },
-            }
-        },
-        "required": ["events"],
-    }
-    response = _request_json(
-        "https://api.firecrawl.dev/v2/scrape",
-        method="POST",
-        headers={"Authorization": f"Bearer {api_key}"},
-        payload={
-            "url": page_url,
-            "onlyMainContent": True,
-            "maxAge": 3_600_000,
-            "formats": [
-                {
-                    "type": "json",
-                    "schema": schema,
-                    "prompt": (
-                        "Extrais tous les événements futurs réels visibles: clubs, soirées, festivals et concerts. "
-                        f"Une ligne par occurrence, dates ISO 8601 dans {source.timezone}, lien officiel dans sourceUrl. "
-                        "Ne transforme jamais une heure inconnue en minuit. N'invente aucune coordonnée, prix, "
-                        "genre, capacité ou information absente et ignore les éléments de navigation."
-                    ),
-                }
-            ],
-        },
-        timeout=timeout,
-    )
-    raw_events = ((response or {}).get("data") or {}).get("json", {}).get("events", [])
-    events: list[Event] = []
-    for raw in raw_events if isinstance(raw_events, list) else []:
-        if not isinstance(raw, Mapping):
-            continue
-        title = _first_text(raw.get("title"))
-        starts_at = _iso_datetime(raw.get("startDate"), source.timezone)
-        if not title or not starts_at or re.search(
-            r"(?i)(gift\s*card|carte\s*cadeau|newsletter|privacy|cookie|membership|contact|faq)",
-            title,
-        ):
-            continue
-        source_url = _canonical_http_url(raw.get("sourceUrl"), page_url) or page_url
-        if not _source_host_matches(source_url, page_url):
-            source_url = page_url
-            warnings = ["off_domain_source_url"]
-        else:
-            warnings = []
-        latitude = _number(raw.get("latitude"))
-        longitude = _number(raw.get("longitude"))
-        if (latitude is None) != (longitude is None):
-            latitude = longitude = None
-            warnings.append("incomplete_coordinates")
-        if latitude is not None and longitude is not None:
-            if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-                latitude = longitude = None
-                warnings.append("invalid_coordinates")
-            elif source.latitude is not None and source.longitude is not None:
-                if _haversine_km(latitude, longitude, source.latitude, source.longitude) > 250:
-                    latitude = longitude = None
-                    warnings.append("coordinates_outside_source_area")
-        price_min = _number(raw.get("priceMin"))
-        price_max = _number(raw.get("priceMax"))
-        if price_min is not None and price_max is not None and price_min > price_max:
-            price_min, price_max = price_max, price_min
-        currency = (_first_text(raw.get("currency")) or "").upper() or None
-        if currency and not re.fullmatch(r"[A-Z]{3}", currency):
-            currency = None
-        currency = currency or _currency_for_country(
-            _first_text(raw.get("countryCode")) or source.country_code
-        )
-        all_day = raw.get("allDay") is True or bool(
-            re.fullmatch(r"\d{4}-\d{2}-\d{2}", _first_text(raw.get("startDate")) or "")
-        )
-        ends_at = _iso_datetime(raw.get("endDate"), source.timezone)
-        if all_day:
-            try:
-                if ends_at and re.fullmatch(
-                    r"\d{4}-\d{2}-\d{2}", _first_text(raw.get("endDate")) or ""
-                ):
-                    ends_at = (datetime.fromisoformat(ends_at) + timedelta(days=1)).isoformat()
-                elif not ends_at:
-                    ends_at = (datetime.fromisoformat(starts_at) + timedelta(days=1)).isoformat()
-            except ValueError:
-                pass
-        event = Event(
-            title=title[:240],
-            starts_at=starts_at,
-            ends_at=ends_at,
-            source_url=source_url,
-            description=_clean_description(raw.get("description")),
-            venue_name=_first_text(raw.get("venueName")),
-            address=_first_text(raw.get("address")),
-            latitude=latitude,
-            longitude=longitude,
-            category=_first_text(raw.get("category")) or source.category,
-            ticket_url=_canonical_http_url(raw.get("ticketUrl"), source_url),
-            image_url=_canonical_http_url(raw.get("imageUrl"), source_url),
-            is_free=raw.get("isFree") is True or price_min == 0,
-            external_identifier=_first_text(raw.get("externalId")),
-            timezone=source.timezone,
-            time_precision="date" if all_day else (_first_text(raw.get("timePrecision")) or "exact"),
-            all_day=all_day,
-            city=_first_text(raw.get("city")) or source.city,
-            country_code=_first_text(raw.get("countryCode")) or source.country_code,
-            status=_normalize_status(raw.get("status")),
-            language=_first_text(raw.get("language")),
-            genres=tuple(
-                dict.fromkeys(
-                    filter(None, (_first_text(value) for value in _as_list(raw.get("genres"))))
-                )
-            ),
-            capacity=int(value) if (value := _number(raw.get("capacity"))) and value <= 1_000_000 else None,
-            price_min=price_min if price_min is not None and 0 <= price_min <= 100_000 else None,
-            price_max=price_max if price_max is not None and 0 <= price_max <= 100_000 else None,
-            currency=currency,
-            warnings=tuple(warnings),
-        )
-        if _future_event(event):
-            scored = replace(event, quality_score=_event_quality(event))
-            if scored.quality_score >= 48:
-                events.append(scored)
-    return events
-
-
 class SupabaseREST:
     def __init__(self, url: str, service_key: str, timeout: int) -> None:
         self.url = url.rstrip("/")
@@ -1058,7 +897,6 @@ def run_edge(args: argparse.Namespace) -> int:
 def _direct_source_events(source: Source, args: argparse.Namespace) -> tuple[list[Event], list[str]]:
     events: list[Event] = []
     errors: list[str] = []
-    firecrawl_key = (os.getenv("FIRECRAWL_API_KEY") or "").strip()
     for page in range(source.page_count):
         page_url = _source_page_url(source, page)
         try:
@@ -1091,8 +929,6 @@ def _direct_source_events(source: Source, args: argparse.Namespace) -> tuple[lis
                         )
                     except CollectorError as error:
                         errors.append(f"{detail_url}: {error}")
-            if not page_events and firecrawl_key:
-                page_events = _firecrawl_events(source, page_url, firecrawl_key, args.timeout)
             events.extend(page_events)
         except CollectorError as error:
             errors.append(f"{page_url}: {error}")
@@ -1159,7 +995,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--direct-only",
         action="store_true",
-        help="Edge mode: bypass Firecrawl and verify deterministic direct HTML/JSON-LD scraping",
+        help="Compatibility flag; deterministic direct HTML/JSON-LD scraping is always enforced",
     )
     parser.add_argument("--batch-size", type=int, default=3, choices=range(1, MAX_BATCH_SIZE + 1))
     parser.add_argument("--max-batches", type=int, default=100)

@@ -11,16 +11,40 @@ export type DirectScrapeTask = {
   source: EventSourceContext;
 };
 
+export type DirectScrapePageKind = "event" | "pagination";
+
+export type DirectScrapeContinuation = {
+  url: string;
+  kind: DirectScrapePageKind;
+};
+
 export type DirectScrapeResult = {
   mode: "direct";
   rootHtml: string;
   candidates: EventCandidate[];
+  /**
+   * Every discovered page that did not fit in this invocation's explicit
+   * network budget. Callers can persist these entries as follow-up crawl jobs
+   * instead of silently losing events after the first page.
+   */
+  continuation: DirectScrapeContinuation[];
+  /** Convenience projection for queue implementations that only need URLs. */
+  continuationUrls: string[];
   metadata: {
     rootUrl: string;
     rootStatus: number;
+    pageFetchBudget: number;
+    pagesAttempted: number;
+    pagesFetched: number;
     detailPagesAttempted: number;
     detailPagesFetched: number;
+    paginationPagesAttempted: number;
+    paginationPagesFetched: number;
     detailPageErrors: string[];
+    discoveredEventUrlCount: number;
+    discoveredPaginationUrlCount: number;
+    continuationUrlCount: number;
+    budgetExhausted: boolean;
     jsonLdCandidateCount: number;
     htmlCandidateCount: number;
   };
@@ -31,16 +55,22 @@ export type DirectScrapeOptions = {
   timeoutMs?: number;
   rootMaxBytes?: number;
   detailMaxBytes?: number;
+  /** Maximum non-root pages fetched in this invocation (0..100). */
+  pageFetchBudget?: number;
+  /** @deprecated Use pageFetchBudget. Kept for existing Edge callers. */
   detailPageLimit?: number;
 };
 
 const EVENT_PATH_HINT =
-  /(?:agenda|event|evenement|événement|programme|program|concert|festival|soiree|soirée|party|club|show|gig|spectacle|exposition|expo)/i;
+  /(?:agenda|event|evenement|événement|veranstaltung|termin|evento|eventi|actividad|program(?:me|ma)?|concert|festival|soiree|soirée|party|club|show|gig|spectacle|exposition|expo|выстав|событ|мероприят|イベント|行事|活動|活动|행사|فعالي)/i;
 const SKIP_PATH = /\.(?:avif|css|csv|gif|ico|jpe?g|js|json|pdf|png|svg|webp|xml|zip)(?:$|[?#])/i;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ROOT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_DETAIL_MAX_BYTES = 2 * 1024 * 1024;
-const DEFAULT_DETAIL_LIMIT = 10;
+const DEFAULT_PAGE_FETCH_BUDGET = 10;
+const MAX_PAGE_FETCH_BUDGET = 100;
+const MAX_DETAIL_FETCH_CONCURRENCY = 3;
+const MAX_REDIRECTS = 5;
 
 const MONTHS: Record<string, number> = {
   january: 1,
@@ -146,17 +176,34 @@ function labelledHtmlValue(html: string, labels: string[]): string {
 
 function localizedDate(value: string): { year: number; month: number; day: number } | null {
   const normalized = normalizeEventText(value);
+  const iso = /\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/.exec(normalized);
+  const dayFirst = /\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](20\d{2})\b/.exec(normalized);
+  const numeric = iso
+    ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
+    : dayFirst
+      ? { year: Number(dayFirst[3]), month: Number(dayFirst[2]), day: Number(dayFirst[1]) }
+      : null;
+  if (numeric) {
+    const check = new Date(Date.UTC(numeric.year, numeric.month - 1, numeric.day));
+    if (
+      check.getUTCFullYear() === numeric.year &&
+      check.getUTCMonth() === numeric.month - 1 &&
+      check.getUTCDate() === numeric.day
+    ) {
+      return numeric;
+    }
+  }
   const monthWords = Object.keys(MONTHS).join("|");
-  const dayFirst = new RegExp(`\\b(\\d{1,2})(?:er|st|nd|rd|th)? (${monthWords}) (\\d{4})\\b`).exec(
-    normalized,
-  );
+  const localizedDayFirst = new RegExp(
+    `\\b(\\d{1,2})(?:er|st|nd|rd|th)? (${monthWords}) (\\d{4})\\b`,
+  ).exec(normalized);
   const monthFirst = new RegExp(`\\b(${monthWords}) (\\d{1,2})(?:st|nd|rd|th)? (\\d{4})\\b`).exec(
     normalized,
   );
-  const match = dayFirst ?? monthFirst;
+  const match = localizedDayFirst ?? monthFirst;
   if (!match) return null;
-  const day = Number(dayFirst ? match[1] : match[2]);
-  const month = MONTHS[dayFirst ? match[2] : match[1]];
+  const day = Number(localizedDayFirst ? match[1] : match[2]);
+  const month = MONTHS[localizedDayFirst ? match[2] : match[1]];
   const year = Number(match[3]);
   const check = new Date(Date.UTC(year, month - 1, day));
   if (
@@ -241,7 +288,25 @@ export function extractHtmlEventCandidates(
     firstTagText(article, "h1", "entry-title") ||
     firstTagText(article, "h1") ||
     metaContent(html, "property", "og:title");
-  const rawDate = labelledHtmlValue(article, ["Date", "Datum", "Data", "Fecha"]);
+  const rawDate = labelledHtmlValue(article, [
+    "Date",
+    "Datum",
+    "Data",
+    "Fecha",
+    "Dato",
+    "Päivämäärä",
+    "Dátum",
+    "Tarih",
+    "Tanggal",
+    "Ngày",
+    "Дата",
+    "التاريخ",
+    "תאריך",
+    "Ημερομηνία",
+    "日付",
+    "날짜",
+    "日期",
+  ]);
   const date = localizedDate(rawDate);
   if (!title || !date) return [];
 
@@ -297,9 +362,33 @@ export function extractHtmlEventCandidates(
     ) ||
     pageUrl;
   const language = tagAttribute(/<html\b[^>]*>/i.exec(html)?.[0] ?? "", "lang").slice(0, 2);
-  const description = metaContent(html, "property", "og:description") || null;
-  const imageUrl = metaContent(html, "property", "og:image") || null;
-  const organizerUrl = new URL("/", pageUrl).toString();
+  const description =
+    metaContent(html, "property", "og:description") ||
+    metaContent(html, "name", "twitter:description") ||
+    metaContent(html, "name", "description") ||
+    null;
+  const imageUrl =
+    metaContent(html, "property", "og:image") ||
+    metaContent(html, "name", "twitter:image") ||
+    tagAttribute(
+      /<img\b[^>]*(?:data-src|src)\s*=\s*["'][^"']+["'][^>]*>/i.exec(article)?.[0] ?? "",
+      "data-src",
+    ) ||
+    tagAttribute(/<img\b[^>]*\bsrc\s*=\s*["'][^"']+["'][^>]*>/i.exec(article)?.[0] ?? "", "src") ||
+    null;
+  const venueName =
+    labelledHtmlValue(article, ["Venue", "Location", "Lieu", "Ort", "Luogo", "Lugar", "Local"]) ||
+    null;
+  const organizerName =
+    labelledHtmlValue(article, [
+      "Organizer",
+      "Organiser",
+      "Organisateur",
+      "Veranstalter",
+      "Organizzatore",
+      "Organizador",
+      "Organisation",
+    ]) || null;
 
   return [
     {
@@ -310,12 +399,12 @@ export function extractHtmlEventCandidates(
       endDate,
       timezone: source.city?.timezone ?? null,
       timePrecision: clocks[0] ? "exact" : "date",
-      allDay: false,
-      venueName: source.name,
+      allDay: !clocks[0],
+      venueName,
       city: source.city?.name ?? null,
       countryCode: source.city?.country?.code ?? null,
-      organizerName: source.name,
-      organizerUrl,
+      organizerName,
+      organizerUrl: null,
       language: language || null,
       category: source.category_slug,
       genres,
@@ -331,18 +420,20 @@ export function extractHtmlEventCandidates(
   ];
 }
 
-function normalizedHost(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/^www\./, "")
-    .replace(/\.$/, "");
+function exactNormalizedHost(value: string): string {
+  return value.toLowerCase().replace(/\.$/, "");
 }
 
-function sourceHost(source: EventSourceContext, fallbackUrl: string): string {
-  const configured = normalizedHost(source.domain || "");
+function relatedNormalizedHost(value: string): string {
+  return exactNormalizedHost(value).replace(/^www\./, "");
+}
+
+function sourceHost(source: EventSourceContext, fallbackUrl: string, exact: boolean): string {
+  const normalize = exact ? exactNormalizedHost : relatedNormalizedHost;
+  const configured = normalize(source.domain || "");
   if (configured) return configured;
   try {
-    return normalizedHost(new URL(fallbackUrl).hostname);
+    return normalize(new URL(fallbackUrl).hostname);
   } catch {
     return "";
   }
@@ -350,8 +441,11 @@ function sourceHost(source: EventSourceContext, fallbackUrl: string): string {
 
 function hostMatches(candidate: string, source: EventSourceContext, fallbackUrl: string): boolean {
   try {
-    const host = normalizedHost(new URL(candidate).hostname);
-    const expected = sourceHost(source, fallbackUrl);
+    const exact = source.metadata?.direct_exact_host === true;
+    const normalize = exact ? exactNormalizedHost : relatedNormalizedHost;
+    const host = normalize(new URL(candidate).hostname);
+    const expected = sourceHost(source, fallbackUrl, exact);
+    if (exact) return Boolean(host && expected && host === expected);
     return Boolean(
       host &&
       expected &&
@@ -382,6 +476,17 @@ function isPrivateIpv4(host: string): boolean {
   );
 }
 
+function isPrivateIpv6(host: string): boolean {
+  const value = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (!value.includes(":")) return false;
+  if (value === "::" || value === "::1") return true;
+  if (/^(?:fc|fd)/.test(value) || /^fe[89ab]/.test(value) || value.startsWith("ff")) {
+    return true;
+  }
+  const mappedIpv4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(value)?.[1];
+  return mappedIpv4 ? isPrivateIpv4(mappedIpv4) : false;
+}
+
 function assertPublicSourceUrl(
   value: string,
   source: EventSourceContext,
@@ -396,7 +501,8 @@ function assertPublicSourceUrl(
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new Error("direct_invalid_protocol");
   }
-  const host = normalizedHost(parsed.hostname);
+  if (parsed.username || parsed.password) throw new Error("direct_credentials_blocked");
+  const host = exactNormalizedHost(parsed.hostname);
   if (
     !host ||
     host === "localhost" ||
@@ -404,7 +510,8 @@ function assertPublicSourceUrl(
     host.endsWith(".local") ||
     host === "::1" ||
     host === "[::1]" ||
-    isPrivateIpv4(host)
+    isPrivateIpv4(host) ||
+    isPrivateIpv6(host)
   ) {
     throw new Error("direct_private_host_blocked");
   }
@@ -448,36 +555,46 @@ async function fetchHtml(
   timeoutMs: number,
   maximumBytes: number,
 ): Promise<{ html: string; url: string; status: number }> {
-  const url = assertPublicSourceUrl(value, source, fallbackUrl);
+  let url = assertPublicSourceUrl(value, source, fallbackUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetcher(url, {
-      method: "GET",
-      redirect: "follow",
-      headers: {
-        Accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5",
-        "Accept-Language": "fr,en;q=0.8",
-        "User-Agent":
-          "EVENTA-Direct-Event-Collector/2.0 (+https://github.com/mtnrconcept/event-horizon-finder)",
-      },
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`direct_http_${response.status}`);
-    const finalUrl = response.url || url.toString();
-    assertPublicSourceUrl(finalUrl, source, fallbackUrl);
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    if (
-      contentType &&
-      !contentType.includes("text/html") &&
-      !contentType.includes("application/xhtml+xml") &&
-      !contentType.includes("text/plain")
-    ) {
-      throw new Error(`direct_unsupported_content_type:${contentType.slice(0, 80)}`);
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+      const response = await fetcher(url, {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          Accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5",
+          "User-Agent":
+            "EVENTA-Direct-Event-Collector/3.0 (+https://github.com/mtnrconcept/event-horizon-finder)",
+        },
+        signal: controller.signal,
+      });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location");
+        await response.body?.cancel("redirect").catch(() => undefined);
+        if (!location) throw new Error("direct_redirect_without_location");
+        if (redirectCount >= MAX_REDIRECTS) throw new Error("direct_too_many_redirects");
+        url = assertPublicSourceUrl(location, source, url.toString());
+        continue;
+      }
+      if (!response.ok) throw new Error(`direct_http_${response.status}`);
+      const finalUrl = response.url || url.toString();
+      assertPublicSourceUrl(finalUrl, source, url.toString());
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      if (
+        contentType &&
+        !contentType.includes("text/html") &&
+        !contentType.includes("application/xhtml+xml") &&
+        !contentType.includes("text/plain")
+      ) {
+        throw new Error(`direct_unsupported_content_type:${contentType.slice(0, 80)}`);
+      }
+      const html = await limitedText(response, maximumBytes);
+      if (!html.trim()) throw new Error("direct_empty_response");
+      return { html, url: finalUrl, status: response.status };
     }
-    const html = await limitedText(response, maximumBytes);
-    if (!html.trim()) throw new Error("direct_empty_response");
-    return { html, url: finalUrl, status: response.status };
+    throw new Error("direct_too_many_redirects");
   } catch (error) {
     if (controller.signal.aborted) throw new Error("direct_timeout");
     throw error;
@@ -486,46 +603,152 @@ async function fetchHtml(
   }
 }
 
-export function discoverDirectEventLinks(
+export type DiscoveredDirectLinks = {
+  eventUrls: string[];
+  paginationUrls: string[];
+};
+
+function canonicalPageKey(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:utm_.+|fbclid|gclid|gbraid|wbraid|mc_cid|mc_eid)$/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function paginationAnchor(tag: string, label: string, candidate: URL): boolean {
+  const rel = normalizeEventText(tagAttribute(tag, "rel"));
+  const ariaLabel = normalizeEventText(tagAttribute(tag, "aria-label"));
+  const classNames = tagAttribute(tag, "class").toLowerCase().split(/\s+/).filter(Boolean);
+  const normalizedLabel = normalizeEventText(label);
+  const explicitNext =
+    /(?:^|\s)next(?:\s|$)/.test(rel) ||
+    /\b(?:next|suivant|suivante|weiter|successivo|siguiente|older)\b/.test(ariaLabel) ||
+    /\b(?:next|suivant|suivante|weiter|successivo|siguiente|older)\b/.test(normalizedLabel) ||
+    /^(?:>|>>|›|»|→)$/.test(normalizedLabel) ||
+    classNames.includes("next") ||
+    classNames.includes("pagination-next");
+  const numberedPage =
+    /\/(?:page|pagina|seite)\/\d+\/?$/i.test(candidate.pathname) ||
+    [...candidate.searchParams.entries()].some(
+      ([key, value]) => /^(?:page|paged|pagenum)$/i.test(key) && /^\d+$/.test(value),
+    );
+  return explicitNext || numberedPage;
+}
+
+/**
+ * Discover every event-looking link in the supplied HTML. This function never
+ * applies a crawl budget: budgeting belongs to scrapeDirectEventSource, which
+ * can therefore return all unprocessed URLs as durable continuations.
+ */
+export function discoverDirectSourceLinks(
   html: string,
   pageUrl: string,
   source: EventSourceContext,
-  limit = DEFAULT_DETAIL_LIMIT,
-): string[] {
-  const output: string[] = [];
-  const seen = new Set<string>();
-  const links = html.matchAll(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi);
+): DiscoveredDirectLinks {
+  const eventUrls: string[] = [];
+  const paginationUrls: string[] = [];
+  const seenEvents = new Set<string>();
+  const seenPagination = new Set<string>();
+  const currentKey = canonicalPageKey(pageUrl);
+  let pageOrigin = "";
+  try {
+    pageOrigin = new URL(pageUrl).origin;
+  } catch {
+    return { eventUrls, paginationUrls };
+  }
+  const links = html.matchAll(
+    /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>[\s\S]*?<\/a>/gi,
+  );
   for (const match of links) {
+    const tag = /^<a\b[^>]*>/i.exec(match[0])?.[0] ?? match[0];
     const href = (match[1] ?? match[2] ?? match[3] ?? "").replace(/&amp;/gi, "&").trim();
     if (!href || href.startsWith("#") || /^(?:mailto|tel|javascript):/i.test(href)) continue;
     try {
       const candidate = assertPublicSourceUrl(href, source, pageUrl);
       const canonical = candidate.toString();
-      if (
-        canonical === pageUrl ||
-        seen.has(canonical) ||
-        SKIP_PATH.test(candidate.pathname) ||
-        !EVENT_PATH_HINT.test(candidate.pathname)
-      ) {
+      const key = canonicalPageKey(canonical);
+      if (key === currentKey || SKIP_PATH.test(candidate.pathname)) continue;
+
+      const label = cleanEventText(match[0].replace(tag, "").replace(/<\/a>\s*$/i, ""), 160);
+      if (paginationAnchor(tag, label, candidate)) {
+        if (candidate.origin === pageOrigin && !seenPagination.has(key)) {
+          seenPagination.add(key);
+          paginationUrls.push(canonical);
+        }
         continue;
       }
-      seen.add(canonical);
-      output.push(canonical);
-      if (output.length >= Math.max(0, Math.min(limit, 20))) break;
+      const explicitEventLink =
+        EVENT_PATH_HINT.test(`${candidate.pathname} ${label}`) ||
+        normalizeEventText(tagAttribute(tag, "itemprop")) === "url" ||
+        /(?:^|\s)(?:event|evento|veranstaltung)(?:\s|$)/i.test(tagAttribute(tag, "class"));
+      if (explicitEventLink && !seenEvents.has(key)) {
+        seenEvents.add(key);
+        eventUrls.push(canonical);
+      }
     } catch {
       // Ignore malformed, private and off-domain links discovered in page markup.
     }
   }
-  return output;
+  return { eventUrls, paginationUrls };
 }
 
-function configuredDetailLimit(source: EventSourceContext, override?: number): number {
-  const metadataValue = source.metadata?.direct_detail_limit;
-  const parsedOverride = Number.isFinite(override) ? Math.trunc(override as number) : null;
+export function discoverDirectEventLinks(
+  html: string,
+  pageUrl: string,
+  source: EventSourceContext,
+): string[] {
+  return discoverDirectSourceLinks(html, pageUrl, source).eventUrls;
+}
+
+function configuredPageFetchBudget(
+  source: EventSourceContext,
+  options: DirectScrapeOptions,
+): number {
+  const explicit = options.pageFetchBudget ?? options.detailPageLimit;
+  const metadataValue =
+    source.metadata?.direct_page_fetch_budget ?? source.metadata?.direct_detail_limit;
   const parsedMetadata = Number.parseInt(String(metadataValue ?? ""), 10);
   const selected =
-    parsedOverride ?? (Number.isFinite(parsedMetadata) ? parsedMetadata : DEFAULT_DETAIL_LIMIT);
-  return Math.max(0, Math.min(selected, 20));
+    explicit ?? (Number.isFinite(parsedMetadata) ? parsedMetadata : DEFAULT_PAGE_FETCH_BUDGET);
+  if (!Number.isInteger(selected) || selected < 0) {
+    throw new Error("direct_invalid_page_fetch_budget");
+  }
+  if (selected > MAX_PAGE_FETCH_BUDGET) {
+    throw new Error(`direct_page_fetch_budget_exceeds_max:${MAX_PAGE_FETCH_BUDGET}`);
+  }
+  return selected;
+}
+
+function candidateDetailUrls(
+  candidates: EventCandidate[],
+  pageUrl: string,
+  source: EventSourceContext,
+): string[] {
+  const output: string[] = [];
+  const seen = new Set<string>();
+  const pageKey = canonicalPageKey(pageUrl);
+  for (const candidate of candidates) {
+    if (!candidate.sourceUrl) continue;
+    try {
+      const parsed = assertPublicSourceUrl(candidate.sourceUrl, source, pageUrl);
+      const key = canonicalPageKey(parsed.toString());
+      if (key === pageKey || seen.has(key) || SKIP_PATH.test(parsed.pathname)) continue;
+      seen.add(key);
+      output.push(parsed.toString());
+    } catch {
+      // JSON-LD may contain an external canonical URL; it is not safe to crawl here.
+    }
+  }
+  return output;
 }
 
 export async function scrapeDirectEventSource(
@@ -534,6 +757,7 @@ export async function scrapeDirectEventSource(
 ): Promise<DirectScrapeResult> {
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const pageFetchBudget = configuredPageFetchBudget(task.source, options);
   const root = await fetchHtml(
     task.url,
     task.source,
@@ -548,23 +772,64 @@ export async function scrapeDirectEventSource(
   let jsonLdCandidateCount = rootJsonLd.length;
   let htmlCandidateCount = rootHtmlCandidates.length;
   const detailErrors: string[] = [];
-  let fetched = 0;
-  const detailLinks =
-    candidates.length >= 2
-      ? []
-      : discoverDirectEventLinks(
-          root.html,
-          root.url,
-          task.source,
-          configuredDetailLimit(task.source, options.detailPageLimit),
-        );
+  const failedContinuations: DirectScrapeContinuation[] = [];
+  const pending: DirectScrapeContinuation[] = [];
+  const scheduled = new Set<string>([canonicalPageKey(root.url)]);
+  const discoveredEventUrls = new Set<string>();
+  const discoveredPaginationUrls = new Set<string>();
+  let pagesAttempted = 0;
+  let pagesFetched = 0;
+  let detailPagesAttempted = 0;
+  let detailPagesFetched = 0;
+  let paginationPagesAttempted = 0;
+  let paginationPagesFetched = 0;
 
-  for (let offset = 0; offset < detailLinks.length; offset += 3) {
-    const group = detailLinks.slice(offset, offset + 3);
+  const enqueue = (url: string, kind: DirectScrapePageKind) => {
+    let canonical: string;
+    try {
+      canonical = assertPublicSourceUrl(url, task.source, root.url).toString();
+    } catch {
+      return;
+    }
+    const key = canonicalPageKey(canonical);
+    const discovered = kind === "event" ? discoveredEventUrls : discoveredPaginationUrls;
+    discovered.add(key);
+    if (scheduled.has(key)) return;
+    scheduled.add(key);
+    pending.push({ url: canonical, kind });
+  };
+
+  const enqueueDiscoveredPage = (
+    html: string,
+    pageUrl: string,
+    extractedCandidates: EventCandidate[],
+  ) => {
+    // Explicit schema.org event URLs are the strongest detail-page signal and
+    // are queued first so list candidates are enriched before pagination.
+    for (const url of candidateDetailUrls(extractedCandidates, pageUrl, task.source)) {
+      enqueue(url, "event");
+    }
+    const links = discoverDirectSourceLinks(html, pageUrl, task.source);
+    for (const url of links.eventUrls) enqueue(url, "event");
+    for (const url of links.paginationUrls) enqueue(url, "pagination");
+  };
+
+  enqueueDiscoveredPage(root.html, root.url, [...rootJsonLd, ...rootHtmlCandidates]);
+
+  while (pending.length > 0 && pagesAttempted < pageFetchBudget) {
+    const group = pending.splice(
+      0,
+      Math.min(MAX_DETAIL_FETCH_CONCURRENCY, pageFetchBudget - pagesAttempted),
+    );
+    pagesAttempted += group.length;
+    for (const entry of group) {
+      if (entry.kind === "event") detailPagesAttempted += 1;
+      else paginationPagesAttempted += 1;
+    }
     const results = await Promise.allSettled(
-      group.map((url) =>
+      group.map((entry) =>
         fetchHtml(
-          url,
+          entry.url,
           task.source,
           root.url,
           fetcher,
@@ -575,7 +840,10 @@ export async function scrapeDirectEventSource(
     );
     results.forEach((result, index) => {
       if (result.status === "fulfilled") {
-        fetched += 1;
+        pagesFetched += 1;
+        scheduled.add(canonicalPageKey(result.value.url));
+        if (group[index].kind === "event") detailPagesFetched += 1;
+        else paginationPagesFetched += 1;
         const jsonLd = extractJsonLdCandidates(result.value.html, result.value.url, task.source);
         const htmlEvents = extractHtmlEventCandidates(
           result.value.html,
@@ -585,24 +853,47 @@ export async function scrapeDirectEventSource(
         jsonLdCandidateCount += jsonLd.length;
         htmlCandidateCount += htmlEvents.length;
         candidates.push(...jsonLd, ...htmlEvents);
-      } else if (detailErrors.length < 8) {
+        enqueueDiscoveredPage(result.value.html, result.value.url, [...jsonLd, ...htmlEvents]);
+      } else {
         const message =
           result.reason instanceof Error ? result.reason.message : "direct_detail_failed";
-        detailErrors.push(`${group[index]}: ${message}`.slice(0, 500));
+        detailErrors.push(`${group[index].url}: ${message}`.slice(0, 500));
+        // A transient detail-page error must not disappear merely because the
+        // root agenda itself succeeded. Persist it as a continuation so a
+        // later durable crawl job can retry it independently.
+        failedContinuations.push(group[index]);
       }
     });
   }
+
+  const continuation = [...failedContinuations, ...pending].filter(
+    (entry, index, values) =>
+      values.findIndex(
+        (candidate) => canonicalPageKey(candidate.url) === canonicalPageKey(entry.url),
+      ) === index,
+  );
 
   return {
     mode: "direct",
     rootHtml: root.html,
     candidates,
+    continuation,
+    continuationUrls: continuation.map((entry) => entry.url),
     metadata: {
       rootUrl: root.url,
       rootStatus: root.status,
-      detailPagesAttempted: detailLinks.length,
-      detailPagesFetched: fetched,
+      pageFetchBudget,
+      pagesAttempted,
+      pagesFetched,
+      detailPagesAttempted,
+      detailPagesFetched,
+      paginationPagesAttempted,
+      paginationPagesFetched,
       detailPageErrors: detailErrors,
+      discoveredEventUrlCount: discoveredEventUrls.size,
+      discoveredPaginationUrlCount: discoveredPaginationUrls.size,
+      continuationUrlCount: continuation.length,
+      budgetExhausted: continuation.length > 0 && pagesAttempted >= pageFetchBudget,
       jsonLdCandidateCount,
       htmlCandidateCount,
     },
