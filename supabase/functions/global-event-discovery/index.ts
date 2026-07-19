@@ -758,8 +758,11 @@ async function handleSearch(admin: AdminClient, body: JsonObject): Promise<JsonO
       });
     }
   }
+  // Per-URL search failures (e.g. searxng_http_429, search_unexpected_error) are expected
+  // operational outcomes. Infrastructure failures throw WorkerError and are caught by the
+  // outer handler, returning an HTTP error response instead of reaching this return statement.
   return {
-    ok: summaries.every((summary) => summary.ok !== false),
+    ok: true,
     action: "search",
     claimed: jobs.length,
     completed: summaries.filter((summary) => summary.ok === true).length,
@@ -1826,8 +1829,13 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     }
   }
   const summaries = [...persistenceSummaries, ...crawlSummaries];
+  // Per-URL crawl failures (e.g. robots_disallowed, crawl_delay_deferred,
+  // crawl_unexpected_error) are expected operational outcomes. Infrastructure
+  // failures (e.g. safe_fetch_proxy_not_configured) throw WorkerError and are
+  // caught by the outer handler, returning an HTTP error response instead of
+  // reaching this return statement.
   return {
-    ok: summaries.every((summary) => summary.ok !== false),
+    ok: true,
     action: "crawl",
     claimed: persistenceJobs.length + jobs.length,
     persistenceClaimed: persistenceJobs.length,
