@@ -88,6 +88,56 @@ function useLivePublishedEventCount() {
   return { count, connected };
 }
 
+const COUNTER_INTRO_DELAY_MS = 300;
+const COUNTER_INTRO_DURATION_MS = 1_800;
+const COUNTER_INTRO_STEPS = 18;
+
+function useIntroAnimatedCount(target: number | null) {
+  const [displayCount, setDisplayCount] = useState<number | null>(null);
+  const latestTargetRef = useRef<number | null>(target);
+  const introCompleteRef = useRef(false);
+  const hasTarget = target != null;
+
+  latestTargetRef.current = target;
+
+  useEffect(() => {
+    if (!hasTarget) return;
+
+    let intervalId: number | null = null;
+    let step = 0;
+    setDisplayCount(0);
+
+    const timeoutId = window.setTimeout(() => {
+      intervalId = window.setInterval(() => {
+        step += 1;
+        const progress = Math.min(step / COUNTER_INTRO_STEPS, 1);
+        const easedProgress = 1 - (1 - progress) ** 3;
+        const latestTarget = latestTargetRef.current ?? 0;
+
+        setDisplayCount(
+          progress === 1 ? latestTarget : Math.floor(latestTarget * easedProgress),
+        );
+
+        if (progress === 1) {
+          introCompleteRef.current = true;
+          if (intervalId != null) window.clearInterval(intervalId);
+        }
+      }, Math.round(COUNTER_INTRO_DURATION_MS / COUNTER_INTRO_STEPS));
+    }, COUNTER_INTRO_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId != null) window.clearInterval(intervalId);
+    };
+  }, [hasTarget]);
+
+  useEffect(() => {
+    if (target != null && introCompleteRef.current) setDisplayCount(target);
+  }, [target]);
+
+  return displayCount;
+}
+
 function AirportDigit({ value, previous }: { value: string; previous: string }) {
   const changed = value !== previous;
   return (
@@ -106,14 +156,15 @@ function AirportDigit({ value, previous }: { value: string; previous: string }) 
 export function LiveEventCounter() {
   const { t, formatNumber } = useTranslation();
   const { count, connected } = useLivePublishedEventCount();
-  const previousCountRef = useRef<number | null>(count);
-  const safeCount = count ?? 0;
+  const displayCount = useIntroAnimatedCount(count);
+  const previousCountRef = useRef<number | null>(displayCount);
+  const safeCount = displayCount ?? 0;
   const digits = useMemo(() => String(safeCount).padStart(6, "0"), [safeCount]);
   const previousDigits = String(previousCountRef.current ?? 0).padStart(digits.length, "0");
 
   useEffect(() => {
-    previousCountRef.current = count;
-  }, [count]);
+    previousCountRef.current = displayCount;
+  }, [displayCount]);
 
   return (
     <div
@@ -145,8 +196,8 @@ export function LiveEventCounter() {
         {digits.split("").map((digit, index) => (
           <AirportDigit
             key={index}
-            value={count == null ? "–" : digit}
-            previous={count == null ? "–" : (previousDigits[index] ?? "0")}
+            value={displayCount == null ? "–" : digit}
+            previous={displayCount == null ? "–" : (previousDigits[index] ?? "0")}
           />
         ))}
       </div>
