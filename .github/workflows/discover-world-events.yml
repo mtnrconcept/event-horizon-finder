@@ -137,7 +137,7 @@ jobs:
             --env SEARXNG_AUTH_TOKEN=ci-token-that-is-at-least-32-characters-long \
             --env SEARXNG_PUBLIC_HOST=search.example.com \
             --volume "$PWD/infra/searxng/Caddyfile.vps:/etc/caddy/Caddyfile:ro" \
-            "$caddy_image" validate --config /etc/caddy/Caddyfile
+            "$caddy_image" caddy validate --config /etc/caddy/Caddyfile
 
       - name: Cache the free GeoNames downloads
         uses: actions/cache@v4
