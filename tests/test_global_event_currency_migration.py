@@ -16,6 +16,12 @@ INDEX_MIGRATION = (
     / "migrations"
     / "20260719025620_optimize_global_discovery_foreign_keys.sql"
 )
+RUNTIME_MIGRATION = (
+    ROOT
+    / "supabase"
+    / "migrations"
+    / "20260719030642_fix_geonames_postgis_runtime.sql"
+)
 
 
 class GlobalEventCurrencyMigrationTests(unittest.TestCase):
@@ -23,6 +29,7 @@ class GlobalEventCurrencyMigrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.sql = MIGRATION.read_text(encoding="utf-8")
         cls.index_sql = INDEX_MIGRATION.read_text(encoding="utf-8")
+        cls.runtime_sql = RUNTIME_MIGRATION.read_text(encoding="utf-8")
 
     def test_ticket_offer_has_no_catalog_wide_eur_default(self) -> None:
         self.assertRegex(
@@ -80,6 +87,11 @@ class GlobalEventCurrencyMigrationTests(unittest.TestCase):
         for index_name in expected_indexes:
             with self.subTest(index_name=index_name):
                 self.assertIn(f"CREATE INDEX IF NOT EXISTS {index_name}", self.index_sql)
+
+    def test_geonames_runtime_does_not_assume_the_postgis_schema(self) -> None:
+        self.assertIn("postgis_schema_value", self.runtime_sql)
+        self.assertIn("city_location_value public.cities.location%TYPE", self.runtime_sql)
+        self.assertNotRegex(self.runtime_sql, r"extensions\.st_(?:dwithin|distance)")
 
 
 if __name__ == "__main__":
