@@ -22,6 +22,12 @@ RUNTIME_MIGRATION = (
     / "migrations"
     / "20260719030642_fix_geonames_postgis_runtime.sql"
 )
+IDENTITY_MIGRATION = (
+    ROOT
+    / "supabase"
+    / "migrations"
+    / "20260719032611_canonicalize_geonames_city_identity.sql"
+)
 
 
 class GlobalEventCurrencyMigrationTests(unittest.TestCase):
@@ -30,6 +36,7 @@ class GlobalEventCurrencyMigrationTests(unittest.TestCase):
         cls.sql = MIGRATION.read_text(encoding="utf-8")
         cls.index_sql = INDEX_MIGRATION.read_text(encoding="utf-8")
         cls.runtime_sql = RUNTIME_MIGRATION.read_text(encoding="utf-8")
+        cls.identity_sql = IDENTITY_MIGRATION.read_text(encoding="utf-8")
 
     def test_ticket_offer_has_no_catalog_wide_eur_default(self) -> None:
         self.assertRegex(
@@ -92,6 +99,25 @@ class GlobalEventCurrencyMigrationTests(unittest.TestCase):
         self.assertIn("postgis_schema_value", self.runtime_sql)
         self.assertIn("city_location_value public.cities.location%TYPE", self.runtime_sql)
         self.assertNotRegex(self.runtime_sql, r"extensions\.st_(?:dwithin|distance)")
+
+    def test_geonames_identity_matching_is_strict_and_canonical(self) -> None:
+        self.assertGreaterEqual(self.identity_sql.count("))) <= 6"), 2)
+        self.assertNotIn("))) <= 50", self.identity_sql)
+        self.assertIn("AND NOT EXISTS (", self.identity_sql)
+        self.assertIn("LIMIT 1\n    FOR UPDATE", self.identity_sql)
+        self.assertIn("geonames_id = city_geonames_value", self.identity_sql)
+
+    def test_geonames_identity_import_remains_service_role_only(self) -> None:
+        self.assertIn(
+            "REVOKE ALL ON FUNCTION public.import_global_city_targets(JSONB)\n"
+            "  FROM PUBLIC, anon, authenticated;",
+            self.identity_sql,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION public.import_global_city_targets(JSONB)\n"
+            "  TO service_role;",
+            self.identity_sql,
+        )
 
 
 if __name__ == "__main__":
