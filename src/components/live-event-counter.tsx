@@ -109,7 +109,7 @@ export function LiveEventCounter() {
   const previousCountRef = useRef<number | null>(count);
   const safeCount = count ?? 0;
   const digits = useMemo(() => String(safeCount).padStart(6, "0"), [safeCount]);
-  const previousDigits = String(previousCountRef.current ?? safeCount).padStart(digits.length, "0");
+  const previousDigits = String(previousCountRef.current ?? 0).padStart(digits.length, "0");
 
   useEffect(() => {
     previousCountRef.current = count;
@@ -144,7 +144,7 @@ export function LiveEventCounter() {
       >
         {digits.split("").map((digit, index) => (
           <AirportDigit
-            key={`${index}-${digit}`}
+            key={index}
             value={count == null ? "–" : digit}
             previous={count == null ? "–" : (previousDigits[index] ?? "0")}
           />
