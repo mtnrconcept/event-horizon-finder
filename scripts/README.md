@@ -11,6 +11,12 @@ Deux chaînes complémentaires fonctionnent sans fournisseur payant :
 Les secrets restent dans les variables d’environnement. Ils ne doivent jamais
 être passés en argument, ajoutés au dépôt ou exposés au frontend.
 
+Pour installer la passerelle SearXNG et le proxy de lecture sur un VPS OVHcloud
+Ubuntu 24.04, utiliser `bootstrap_ovh_vps.sh`. Le script configure Docker, TLS,
+pare-feu, Fail2ban, mises à jour automatiques, secrets root-only et sondes de
+santé à partir d’un SHA Git complet et validé. La procédure complète se trouve dans
+[`docs/global-event-discovery.md`](../docs/global-event-discovery.md).
+
 ## Registre de sources autorisées
 
 Le mode par défaut orchestre la fonction Supabase protégée par petits lots. Le

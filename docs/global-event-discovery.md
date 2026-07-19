@@ -123,8 +123,8 @@ illimité aux moteurs en amont. Le dossier `infra/searxng/` fournit un point de
 départ :
 
 - `compose.yaml` exécute SearXNG, Valkey et une passerelle Caddy ;
-- `settings.yml` active le format JSON, le limiteur et suspend les moteurs qui
-  répondent par blocage, quota ou CAPTCHA ;
+- `settings.yml` active le format JSON et suspend les moteurs qui répondent par
+  blocage, quota ou CAPTCHA ;
 - `Caddyfile` exige `Authorization: Bearer <SEARXNG_AUTH_TOKEN>` ;
 - `.env.example` sépare le secret interne SearXNG du jeton de la passerelle.
 
@@ -145,6 +145,46 @@ chaque valeur `*_IMAGE` par son **digest multiarchitecture `@sha256:…` vérifi
 puis mettre versions et digests à jour explicitement. L’hébergement, la bande
 passante et l’adresse IP de sortie peuvent avoir un coût même si aucune API
 commerciale n’est achetée.
+
+### Installation sur le VPS OVHcloud
+
+La configuration de production `compose.vps.yaml` est dimensionnée pour un
+VPS de 2 vCPU et 4 Go de RAM. Elle publie uniquement Caddy sur les ports 80 et
+443, obtient automatiquement le certificat TLS, isole Valkey sur un réseau
+Docker interne et protège SearXNG ainsi que le proxy de lecture par deux jetons
+Bearer indépendants.
+
+Sur une installation neuve d’Ubuntu 24.04 LTS, exécuter depuis la console du
+fournisseur :
+
+```bash
+RELEASE_SHA="<sha-complet-du-commit-validé>"
+curl --fail --silent --show-error --location \
+  "https://raw.githubusercontent.com/mtnrconcept/event-horizon-finder/${RELEASE_SHA}/scripts/bootstrap_ovh_vps.sh" \
+  --output /tmp/bootstrap_ovh_vps.sh
+sudo bash /tmp/bootstrap_ovh_vps.sh \
+  --host vps-c1de9e54.vps.ovh.net \
+  --expected-ip 213.32.91.243 \
+  --expected-ipv6 2001:41d0:404:200::660f \
+  --ref "$RELEASE_SHA"
+```
+
+Le script vérifie Ubuntu et la résolution DNS avant tout démarrage, installe
+Docker depuis son dépôt officiel, active les mises à jour de sécurité, UFW et
+Fail2ban, vérifie le commit Git immuable, génère les trois secrets sur le VPS et
+lance la pile avec ses sondes de santé. Il est relançable : les secrets
+existants sont strictement conservés. Ils restent
+dans `/opt/globalparty/event-horizon-finder/infra/searxng/.env`, lisible
+uniquement par `root`, et ne doivent être ni affichés dans une CI, ni copiés
+dans une discussion.
+
+Après installation, copier les valeurs directement depuis ce fichier vers les
+coffres de secrets GitHub Actions et Supabase. Les deux URL non secrètes sont :
+
+```text
+SEARXNG_BASE_URL=https://vps-c1de9e54.vps.ovh.net/
+SAFE_FETCH_PROXY_URL=https://vps-c1de9e54.vps.ovh.net/safe-fetch/v1/fetch
+```
 
 Il n’existe pas de méthode gratuite et garantie permettant d’obtenir, à grande
 échelle, « les dix résultats mondiaux » identiques à Google ou Bing. Le rang

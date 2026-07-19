@@ -1,0 +1,26 @@
+{$SEARXNG_PUBLIC_HOST} {
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle_path /safe-fetch/* {
+		reverse_proxy safe-fetch-proxy:8080
+	}
+
+	@searxUnauthorized not header Authorization "Bearer {$SEARXNG_AUTH_TOKEN}"
+	handle {
+		respond @searxUnauthorized 401
+
+		reverse_proxy searxng:8080 {
+			header_up -Authorization
+		}
+	}
+}

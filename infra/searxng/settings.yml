@@ -19,7 +19,11 @@ search:
 server:
   bind_address: 0.0.0.0
   port: 8080
-  limiter: true
+  # Overwritten at runtime by the root-only SEARXNG_SECRET environment value.
+  secret_key: "ultrasecretkey"
+  # Incoming access is already private and Bearer-protected by Caddy. Keeping
+  # the public-instance limiter off avoids throttling the Supabase worker.
+  limiter: false
   image_proxy: false
 
 valkey:

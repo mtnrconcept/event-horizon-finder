@@ -1,0 +1,170 @@
+name: globalparty-search
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-runtime-security: &runtime-security
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  init: true
+  logging: *default-logging
+
+services:
+  gateway:
+    <<: *runtime-security
+    image: ${CADDY_IMAGE:?pin a reviewed Caddy image}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      searxng:
+        condition: service_healthy
+      safe-fetch-proxy:
+        condition: service_healthy
+    environment:
+      SEARXNG_AUTH_TOKEN: ${SEARXNG_AUTH_TOKEN:?set a long bearer token}
+      SEARXNG_PUBLIC_HOST: ${SEARXNG_PUBLIC_HOST:?set the public DNS hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.vps:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      - frontend
+      - search
+      - fetch
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    mem_limit: 192m
+    cpus: 0.25
+    pids_limit: 96
+    stop_grace_period: 15s
+
+  safe-fetch-proxy:
+    <<: *runtime-security
+    image: ${SAFE_FETCH_PROXY_IMAGE:-globalparty/safe-fetch-proxy:local}
+    build:
+      context: ../safe-fetch-proxy
+      dockerfile: Dockerfile
+      args:
+        GO_IMAGE: ${SAFE_FETCH_GO_IMAGE:-docker.io/library/golang:1.25-alpine}
+    environment:
+      SAFE_FETCH_AUTH_TOKEN: ${SAFE_FETCH_AUTH_TOKEN:?set a different long bearer token}
+      SAFE_FETCH_MAX_RESPONSE_BYTES: ${SAFE_FETCH_MAX_RESPONSE_BYTES:-5242880}
+      SAFE_FETCH_MAX_CONCURRENCY: ${SAFE_FETCH_MAX_CONCURRENCY:-16}
+      SAFE_FETCH_TOTAL_TIMEOUT: ${SAFE_FETCH_TOTAL_TIMEOUT:-20s}
+      SAFE_FETCH_DNS_TIMEOUT: ${SAFE_FETCH_DNS_TIMEOUT:-3s}
+      SAFE_FETCH_CONNECT_TIMEOUT: ${SAFE_FETCH_CONNECT_TIMEOUT:-5s}
+      SAFE_FETCH_RESPONSE_HEADER_TIMEOUT: ${SAFE_FETCH_RESPONSE_HEADER_TIMEOUT:-8s}
+    expose:
+      - "8080"
+    networks:
+      - fetch
+    healthcheck:
+      test: ["CMD", "/safe-fetch-proxy", "healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    mem_limit: 768m
+    cpus: 0.75
+    pids_limit: 128
+    stop_grace_period: 15s
+
+  searxng:
+    <<: *runtime-security
+    image: ${SEARXNG_IMAGE:?pin a reviewed SearXNG image}
+    user: "977:977"
+    depends_on:
+      valkey:
+        condition: service_healthy
+    environment:
+      FORCE_OWNERSHIP: "false"
+      GRANIAN_HOST: 0.0.0.0
+      GRANIAN_WORKERS: "2"
+      SEARXNG_BASE_URL: ${SEARXNG_PUBLIC_URL:?set the externally reachable HTTPS URL}
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?set a long random SearXNG secret}
+      SEARXNG_VALKEY_URL: valkey://valkey:6379/0
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    tmpfs:
+      - /tmp:size=128m,mode=1777,uid=977,gid=977
+      - /var/cache/searxng:size=128m,mode=0755,uid=977,gid=977
+    expose:
+      - "8080"
+    networks:
+      - search
+      - cache
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/searxng/.venv/bin/python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read(1)
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 1536m
+    cpus: 1.25
+    pids_limit: 256
+    stop_grace_period: 30s
+
+  valkey:
+    <<: *runtime-security
+    image: ${VALKEY_IMAGE:?pin a reviewed Valkey image}
+    user: "999:999"
+    command:
+      - valkey-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --bind
+      - 0.0.0.0
+      - --protected-mode
+      - "no"
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - allkeys-lru
+    tmpfs:
+      - /data:size=224m,mode=0700,uid=999,gid=999
+    networks:
+      - cache
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 128
+    stop_grace_period: 15s
+
+networks:
+  frontend:
+  search:
+  fetch:
+  cache:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:
