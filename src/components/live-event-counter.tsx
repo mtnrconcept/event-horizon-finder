@@ -238,7 +238,7 @@ export function LiveEventCounter() {
         aria-hidden="true"
         style={{ gridTemplateColumns: `repeat(${digits.length}, minmax(0, 1fr))` }}
       >
-        {digits.split("").map((digit, index) => (
+        {digits.map((digit, index) => (
           <AirportDigit
             key={index}
             value={digit}
