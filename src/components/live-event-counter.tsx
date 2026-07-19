@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/lib/i18n";
 import { normalizePublishedEventCount } from "@/lib/live-event-counter";
+import {
+  BRAND_ARRIVAL_COMPLETE_EVENT,
+  hasBrandArrivalCompleted,
+} from "@/lib/brand-arrival-events";
 
 type CounterRow = {
   published_event_count?: number | string | null;
@@ -88,54 +92,96 @@ function useLivePublishedEventCount() {
   return { count, connected };
 }
 
-const COUNTER_INTRO_DELAY_MS = 300;
-const COUNTER_INTRO_DURATION_MS = 1_800;
-const COUNTER_INTRO_STEPS = 18;
+const COUNTER_SPIN_DURATION_MS = 5_000;
+const COUNTER_SPIN_INTERVAL_MS = 90;
+const COUNTER_EARLIEST_STOP_MS = 3_200;
+const COUNTER_LATEST_RANDOM_STOP_MS = 4_800;
+const MIN_COUNTER_DIGITS = 6;
 
-function useIntroAnimatedCount(target: number | null) {
-  const [displayCount, setDisplayCount] = useState<number | null>(null);
-  const latestTargetRef = useRef<number | null>(target);
+function toCounterDigits(value: number) {
+  return String(value).padStart(MIN_COUNTER_DIGITS, "0").split("");
+}
+
+function createRandomStopTimes(length: number) {
+  const finalDigitIndex = Math.floor(Math.random() * length);
+  return Array.from({ length }, (_, index) =>
+    index === finalDigitIndex
+      ? COUNTER_SPIN_DURATION_MS
+      : COUNTER_EARLIEST_STOP_MS +
+        Math.random() * (COUNTER_LATEST_RANDOM_STOP_MS - COUNTER_EARLIEST_STOP_MS),
+  );
+}
+
+function useBrandArrivalComplete() {
+  const [complete, setComplete] = useState(hasBrandArrivalCompleted);
+
+  useEffect(() => {
+    const handleComplete = () => setComplete(true);
+    window.addEventListener(BRAND_ARRIVAL_COMPLETE_EVENT, handleComplete);
+    if (hasBrandArrivalCompleted()) handleComplete();
+
+    return () => window.removeEventListener(BRAND_ARRIVAL_COMPLETE_EVENT, handleComplete);
+  }, []);
+
+  return complete;
+}
+
+function useIntroAnimatedDigits(target: number | null, canStart: boolean) {
+  const [displayDigits, setDisplayDigits] = useState<string[] | null>(null);
+  const latestTargetDigitsRef = useRef<string[] | null>(
+    target == null ? null : toCounterDigits(target),
+  );
   const introCompleteRef = useRef(false);
   const hasTarget = target != null;
 
-  latestTargetRef.current = target;
+  latestTargetDigitsRef.current = target == null ? null : toCounterDigits(target);
 
   useEffect(() => {
-    if (!hasTarget) return;
+    if (!canStart || !hasTarget) return;
 
-    let intervalId: number | null = null;
-    let step = 0;
-    setDisplayCount(0);
+    const initialTargetDigits = latestTargetDigitsRef.current;
+    if (!initialTargetDigits) return;
 
-    const timeoutId = window.setTimeout(() => {
-      intervalId = window.setInterval(() => {
-        step += 1;
-        const progress = Math.min(step / COUNTER_INTRO_STEPS, 1);
-        const easedProgress = 1 - (1 - progress) ** 3;
-        const latestTarget = latestTargetRef.current ?? 0;
+    const stopTimes = createRandomStopTimes(initialTargetDigits.length);
+    const startedAt = window.performance.now();
+    setDisplayDigits(Array.from({ length: initialTargetDigits.length }, () => "0"));
 
-        setDisplayCount(
-          progress === 1 ? latestTarget : Math.floor(latestTarget * easedProgress),
-        );
+    const intervalId = window.setInterval(() => {
+      const elapsed = window.performance.now() - startedAt;
+      const latestTargetDigits = latestTargetDigitsRef.current ?? initialTargetDigits;
 
-        if (progress === 1) {
-          introCompleteRef.current = true;
-          if (intervalId != null) window.clearInterval(intervalId);
-        }
-      }, Math.round(COUNTER_INTRO_DURATION_MS / COUNTER_INTRO_STEPS));
-    }, COUNTER_INTRO_DELAY_MS);
+      setDisplayDigits((currentDigits) =>
+        latestTargetDigits.map((targetDigit, index) => {
+          if (elapsed >= (stopTimes[index] ?? COUNTER_SPIN_DURATION_MS)) {
+            return targetDigit;
+          }
+
+          const currentDigit = Number(currentDigits?.[index] ?? "0");
+          const randomOffset = 1 + Math.floor(Math.random() * 9);
+          return String((currentDigit + randomOffset) % 10);
+        }),
+      );
+    }, COUNTER_SPIN_INTERVAL_MS);
+
+    const completionTimeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+      introCompleteRef.current = true;
+      setDisplayDigits(latestTargetDigitsRef.current ?? initialTargetDigits);
+    }, COUNTER_SPIN_DURATION_MS);
 
     return () => {
-      window.clearTimeout(timeoutId);
-      if (intervalId != null) window.clearInterval(intervalId);
+      window.clearInterval(intervalId);
+      window.clearTimeout(completionTimeoutId);
     };
-  }, [hasTarget]);
+  }, [canStart, hasTarget]);
 
   useEffect(() => {
-    if (target != null && introCompleteRef.current) setDisplayCount(target);
+    if (target != null && introCompleteRef.current) {
+      setDisplayDigits(toCounterDigits(target));
+    }
   }, [target]);
 
-  return displayCount;
+  return displayDigits;
 }
 
 function AirportDigit({ value, previous }: { value: string; previous: string }) {
@@ -156,15 +202,14 @@ function AirportDigit({ value, previous }: { value: string; previous: string }) 
 export function LiveEventCounter() {
   const { t, formatNumber } = useTranslation();
   const { count, connected } = useLivePublishedEventCount();
-  const displayCount = useIntroAnimatedCount(count);
-  const previousCountRef = useRef<number | null>(displayCount);
-  const safeCount = displayCount ?? 0;
-  const digits = useMemo(() => String(safeCount).padStart(6, "0"), [safeCount]);
-  const previousDigits = String(previousCountRef.current ?? 0).padStart(digits.length, "0");
+  const brandArrivalComplete = useBrandArrivalComplete();
+  const animatedDigits = useIntroAnimatedDigits(count, brandArrivalComplete);
+  const digits = animatedDigits ?? Array.from({ length: MIN_COUNTER_DIGITS }, () => "–");
+  const previousDigitsRef = useRef(digits);
 
   useEffect(() => {
-    previousCountRef.current = displayCount;
-  }, [displayCount]);
+    previousDigitsRef.current = digits;
+  }, [digits]);
 
   return (
     <div
@@ -196,8 +241,8 @@ export function LiveEventCounter() {
         {digits.split("").map((digit, index) => (
           <AirportDigit
             key={index}
-            value={displayCount == null ? "–" : digit}
-            previous={displayCount == null ? "–" : (previousDigits[index] ?? "0")}
+            value={digit}
+            previous={previousDigitsRef.current[index] ?? "0"}
           />
         ))}
       </div>
