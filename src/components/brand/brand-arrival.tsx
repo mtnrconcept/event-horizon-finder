@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Volume2, VolumeX, X } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
+import { markBrandArrivalComplete } from "@/lib/brand-arrival-events";
 import "./brand-arrival.css";
 
 const INTRO_PLAYBACK_TIMEOUT_MS = 25_000;
@@ -25,6 +26,13 @@ export function BrandArrival() {
   const skipButtonRef = useRef<HTMLButtonElement>(null);
   const exitTimeoutRef = useRef<number | undefined>(undefined);
   const watchdogTimeoutRef = useRef<number | undefined>(undefined);
+  const completionDispatchedRef = useRef(false);
+
+  const completeArrival = useCallback(() => {
+    if (completionDispatchedRef.current) return;
+    completionDispatchedRef.current = true;
+    markBrandArrivalComplete();
+  }, []);
 
   const dismiss = useCallback(() => {
     window.clearTimeout(exitTimeoutRef.current);
@@ -32,8 +40,9 @@ export function BrandArrival() {
     setIsLeaving(true);
     exitTimeoutRef.current = window.setTimeout(() => {
       setVisible(false);
+      completeArrival();
     }, INTRO_EXIT_DURATION_MS);
-  }, []);
+  }, [completeArrival]);
 
   const armPlaybackWatchdog = useCallback(() => {
     window.clearTimeout(watchdogTimeoutRef.current);
@@ -44,12 +53,15 @@ export function BrandArrival() {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const saveData = (window.navigator as NavigatorWithConnection).connection?.saveData === true;
 
-    if (reducedMotion || saveData) return;
+    if (reducedMotion || saveData) {
+      const completionTimeout = window.setTimeout(completeArrival, 0);
+      return () => window.clearTimeout(completionTimeout);
+    }
 
     setVisible(true);
 
     return () => window.clearTimeout(exitTimeoutRef.current);
-  }, []);
+  }, [completeArrival]);
 
   useEffect(() => {
     if (!visible) return;
