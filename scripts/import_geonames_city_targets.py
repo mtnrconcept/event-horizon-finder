@@ -16,9 +16,11 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import math
 import os
 import sys
 import time
+import unicodedata
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -38,6 +40,18 @@ USER_AGENT = (
 )
 DEFAULT_TIMEOUT_SECONDS = 60
 DEFAULT_BATCH_SIZE = 250
+MAX_DUPLICATE_CITY_DISTANCE_KM = 6.0
+EARTH_RADIUS_KM = 6_371.0088
+
+_FEATURE_CODE_QUALITY = {
+    "PPLC": 0,
+    "PPLA": 1,
+    "PPLA2": 2,
+    "PPLA3": 3,
+    "PPLA4": 4,
+    "PPLG": 5,
+    "PPL": 6,
+}
 
 
 class ImporterError(RuntimeError):
@@ -184,6 +198,92 @@ def parse_cities(text: Iterable[str]) -> Iterator[City]:
         )
 
 
+def _normalized_city_names(city: City) -> frozenset[str]:
+    """Return conservative comparison keys for a GeoNames city record."""
+
+    output: set[str] = set()
+    for value in (city.name, city.ascii_name):
+        decomposed = unicodedata.normalize("NFKD", value.casefold())
+        without_marks = "".join(
+            character
+            for character in decomposed
+            if unicodedata.category(character) != "Mn"
+        )
+        normalized = " ".join(
+            "".join(
+                character if character.isalnum() else " "
+                for character in without_marks
+            ).split()
+        )
+        if normalized:
+            output.add(normalized)
+    return frozenset(output)
+
+
+def _distance_km(left: City, right: City) -> float:
+    """Return the great-circle distance between two city centres."""
+
+    left_latitude = math.radians(left.latitude)
+    right_latitude = math.radians(right.latitude)
+    latitude_delta = right_latitude - left_latitude
+    longitude_delta = math.radians(right.longitude - left.longitude)
+    haversine = (
+        math.sin(latitude_delta / 2) ** 2
+        + math.cos(left_latitude)
+        * math.cos(right_latitude)
+        * math.sin(longitude_delta / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(min(1.0, haversine)))
+
+
+def _city_keeper_key(city: City) -> tuple[int, int, bool, str, int]:
+    """Order duplicate candidates from the most useful record to the least."""
+
+    return (
+        -city.population,
+        _FEATURE_CODE_QUALITY.get(city.feature_code, 99),
+        not bool(city.admin1_code),
+        city.ascii_name.casefold(),
+        city.geonames_id,
+    )
+
+
+def _deduplicate_physical_cities(cities: Iterable[City]) -> list[City]:
+    """Collapse cautious same-city matches while retaining the best record.
+
+    A record is treated as a duplicate only when it shares a normalized primary
+    or ASCII name, belongs to the same country (guaranteed by the caller), has
+    compatible admin-1 metadata, and lies at most six kilometres from a better
+    record.  Sorting by a stable quality key makes the retained record fully
+    deterministic regardless of dump order.
+    """
+
+    retained: list[City] = []
+    retained_by_name: dict[str, list[City]] = defaultdict(list)
+    for city in sorted(cities, key=_city_keeper_key):
+        names = _normalized_city_names(city)
+        candidates = {
+            candidate.geonames_id: candidate
+            for name in names
+            for candidate in retained_by_name[name]
+        }
+        duplicate = any(
+            (
+                not city.admin1_code
+                or not candidate.admin1_code
+                or city.admin1_code == candidate.admin1_code
+            )
+            and _distance_km(city, candidate) <= MAX_DUPLICATE_CITY_DISTANCE_KM
+            for candidate in candidates.values()
+        )
+        if duplicate:
+            continue
+        retained.append(city)
+        for name in names:
+            retained_by_name[name].append(city)
+    return retained
+
+
 def select_city_targets(
     countries: dict[str, Country], cities: Iterable[City]
 ) -> list[tuple[Country, City, int, int]]:
@@ -202,7 +302,7 @@ def select_city_targets(
     output: list[tuple[Country, City, int, int]] = []
     for code, country in sorted(countries.items()):
         available = sorted(
-            grouped.get(code, []),
+            _deduplicate_physical_cities(grouped.get(code, [])),
             key=lambda city: (
                 -city.population,
                 not city.is_capital,
