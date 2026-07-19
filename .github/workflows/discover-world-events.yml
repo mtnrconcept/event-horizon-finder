@@ -1,0 +1,376 @@
+name: Discover worldwide events
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/discover-world-events.yml"
+      - "docs/global-event-discovery.md"
+      - "infra/safe-fetch-proxy/**"
+      - "infra/searxng/**"
+      - "scripts/import_geonames_city_targets.py"
+      - "scripts/run_global_event_discovery.py"
+      - "supabase/functions/_shared/**"
+      - "supabase/functions/deno.json"
+      - "supabase/functions/global-event-discovery/**"
+      - "supabase/migrations/**"
+      - "tests/test_global_event_currency_migration.py"
+      - "tests/test_import_geonames_city_targets.py"
+      - "tests/test_run_global_event_discovery.py"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Apply migrations, sync secrets and deploy the Edge Function
+        required: false
+        default: false
+        type: boolean
+      import_city_targets:
+        description: Import the selected GeoNames city targets into Supabase
+        required: false
+        default: false
+        type: boolean
+      run_discovery:
+        description: Plan and process bounded search/crawl batches
+        required: false
+        default: true
+        type: boolean
+      target_date:
+        description: Optional discovery start date (YYYY-MM-DD, tomorrow when empty)
+        required: false
+        type: string
+      plan_batches:
+        description: Maximum planning calls
+        required: false
+        default: 4
+        type: number
+      search_batches:
+        description: Maximum SearXNG worker calls
+        required: false
+        default: 12
+        type: number
+      search_workers:
+        description: Parallel search workers (bounded to 1-8)
+        required: false
+        default: 4
+        type: number
+      crawl_batches:
+        description: Maximum direct-crawl worker calls
+        required: false
+        default: 12
+        type: number
+      crawl_workers:
+        description: Parallel crawl workers (bounded to 1-16; one lease/domain)
+        required: false
+        default: 12
+        type: number
+  schedule:
+    # Hourly resumable slices provide enough queue throughput for the complete
+    # adaptive GeoNames target set. Database backpressure, leases and exact-host
+    # delays remain the authoritative safety limits.
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate scraper and migrations
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: worldwide-event-discovery-validation-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node for dependency-free Edge tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up Deno for the Edge Function type check
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Test extraction, deduplication, queries and robots rules
+        run: >-
+          node --test
+          supabase/functions/_shared/direct-event-scraper.test.ts
+          supabase/functions/_shared/event-precision.test.ts
+          supabase/functions/_shared/global-discovery.test.ts
+          supabase/functions/_shared/robots-policy.test.ts
+
+      - name: Type-check the deployed Edge Function entrypoint
+        run: >-
+          deno check --config supabase/functions/deno.json --node-modules-dir=auto
+          supabase/functions/global-event-discovery/index.ts
+
+      - name: Set up Go for the DNS-pinning fetch proxy
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: infra/safe-fetch-proxy/go.mod
+          cache-dependency-path: infra/safe-fetch-proxy/go.mod
+
+      - name: Test and vet the DNS-pinning fetch proxy
+        working-directory: infra/safe-fetch-proxy
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Cache the free GeoNames downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/geonames
+          key: ${{ runner.os }}-geonames-cities500-v1
+
+      - name: Test the operational clients and GeoNames selector
+        run: >-
+          python3 -m unittest
+          tests/test_global_event_currency_migration.py
+          tests/test_import_geonames_city_targets.py
+          tests/test_run_global_event_discovery.py
+
+      - name: Validate the GeoNames import without writing
+        run: >-
+          python3 scripts/import_geonames_city_targets.py
+          --cache-dir .cache/geonames
+          --dry-run
+
+      - name: Set up Supabase CLI for disposable migration test
+        id: setup_supabase_cli
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # This starts an isolated local Postgres container and replays the complete
+      # migration history. It never links to, reads from, or writes to production.
+      - name: Replay all migrations on a disposable local database
+        timeout-minutes: 30
+        run: |
+          supabase db start
+          supabase db reset --local --no-seed
+
+      - name: Remove disposable local database
+        if: always() && steps.setup_supabase_cli.outcome == 'success'
+        run: supabase stop --no-backup
+
+  operations:
+    name: Deploy or run worldwide discovery
+    needs: validate
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      (needs.validate.result == 'success' ||
+      (github.event_name == 'schedule' && needs.validate.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: worldwide-event-discovery-operations
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache the free GeoNames downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/geonames
+          key: ${{ runner.os }}-geonames-cities500-v1
+
+      - name: Validate explicit deployment secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SAFE_FETCH_AUTH_TOKEN: ${{ secrets.SAFE_FETCH_AUTH_TOKEN }}
+          SAFE_FETCH_PROXY_URL: ${{ secrets.SAFE_FETCH_PROXY_URL }}
+          SEARXNG_AUTH_TOKEN: ${{ secrets.SEARXNG_AUTH_TOKEN }}
+          SEARXNG_BASE_URL: ${{ secrets.SEARXNG_BASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is required" >&2; exit 1; }
+          test -n "$SUPABASE_DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD is required" >&2; exit 1; }
+          test -n "$SUPABASE_PROJECT_ID" || { echo "SUPABASE_PROJECT_ID is required" >&2; exit 1; }
+          test "${#GLOBAL_SCRAPER_SECRET}" -ge 32 || { echo "GLOBAL_SCRAPER_SECRET must contain at least 32 characters" >&2; exit 1; }
+          test -n "$SEARXNG_BASE_URL" || { echo "SEARXNG_BASE_URL is required" >&2; exit 1; }
+          test "${#SEARXNG_AUTH_TOKEN}" -ge 32 || { echo "SEARXNG_AUTH_TOKEN must contain at least 32 characters" >&2; exit 1; }
+          test -n "$SAFE_FETCH_PROXY_URL" || { echo "SAFE_FETCH_PROXY_URL is required" >&2; exit 1; }
+          test "${#SAFE_FETCH_AUTH_TOKEN}" -ge 32 || { echo "SAFE_FETCH_AUTH_TOKEN must contain at least 32 characters" >&2; exit 1; }
+
+      - name: Set up Supabase CLI
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project and preview migrations
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase db push --dry-run
+
+      - name: Apply discovery migrations
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        timeout-minutes: 20
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: supabase db push
+
+      - name: Sync protected discovery secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SAFE_FETCH_AUTH_TOKEN: ${{ secrets.SAFE_FETCH_AUTH_TOKEN }}
+          SAFE_FETCH_PROXY_URL: ${{ secrets.SAFE_FETCH_PROXY_URL }}
+          SEARXNG_AUTH_TOKEN: ${{ secrets.SEARXNG_AUTH_TOKEN }}
+          SEARXNG_BASE_URL: ${{ secrets.SEARXNG_BASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: >-
+          supabase secrets set
+          "GLOBAL_SCRAPER_SECRET=$GLOBAL_SCRAPER_SECRET"
+          "SEARXNG_BASE_URL=$SEARXNG_BASE_URL"
+          "SEARXNG_AUTH_TOKEN=$SEARXNG_AUTH_TOKEN"
+          "SAFE_FETCH_PROXY_URL=$SAFE_FETCH_PROXY_URL"
+          "SAFE_FETCH_AUTH_TOKEN=$SAFE_FETCH_AUTH_TOKEN"
+
+      - name: Deploy the global discovery Edge Function
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: supabase functions deploy global-event-discovery --no-verify-jwt
+
+      - name: Validate explicit city import secret
+        if: github.event_name == 'workflow_dispatch' && inputs.import_city_targets
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is required" >&2; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY is required" >&2; exit 1; }
+
+      - name: Import GeoNames city targets
+        if: github.event_name == 'workflow_dispatch' && inputs.import_city_targets
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: >-
+          python3 scripts/import_geonames_city_targets.py
+          --cache-dir .cache/geonames
+
+      - name: Validate discovery runtime secrets
+        if: github.event_name == 'schedule' || inputs.run_discovery
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          test -n "${SUPABASE_URL:-${SUPABASE_PROJECT_ID:-}}" || { echo "SUPABASE_URL or SUPABASE_PROJECT_ID is required" >&2; exit 1; }
+          test "${#GLOBAL_SCRAPER_SECRET}" -ge 32 || { echo "GLOBAL_SCRAPER_SECRET must contain at least 32 characters" >&2; exit 1; }
+
+      - name: Plan due cities in bounded batches
+        if: github.event_name == 'schedule' || inputs.run_discovery
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          PLAN_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.plan_batches || 4 }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          TARGET_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.target_date || '' }}
+        run: |
+          args=(plan --batch-size 25 --max-batches "$PLAN_BATCHES" --pause-seconds 2)
+          if [ -n "$TARGET_DATE" ]; then
+            args+=(--target-date "$TARGET_DATE")
+          fi
+          python3 scripts/run_global_event_discovery.py "${args[@]}"
+
+      - name: Process a bounded SearXNG search slice
+        if: github.event_name == 'schedule' || inputs.run_discovery
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 16 }}
+          SEARCH_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.search_workers || 8 }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          if [[ ! "$SEARCH_WORKERS" =~ ^[0-9]+$ ]] || (( SEARCH_WORKERS < 1 || SEARCH_WORKERS > 8 )); then
+            echo "SEARCH_WORKERS must be between 1 and 8" >&2
+            exit 1
+          fi
+          campaign_id="$(python3 -c 'import json; print(json.load(open(".cache/global-event-discovery/state.json", encoding="utf-8"))["campaign_id"])')"
+          pids=()
+          logs=()
+          for ((worker = 1; worker <= SEARCH_WORKERS; worker += 1)); do
+            log_file=".cache/global-event-discovery/search-${worker}.jsonl"
+            logs+=("$log_file")
+            python3 scripts/run_global_event_discovery.py search \
+              --campaign-id "$campaign_id" --no-state \
+              --batch-size 5 --max-batches "$SEARCH_BATCHES" --pause-seconds 2 \
+              > "$log_file" &
+            pids+=("$!")
+          done
+          failed=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then failed=1; fi
+          done
+          for log_file in "${logs[@]}"; do cat "$log_file"; done
+          exit "$failed"
+
+      - name: Process a bounded direct-crawl slice
+        if: github.event_name == 'schedule' || inputs.run_discovery
+        env:
+          CRAWL_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_batches || 20 }}
+          CRAWL_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_workers || 16 }}
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          if [[ ! "$CRAWL_WORKERS" =~ ^[0-9]+$ ]] || (( CRAWL_WORKERS < 1 || CRAWL_WORKERS > 16 )); then
+            echo "CRAWL_WORKERS must be between 1 and 16" >&2
+            exit 1
+          fi
+          campaign_id="$(python3 -c 'import json; print(json.load(open(".cache/global-event-discovery/state.json", encoding="utf-8"))["campaign_id"])')"
+          pids=()
+          logs=()
+          for ((worker = 1; worker <= CRAWL_WORKERS; worker += 1)); do
+            log_file=".cache/global-event-discovery/crawl-${worker}.jsonl"
+            logs+=("$log_file")
+            python3 scripts/run_global_event_discovery.py crawl \
+              --campaign-id "$campaign_id" --no-state \
+              --batch-size 2 --max-batches "$CRAWL_BATCHES" --pause-seconds 3 --timeout 360 \
+              > "$log_file" &
+            pids+=("$!")
+          done
+          failed=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then failed=1; fi
+          done
+          for log_file in "${logs[@]}"; do cat "$log_file"; done
+          exit "$failed"
+
+      - name: Report campaign status
+        if: always() && (github.event_name == 'schedule' || inputs.run_discovery)
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: python3 scripts/run_global_event_discovery.py status

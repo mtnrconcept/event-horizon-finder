@@ -17,6 +17,8 @@ dist-ssr
 *.local
 __pycache__/
 *.py[cod]
+.cache/
+supabase/.temp/
 
 # Wrangler / Cloudflare
 .wrangler/
@@ -37,3 +39,4 @@ __pycache__/
 # .env contains public VITE_* values required by Lovable previews.
 .env.*
 !.env.example
+/infra/searxng/.env

@@ -88,6 +88,124 @@ test("JSON-LD wins deterministic dates, offers, place and status", () => {
   assert.ok(result.event.qualityScore >= 80);
 });
 
+test("JSON-LD ImageObject prefers contentUrl over its human-readable name", () => {
+  const html = `<script type="application/ld+json">{
+    "@type":"Event",
+    "name":"Affiche officielle",
+    "startDate":"2026-08-20T20:00:00+02:00",
+    "image":{"@type":"ImageObject","name":"Affiche","contentUrl":"/media/poster.jpg"},
+    "url":"/events/poster"
+  }</script>`;
+  const candidate = extractJsonLdCandidates(html, "https://example.ch/agenda", GENEVA_SOURCE)[0];
+  assert.equal(candidate?.imageUrls?.[0], "https://example.ch/media/poster.jpg");
+});
+
+test("JSON-LD preserves explicit venue, performer, age and accessibility data", () => {
+  const html = `
+    <script type="application/ld+json">
+    {
+      "@context":"https://schema.org",
+      "@type":"MusicEvent",
+      "@id":"rich-show-1",
+      "name":"Lake Collective avec DJ Support",
+      "description":"Une soirée officielle avec toutes les informations pratiques pour le public.",
+      "startDate":"2026-08-22T20:00:00+02:00",
+      "typicalAgeRange":"18+",
+      "location": {
+        "@type":"Place",
+        "name":"Scène du Lac",
+        "url":"/venues/scene-du-lac",
+        "address": {
+          "streetAddress":"Quai du Mont-Blanc 1",
+          "postalCode":"1201",
+          "addressLocality":"Genève",
+          "addressCountry":"CH"
+        },
+        "amenityFeature":[
+          {"@type":"LocationFeatureSpecification","name":"wheelchairAccessible","value":true}
+        ],
+        "accessibilitySummary":"Entrée sans marche par le quai."
+      },
+      "performer":[
+        {"@type":"https://schema.org/MusicGroup","name":"Lake Collective"},
+        {"@type":"Person","name":"DJ Support","image":"/artists/dj-support.jpg"}
+      ],
+      "headliner":{
+        "@type":"MusicGroup",
+        "name":"Lake Collective",
+        "image":"/artists/lake-collective.jpg"
+      },
+      "accessibilityFeature":["hearingLoop","signLanguage","quietSpace"],
+      "accessibilitySummary":"Interprétation en langue des signes annoncée.",
+      "url":"/events/rich-show-1"
+    }
+    </script>`;
+
+  const candidates = extractJsonLdCandidates(html, "https://example.ch/agenda", GENEVA_SOURCE);
+  assert.equal(candidates.length, 1);
+  const result = normalizeEventCandidate(
+    candidates[0],
+    GENEVA_SOURCE,
+    "https://example.ch/agenda",
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.event.venueUrl, "https://example.ch/venues/scene-du-lac");
+  assert.equal(result.event.postalCode, "1201");
+  assert.equal(result.event.ageRestriction, "18+");
+  assert.deepEqual(result.event.performers, [
+    {
+      name: "Lake Collective",
+      type: "MusicGroup",
+      imageUrl: "https://example.ch/artists/lake-collective.jpg",
+      isHeadliner: true,
+    },
+    {
+      name: "DJ Support",
+      type: "Person",
+      imageUrl: "https://example.ch/artists/dj-support.jpg",
+      isHeadliner: false,
+    },
+  ]);
+  assert.deepEqual(result.event.accessibility, {
+    wheelchair: true,
+    hearingLoop: true,
+    signLanguage: true,
+    quietSpace: true,
+    notes: "Interprétation en langue des signes annoncée. · Entrée sans marche par le quai.",
+  });
+});
+
+test("JSON-LD derives an age range only from explicit PeopleAudience bounds", () => {
+  const html = `
+    <script type="application/ld+json">
+    {
+      "@context":"https://schema.org",
+      "@type":"Event",
+      "name":"Atelier adolescents",
+      "description":"Un atelier officiel avec inscription et informations pratiques complètes.",
+      "startDate":"2026-08-23T14:00:00+02:00",
+      "audience":{
+        "@type":"PeopleAudience",
+        "audienceType":"Familles",
+        "suggestedMinAge":12,
+        "suggestedMaxAge":17
+      },
+      "location":{"@type":"Place","name":"Maison de quartier"},
+      "url":"/events/atelier-adolescents"
+    }
+    </script>`;
+
+  const [candidate] = extractJsonLdCandidates(html, "https://example.ch/agenda", GENEVA_SOURCE);
+  assert.equal(candidate.ageRestriction, "12-17");
+  const event = normalize(candidate);
+  assert.equal(event.ageRestriction, "12-17");
+  assert.deepEqual(event.performers, []);
+  assert.equal(event.accessibility, null);
+});
+
 test("naive times use the source IANA timezone instead of the runner timezone", () => {
   const source: EventSourceContext = {
     ...GENEVA_SOURCE,
@@ -384,6 +502,33 @@ test("world expansion countries use their local currency fallback", () => {
   }
 });
 
+test("an unmapped country never receives an invented EUR currency", () => {
+  const source: EventSourceContext = {
+    ...GENEVA_SOURCE,
+    city: {
+      name: "Mumbai",
+      timezone: "Asia/Kolkata",
+      latitude: 19.076,
+      longitude: 72.8777,
+      country: { code: "IN" },
+    },
+  };
+  const result = normalizeEventCandidate(
+    {
+      title: "Open Air Mumbai",
+      description: "A complete official listing with practical information for visitors.",
+      startDate: "2026-12-10T19:00:00+05:30",
+      venueName: "City Park",
+      sourceUrl: "https://example.ch/mumbai/open-air",
+    },
+    source,
+    "https://example.ch/mumbai/open-air",
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.event.currency, null);
+});
+
 test("duplicates merge but distinct sessions remain distinct", () => {
   const first = normalize({
     externalId: "party-1",
@@ -415,4 +560,76 @@ test("duplicates merge but distinct sessions remain distinct", () => {
   assert.equal(result.events.length, 2);
   assert.equal(result.duplicates, 1);
   assert.equal(result.events[0].imageUrl, "https://example.ch/media/party.jpg");
+});
+
+test("duplicate merging keeps rich fields from the lower-scored source", () => {
+  const primary = normalize({
+    externalId: "rich-merge-1",
+    title: "Global Music Night",
+    description:
+      "Une longue description officielle avec tous les détails du programme et de la billetterie.",
+    startDate: "2026-09-18T20:00:00+02:00",
+    endDate: "2026-09-18T23:30:00+02:00",
+    venueName: "Lake Club",
+    imageUrl: "https://example.ch/media/global-music-night.jpg",
+    ticketUrl: "https://example.ch/tickets/global-music-night",
+    performers: [{ name: "Artist One", type: "Person", isHeadliner: false }],
+    accessibility: { wheelchair: true },
+    sourceUrl: "https://example.ch/events/rich-merge-1",
+  });
+  const secondary = normalize({
+    externalId: "rich-merge-1",
+    title: "Global Music Night",
+    description: "Programme officiel.",
+    startDate: "2026-09-18T20:00:00+02:00",
+    venueName: "Lake Club",
+    venueUrl: "https://example.ch/venues/lake-club",
+    postalCode: "1201",
+    ageRestriction: "18+",
+    performers: [
+      {
+        name: "Artist One",
+        type: "Person",
+        imageUrl: "https://example.ch/artists/artist-one.jpg",
+        isHeadliner: true,
+      },
+      { name: "Artist Two", type: "MusicGroup", isHeadliner: false },
+    ],
+    accessibility: {
+      hearingLoop: true,
+      signLanguage: true,
+      notes: "Boucle auditive disponible.",
+    },
+    sourceUrl: "https://example.ch/events/rich-merge-1",
+  });
+  assert.ok(primary.qualityScore > secondary.qualityScore);
+
+  const result = deduplicateNormalizedEvents([primary, secondary]);
+  assert.equal(result.events.length, 1);
+  assert.equal(result.duplicates, 1);
+  const [event] = result.events;
+  assert.equal(event.venueUrl, "https://example.ch/venues/lake-club");
+  assert.equal(event.postalCode, "1201");
+  assert.equal(event.ageRestriction, "18+");
+  assert.deepEqual(event.performers, [
+    {
+      name: "Artist One",
+      type: "Person",
+      imageUrl: "https://example.ch/artists/artist-one.jpg",
+      isHeadliner: true,
+    },
+    {
+      name: "Artist Two",
+      type: "MusicGroup",
+      imageUrl: null,
+      isHeadliner: false,
+    },
+  ]);
+  assert.deepEqual(event.accessibility, {
+    wheelchair: true,
+    hearingLoop: true,
+    signLanguage: true,
+    quietSpace: false,
+    notes: "Boucle auditive disponible.",
+  });
 });

@@ -1,0 +1,79 @@
+name: globalparty-search
+
+services:
+  gateway:
+    image: ${CADDY_IMAGE:?pin a reviewed Caddy image}
+    restart: unless-stopped
+    depends_on:
+      - searxng
+      - safe-fetch-proxy
+    environment:
+      SEARXNG_AUTH_TOKEN: ${SEARXNG_AUTH_TOKEN:?set a long random bearer token}
+    ports:
+      - "${SEARXNG_BIND_ADDRESS:-127.0.0.1}:${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    read_only: true
+    tmpfs:
+      - /config
+      - /data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  safe-fetch-proxy:
+    image: ${SAFE_FETCH_PROXY_IMAGE:-globalparty/safe-fetch-proxy:local}
+    build:
+      context: ../safe-fetch-proxy
+      dockerfile: Dockerfile
+      args:
+        GO_IMAGE: ${SAFE_FETCH_GO_IMAGE:-docker.io/library/golang:1.25-alpine}
+    restart: unless-stopped
+    environment:
+      SAFE_FETCH_AUTH_TOKEN: ${SAFE_FETCH_AUTH_TOKEN:?set a different long random bearer token}
+      SAFE_FETCH_MAX_RESPONSE_BYTES: ${SAFE_FETCH_MAX_RESPONSE_BYTES:-5242880}
+      SAFE_FETCH_MAX_CONCURRENCY: ${SAFE_FETCH_MAX_CONCURRENCY:-32}
+      SAFE_FETCH_TOTAL_TIMEOUT: ${SAFE_FETCH_TOTAL_TIMEOUT:-20s}
+      SAFE_FETCH_DNS_TIMEOUT: ${SAFE_FETCH_DNS_TIMEOUT:-3s}
+      SAFE_FETCH_CONNECT_TIMEOUT: ${SAFE_FETCH_CONNECT_TIMEOUT:-5s}
+      SAFE_FETCH_RESPONSE_HEADER_TIMEOUT: ${SAFE_FETCH_RESPONSE_HEADER_TIMEOUT:-8s}
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  searxng:
+    image: ${SEARXNG_IMAGE:?pin a reviewed SearXNG image}
+    restart: unless-stopped
+    depends_on:
+      - valkey
+    environment:
+      SEARXNG_BASE_URL: ${SEARXNG_PUBLIC_URL:?set the externally reachable HTTPS URL}
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?set a long random SearXNG secret}
+      SEARXNG_VALKEY_URL: valkey://valkey:6379/0
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/searxng
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  valkey:
+    image: ${VALKEY_IMAGE:?pin a reviewed Valkey image}
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    read_only: true
+    tmpfs:
+      - /data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

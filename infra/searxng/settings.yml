@@ -1,0 +1,34 @@
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: GlobalParty private discovery
+  enable_metrics: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: auto
+  formats:
+    - html
+    - json
+  # SearXNG suspends upstream engines after 403, 429 and CAPTCHA responses.
+  ban_time_on_fail: 30
+  max_ban_time_on_fail: 86400
+
+server:
+  bind_address: 0.0.0.0
+  port: 8080
+  limiter: true
+  image_proxy: false
+
+valkey:
+  url: valkey://valkey:6379/0
+
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 10.0
+  pool_connections: 20
+  pool_maxsize: 10
+  enable_http2: true
+  useragent_suffix: "GlobalParty event-source discovery"
