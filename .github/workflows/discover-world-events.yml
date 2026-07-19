@@ -7,6 +7,7 @@ on:
       - "docs/global-event-discovery.md"
       - "infra/safe-fetch-proxy/**"
       - "infra/searxng/**"
+      - "scripts/bootstrap_ovh_vps.sh"
       - "scripts/import_geonames_city_targets.py"
       - "scripts/run_global_event_discovery.py"
       - "supabase/functions/_shared/**"
@@ -123,6 +124,20 @@ jobs:
         run: |
           go test ./...
           go vet ./...
+
+      - name: Validate the production VPS configuration
+        run: |
+          bash -n scripts/bootstrap_ovh_vps.sh
+          docker compose \
+            --env-file infra/searxng/.env.vps.example \
+            --file infra/searxng/compose.vps.yaml \
+            config --quiet
+          caddy_image="$(sed -n 's/^CADDY_IMAGE=//p' infra/searxng/.env.vps.example)"
+          docker run --rm \
+            --env SEARXNG_AUTH_TOKEN=ci-token-that-is-at-least-32-characters-long \
+            --env SEARXNG_PUBLIC_HOST=search.example.com \
+            --volume "$PWD/infra/searxng/Caddyfile.vps:/etc/caddy/Caddyfile:ro" \
+            "$caddy_image" caddy validate --config /etc/caddy/Caddyfile
 
       - name: Cache the free GeoNames downloads
         uses: actions/cache@v4

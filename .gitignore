@@ -39,4 +39,5 @@ supabase/.temp/
 # .env contains public VITE_* values required by Lovable previews.
 .env.*
 !.env.example
+!/infra/searxng/.env.vps.example
 /infra/searxng/.env

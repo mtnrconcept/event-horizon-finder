@@ -24,16 +24,17 @@ import (
 )
 
 const (
-	defaultListenAddress        = ":8080"
-	defaultMaxRequestBytes      = int64(16 * 1024)
-	defaultMaxResponseBytes     = int64(5 * 1024 * 1024)
-	absoluteMaxResponseBytes    = int64(16 * 1024 * 1024)
-	defaultMaxConcurrency       = 32
-	defaultTotalTimeout         = 20 * time.Second
-	defaultDNSTimeout           = 3 * time.Second
-	defaultConnectTimeout       = 5 * time.Second
+	defaultListenAddress         = ":8080"
+	defaultMaxRequestBytes       = int64(16 * 1024)
+	defaultMaxResponseBytes      = int64(5 * 1024 * 1024)
+	absoluteMaxResponseBytes     = int64(16 * 1024 * 1024)
+	defaultMaxConcurrency        = 32
+	defaultTotalTimeout          = 20 * time.Second
+	defaultDNSTimeout            = 3 * time.Second
+	defaultConnectTimeout        = 5 * time.Second
 	defaultResponseHeaderTimeout = 8 * time.Second
-	maxTargetURLBytes           = 8 * 1024
+	defaultHealthcheckURL        = "http://127.0.0.1:8080/healthz"
+	maxTargetURLBytes            = 8 * 1024
 )
 
 type config struct {
@@ -130,6 +131,18 @@ var blockedAddressPrefixes = mustPrefixes(
 var allocatedGlobalIPv6Prefix = netip.MustParsePrefix("2000::/3")
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		client := &http.Client{Timeout: 2 * time.Second}
+		if err := checkHealth(client, defaultHealthcheckURL); err != nil {
+			log.Printf("healthcheck failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 {
+		log.Fatalf("unknown command %q", os.Args[1])
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatal(err)
@@ -167,6 +180,29 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func checkHealth(client *http.Client, endpoint string) error {
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create healthcheck request: %w", err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("request health endpoint: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("health endpoint returned status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16))
+	if err != nil {
+		return fmt.Errorf("read health response: %w", err)
+	}
+	if string(body) != "ok\n" {
+		return fmt.Errorf("health endpoint returned an unexpected body")
+	}
+	return nil
 }
 
 func newServer(cfg config, resolver dnsResolver) *server {

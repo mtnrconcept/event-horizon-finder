@@ -242,6 +242,38 @@ func TestFetchHandlerReturnsOpaqueBodyAndMetadata(t *testing.T) {
 	}
 }
 
+func TestCheckHealth(t *testing.T) {
+	t.Parallel()
+
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/healthz" {
+			t.Fatalf("health request = %s %s; want GET /healthz", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	}))
+	defer healthServer.Close()
+
+	client := &http.Client{Timeout: time.Second}
+	if err := checkHealth(client, healthServer.URL+"/healthz"); err != nil {
+		t.Fatalf("checkHealth returned %v", err)
+	}
+}
+
+func TestCheckHealthRejectsUnexpectedResponse(t *testing.T) {
+	t.Parallel()
+
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer healthServer.Close()
+
+	client := &http.Client{Timeout: time.Second}
+	if err := checkHealth(client, healthServer.URL); err == nil {
+		t.Fatal("checkHealth returned nil; want an error")
+	}
+}
+
 func TestSafeMetadataRejectsMalformedValues(t *testing.T) {
 	t.Parallel()
 
