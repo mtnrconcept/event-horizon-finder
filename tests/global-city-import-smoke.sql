@@ -1,9 +1,22 @@
-BEGIN;
-
 DO $$
 DECLARE
   import_result RECORD;
+  imported_city_id UUID;
+  imported_country_id UUID;
 BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.countries
+    WHERE code = 'XZ'
+       OR geonames_id = 999999999
+  ) OR EXISTS (
+    SELECT 1
+    FROM public.cities
+    WHERE geonames_id = 999999998
+  ) THEN
+    RAISE EXCEPTION 'GeoNames smoke-test sentinel already exists';
+  END IF;
+
   SELECT *
   INTO import_result
   FROM public.import_global_city_targets(
@@ -50,7 +63,19 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'GeoNames smoke target was not persisted with coordinates';
   END IF;
+
+  SELECT city.id, city.country_id
+  INTO imported_city_id, imported_country_id
+  FROM public.cities AS city
+  WHERE city.geonames_id = 999999998;
+
+  DELETE FROM private.global_city_targets
+  WHERE city_id = imported_city_id;
+
+  DELETE FROM public.cities
+  WHERE id = imported_city_id;
+
+  DELETE FROM public.countries
+  WHERE id = imported_country_id;
 END;
 $$;
-
-ROLLBACK;
