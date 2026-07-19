@@ -53,6 +53,12 @@ class GlobalEventCurrencyMigrationTests(unittest.TestCase):
             r"coalesce\s*\(\s*v_currency\s*,\s*'EUR'\s*\)",
         )
 
+    def test_geonames_import_resolves_the_installed_postgis_schema(self) -> None:
+        self.assertIn("city_location_value public.cities.location%TYPE", self.sql)
+        self.assertIn("WHERE extension.extname = 'postgis'", self.sql)
+        self.assertIn("postgis_schema_value", self.sql)
+        self.assertNotIn("extensions.geography", self.sql)
+
 
 if __name__ == "__main__":
     unittest.main()

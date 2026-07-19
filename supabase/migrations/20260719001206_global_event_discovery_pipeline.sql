@@ -1861,7 +1861,8 @@ DECLARE
   city_geonames_value BIGINT;
   latitude_value DOUBLE PRECISION;
   longitude_value DOUBLE PRECISION;
-  city_location_value extensions.geography;
+  postgis_schema_value TEXT;
+  city_location_value public.cities.location%TYPE;
   population_rank_value SMALLINT;
   country_languages_value TEXT[];
   city_search_names_value TEXT[];
@@ -1873,6 +1874,17 @@ BEGIN
 
   IF jsonb_array_length(_rows) > 2000 THEN
     RAISE EXCEPTION 'batch_too_large' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT namespace.nspname
+  INTO postgis_schema_value
+  FROM pg_catalog.pg_extension AS extension
+  JOIN pg_catalog.pg_namespace AS namespace
+    ON namespace.oid = extension.extnamespace
+  WHERE extension.extname = 'postgis';
+
+  IF postgis_schema_value IS NULL THEN
+    RAISE EXCEPTION 'postgis_extension_required' USING ERRCODE = '55000';
   END IF;
 
   countries_upserted := 0;
@@ -1908,10 +1920,14 @@ BEGIN
       RAISE EXCEPTION 'invalid_geography_row: %', item USING ERRCODE = '22023';
     END IF;
 
-    city_location_value := extensions.st_setsrid(
-      extensions.st_makepoint(longitude_value, latitude_value),
-      4326
-    )::extensions.geography;
+    EXECUTE pg_catalog.format(
+      'SELECT %I.st_setsrid(%I.st_makepoint($1, $2), 4326)::%I.geography',
+      postgis_schema_value,
+      postgis_schema_value,
+      postgis_schema_value
+    )
+    INTO city_location_value
+    USING longitude_value, latitude_value;
 
     country_languages_value := ARRAY(
       SELECT DISTINCT left(lower(btrim(language.value)), 35)
