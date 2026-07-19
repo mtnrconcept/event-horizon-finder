@@ -623,8 +623,9 @@ function SelectedMapEventDialog({
     locale,
     "full",
   );
-  const event = sourceEvent ? applyTranslationToMapPreview(sourceEvent, translation) : null;
-  const detail = sourceDetail ? applyTranslationToMapDetail(sourceDetail, translation) : null;
+  const safeTranslation = sourceDetail?.uses_publication_projection ? undefined : translation;
+  const event = sourceEvent ? applyTranslationToMapPreview(sourceEvent, safeTranslation) : null;
+  const detail = sourceDetail ? applyTranslationToMapDetail(sourceDetail, safeTranslation) : null;
   const [showOccurrenceList, setShowOccurrenceList] = useState(false);
   const [visibleOccurrenceCount, setVisibleOccurrenceCount] = useState(DETAIL_LIST_BATCH_SIZE);
   const [visibleOfferCount, setVisibleOfferCount] = useState(DETAIL_LIST_BATCH_SIZE);
@@ -640,7 +641,7 @@ function SelectedMapEventDialog({
   }, [open, selectionId]);
   const selectedOccurrence = detail?.selected_occurrence ?? null;
   const title =
-    (translation ? detail?.title : event?.title) ??
+    (safeTranslation ? detail?.title : event?.title) ??
     detail?.title ??
     event?.title ??
     tr("Événement sélectionné");

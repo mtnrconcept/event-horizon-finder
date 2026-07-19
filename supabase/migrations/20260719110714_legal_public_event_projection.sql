@@ -1,19 +1,98 @@
--- Keep scraper evidence private while exposing only facts needed by visitors.
--- Copyright-sensitive descriptions and unlicensed media are never published.
+-- Build a reversible public projection beside the imported source tables.
+-- No source event, description, translation, media, venue, organizer or
+-- performer row is updated or deleted by this migration.
 
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
-  ON TABLE public.event_scraped_details FROM anon, authenticated;
-REVOKE ALL ON TABLE public.source_records FROM anon, authenticated;
-GRANT SELECT ON TABLE public.source_records TO authenticated;
+CREATE TABLE IF NOT EXISTS public.event_publications_v2 (
+  event_id UUID PRIMARY KEY REFERENCES public.events(id) ON DELETE CASCADE,
+  short_description TEXT,
+  description TEXT,
+  cover_image_url TEXT,
+  details JSONB NOT NULL DEFAULT '{}'::JSONB,
+  source_updated_at TIMESTAMPTZ,
+  projected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  projection_version SMALLINT NOT NULL DEFAULT 2,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  CONSTRAINT event_publications_v2_details_object_check
+    CHECK (jsonb_typeof(details) = 'object'),
+  CONSTRAINT event_publications_v2_details_size_check
+    CHECK (pg_column_size(details) <= 65536),
+  CONSTRAINT event_publications_v2_description_size_check
+    CHECK (length(description) <= 4000),
+  CONSTRAINT event_publications_v2_short_description_size_check
+    CHECK (length(short_description) <= 280),
+  CONSTRAINT event_publications_v2_projection_version_check
+    CHECK (projection_version >= 2)
+);
 
-DO $revoke_optional_staging_access$
-BEGIN
-  IF to_regclass('public.eventscrap') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON TABLE public.eventscrap FROM PUBLIC, anon, authenticated';
-    EXECUTE 'GRANT ALL ON TABLE public.eventscrap TO service_role';
-  END IF;
-END;
-$revoke_optional_staging_access$;
+CREATE TABLE IF NOT EXISTS public.event_publication_media_v2 (
+  source_media_id UUID PRIMARY KEY REFERENCES public.event_media(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  media_type TEXT NOT NULL,
+  attribution TEXT,
+  license TEXT,
+  source_url TEXT,
+  sort_order INTEGER,
+  is_approved BOOLEAN NOT NULL DEFAULT FALSE,
+  approval_reason TEXT,
+  projected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT event_publication_media_v2_url_size_check CHECK (length(url) <= 4096),
+  CONSTRAINT event_publication_media_v2_source_url_size_check
+    CHECK (source_url IS NULL OR length(source_url) <= 4096)
+);
+
+CREATE INDEX IF NOT EXISTS event_publications_v2_active_updated_idx
+  ON public.event_publications_v2 (source_updated_at DESC, event_id)
+  WHERE is_active;
+CREATE INDEX IF NOT EXISTS event_publication_media_v2_event_approved_idx
+  ON public.event_publication_media_v2 (event_id, sort_order, source_media_id)
+  WHERE is_approved;
+
+REVOKE ALL ON TABLE public.event_publications_v2 FROM PUBLIC;
+REVOKE ALL ON TABLE public.event_publication_media_v2 FROM PUBLIC;
+GRANT SELECT ON TABLE public.event_publications_v2 TO anon, authenticated;
+GRANT SELECT ON TABLE public.event_publication_media_v2 TO anon, authenticated;
+GRANT ALL ON TABLE public.event_publications_v2 TO service_role;
+GRANT ALL ON TABLE public.event_publication_media_v2 TO service_role;
+
+ALTER TABLE public.event_publications_v2 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_publication_media_v2 ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "event_publications_v2_public_read"
+  ON public.event_publications_v2;
+CREATE POLICY "event_publications_v2_public_read"
+ON public.event_publications_v2
+FOR SELECT
+TO anon, authenticated
+USING (
+  is_active
+  AND EXISTS (
+    SELECT 1
+    FROM public.events AS event
+    WHERE event.id = event_publications_v2.event_id
+      AND event.is_demo = FALSE
+      AND event.status IN ('published', 'cancelled', 'postponed', 'sold_out')
+  )
+);
+
+DROP POLICY IF EXISTS "event_publication_media_v2_public_read"
+  ON public.event_publication_media_v2;
+CREATE POLICY "event_publication_media_v2_public_read"
+ON public.event_publication_media_v2
+FOR SELECT
+TO anon, authenticated
+USING (
+  is_approved
+  AND EXISTS (
+    SELECT 1
+    FROM public.event_publications_v2 AS publication
+    JOIN public.events AS event ON event.id = publication.event_id
+    WHERE publication.event_id = event_publication_media_v2.event_id
+      AND publication.is_active
+      AND event.is_demo = FALSE
+      AND event.status IN ('published', 'cancelled', 'postponed', 'sold_out')
+  )
+);
 
 CREATE OR REPLACE FUNCTION private.sanitize_public_event_details_v2(_details JSONB)
 RETURNS JSONB
@@ -63,90 +142,6 @@ AS $$
       'language_raw', private.clean_public_event_text(_details->>'language_raw', 32)
     ))
   END;
-$$;
-
-CREATE OR REPLACE FUNCTION private.public_event_scraped_details_v1(
-  _payload JSONB,
-  _source_url TEXT DEFAULT NULL,
-  _source_name TEXT DEFAULT NULL
-)
-RETURNS JSONB
-LANGUAGE sql
-STABLE
-PARALLEL SAFE
-SET search_path = ''
-AS $$
-  SELECT private.sanitize_public_event_details_v2(jsonb_strip_nulls(jsonb_build_object(
-    'source', coalesce(
-      private.clean_public_event_text(_payload->>'source', 256),
-      private.clean_public_event_text(_source_name, 256)
-    ),
-    'source_url', coalesce(
-      private.clean_public_event_url(_payload->>'source_url'),
-      private.clean_public_event_url(_source_url)
-    ),
-    'source_license', coalesce(
-      private.clean_public_event_text(_payload->>'source_license', 512),
-      private.clean_public_event_text(_payload->>'license', 512)
-    ),
-    'source_license_url', private.clean_public_event_url(_payload->>'source_license_url'),
-    'event_type', private.clean_public_event_text(_payload->>'event_type', 256),
-    'event_subtype', private.clean_public_event_text(_payload->>'event_subtype', 256),
-    'ticket_or_registration_url', coalesce(
-      private.clean_public_event_url(_payload->>'ticket_or_registration_url'),
-      private.clean_public_event_url(_payload->>'ticket_url')
-    ),
-    'booking_required', private.clean_public_event_boolean(_payload->>'booking_required'),
-    'price_min_raw', private.clean_public_event_numeric(_payload->>'price_min', 0, 999999999),
-    'price_max_raw', private.clean_public_event_numeric(_payload->>'price_max', 0, 999999999),
-    'currency_raw', upper(private.clean_public_event_text(_payload->>'currency', 8)),
-    'is_free_raw', private.clean_public_event_boolean(_payload->>'is_free'),
-    'venue_website', coalesce(
-      private.clean_public_event_url(_payload->>'venue_website'),
-      private.clean_public_event_url(_payload->>'venue_url')
-    ),
-    'organizer_url', private.clean_public_event_url(_payload->>'organizer_url'),
-    'online_event', private.clean_public_event_boolean(_payload->>'online_event'),
-    'audience', private.clean_public_event_text(_payload->>'audience', 1000),
-    'age_min', private.clean_public_event_integer(_payload->>'age_min', 0, 130),
-    'age_max', private.clean_public_event_integer(_payload->>'age_max', 0, 130),
-    'capacity_raw', private.clean_public_event_integer(_payload->>'capacity', 0, 10000000),
-    'indoor', private.clean_public_event_boolean(_payload->>'indoor'),
-    'pets_allowed', private.clean_public_event_boolean(_payload->>'pets_allowed'),
-    'language_raw', private.clean_public_event_text(_payload->>'language', 32)
-  )));
-$$;
-
-CREATE OR REPLACE FUNCTION private.store_public_event_scraped_details_v1(
-  _event_id UUID,
-  _details JSONB,
-  _source_updated_at TIMESTAMPTZ
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  safe_details JSONB := private.sanitize_public_event_details_v2(_details);
-  normalized_updated_at TIMESTAMPTZ := coalesce(
-    _source_updated_at,
-    '1970-01-01 00:00:00+00'::TIMESTAMPTZ
-  );
-BEGIN
-  IF _event_id IS NULL
-    OR safe_details = '{}'::JSONB
-    OR NOT EXISTS (SELECT 1 FROM public.events AS event WHERE event.id = _event_id)
-  THEN
-    RETURN;
-  END IF;
-
-  INSERT INTO public.event_scraped_details(event_id, details, updated_at)
-  VALUES (_event_id, safe_details, normalized_updated_at)
-  ON CONFLICT (event_id) DO UPDATE SET
-    details = EXCLUDED.details,
-    updated_at = greatest(public.event_scraped_details.updated_at, EXCLUDED.updated_at);
-END;
 $$;
 
 CREATE OR REPLACE FUNCTION private.public_event_factual_summary_v1(
@@ -216,30 +211,65 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION private.enforce_scraped_event_publication_v1()
-RETURNS TRIGGER
+CREATE OR REPLACE FUNCTION private.public_event_media_is_approved_v2(
+  _license TEXT,
+  _attribution TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path = ''
+AS $$
+  SELECT
+    lower(coalesce(_license, '')) ~
+      '(cc0|public domain|creative commons|cc[- ]?by|licen[cs]e ouverte|open licen[cs]e|odbl)'
+    AND (
+      lower(coalesce(_license, '')) ~ '(cc0|public domain)'
+      OR nullif(btrim(_attribution), '') IS NOT NULL
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION private.refresh_event_publication_v2(_event_id UUID)
+RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
   event_row public.events%ROWTYPE;
+  source_details JSONB;
+  source_updated TIMESTAMPTZ;
   category_name TEXT;
   venue_name TEXT;
   city_name TEXT;
-  safe_summary TEXT;
+  summary TEXT;
+  active_projection BOOLEAN;
 BEGIN
+  IF _event_id IS NULL THEN
+    RETURN;
+  END IF;
+
   SELECT event.* INTO event_row
   FROM public.events AS event
-  WHERE event.id = NEW.event_id;
-  IF NOT FOUND OR event_row.created_by IS NOT NULL OR (
-    event_row.organizer_id IS NOT NULL AND EXISTS (
-      SELECT 1 FROM public.organizer_members AS member
-      WHERE member.organizer_id = event_row.organizer_id
-    )
-  ) THEN
-    RETURN NEW;
+  WHERE event.id = _event_id;
+  IF NOT FOUND THEN
+    RETURN;
   END IF;
+
+  SELECT detail.details, detail.updated_at
+  INTO source_details, source_updated
+  FROM public.event_scraped_details AS detail
+  WHERE detail.event_id = _event_id;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  active_projection := event_row.created_by IS NULL AND NOT EXISTS (
+    SELECT 1
+    FROM public.organizer_members AS member
+    WHERE member.organizer_id = event_row.organizer_id
+  );
 
   SELECT CASE split_part(lower(coalesce(event_row.language, 'en')), '-', 1)
     WHEN 'fr' THEN category.name_fr
@@ -255,43 +285,130 @@ BEGIN
   FROM public.cities AS city
   WHERE city.id = event_row.city_id;
 
-  safe_summary := private.public_event_factual_summary_v1(
+  summary := private.public_event_factual_summary_v1(
     event_row.title, category_name, venue_name, city_name, event_row.language
   );
 
-  UPDATE public.events
-  SET short_description = left(safe_summary, 280),
-      description = safe_summary,
-      cover_image_url = NULL
-  WHERE id = event_row.id
-    AND (
-      short_description IS DISTINCT FROM left(safe_summary, 280)
-      OR description IS DISTINCT FROM safe_summary
-      OR cover_image_url IS NOT NULL
-    );
+  INSERT INTO public.event_publications_v2(
+    event_id,
+    short_description,
+    description,
+    cover_image_url,
+    details,
+    source_updated_at,
+    projected_at,
+    projection_version,
+    is_active
+  ) VALUES (
+    _event_id,
+    left(summary, 280),
+    summary,
+    NULL,
+    private.sanitize_public_event_details_v2(source_details),
+    source_updated,
+    now(),
+    2,
+    active_projection
+  )
+  ON CONFLICT (event_id) DO UPDATE SET
+    short_description = EXCLUDED.short_description,
+    description = EXCLUDED.description,
+    cover_image_url = EXCLUDED.cover_image_url,
+    details = EXCLUDED.details,
+    source_updated_at = EXCLUDED.source_updated_at,
+    projected_at = EXCLUDED.projected_at,
+    projection_version = EXCLUDED.projection_version,
+    is_active = EXCLUDED.is_active;
 
-  DELETE FROM public.event_media AS media
-  WHERE media.event_id = event_row.id
-    AND NOT (
-      lower(coalesce(media.license, '')) ~
-        '(cc0|public domain|creative commons|cc[- ]?by|licen[cs]e ouverte|open licen[cs]e|odbl)'
-      AND (
-        lower(coalesce(media.license, '')) ~ '(cc0|public domain)'
-        OR nullif(btrim(media.attribution), '') IS NOT NULL
-      )
-    );
-  RETURN NEW;
+  INSERT INTO public.event_publication_media_v2(
+    source_media_id,
+    event_id,
+    url,
+    media_type,
+    attribution,
+    license,
+    source_url,
+    sort_order,
+    is_approved,
+    approval_reason,
+    projected_at
+  )
+  SELECT
+    media.id,
+    media.event_id,
+    media.url,
+    media.media_type,
+    media.attribution,
+    media.license,
+    media.source_url,
+    media.sort_order,
+    active_projection AND private.public_event_media_is_approved_v2(
+      media.license, media.attribution
+    ),
+    CASE
+      WHEN NOT active_projection THEN 'event_not_managed_by_projection'
+      WHEN private.public_event_media_is_approved_v2(media.license, media.attribution)
+        THEN 'commercially_reusable_license'
+      ELSE 'license_or_attribution_not_verified'
+    END,
+    now()
+  FROM public.event_media AS media
+  WHERE media.event_id = _event_id
+  ON CONFLICT (source_media_id) DO UPDATE SET
+    event_id = EXCLUDED.event_id,
+    url = EXCLUDED.url,
+    media_type = EXCLUDED.media_type,
+    attribution = EXCLUDED.attribution,
+    license = EXCLUDED.license,
+    source_url = EXCLUDED.source_url,
+    sort_order = EXCLUDED.sort_order,
+    is_approved = EXCLUDED.is_approved,
+    approval_reason = EXCLUDED.approval_reason,
+    projected_at = EXCLUDED.projected_at;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION private.sanitize_public_event_details_write_v2()
+CREATE OR REPLACE FUNCTION private.refresh_event_publication_trigger_v2()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-  NEW.details := private.sanitize_public_event_details_v2(NEW.details);
+  PERFORM private.refresh_event_publication_v2(NEW.event_id);
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION private.refresh_event_publication_from_event_trigger_v2()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.event_scraped_details AS detail WHERE detail.event_id = NEW.id
+  ) THEN
+    PERFORM private.refresh_event_publication_v2(NEW.id);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION private.refresh_event_publication_media_trigger_v2()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.event_publications_v2 AS publication
+    WHERE publication.event_id = NEW.event_id
+  ) THEN
+    PERFORM private.refresh_event_publication_v2(NEW.event_id);
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -300,50 +417,49 @@ REVOKE ALL ON FUNCTION private.sanitize_public_event_details_v2(JSONB)
   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.public_event_factual_summary_v1(TEXT, TEXT, TEXT, TEXT, TEXT)
   FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION private.enforce_scraped_event_publication_v1()
+REVOKE ALL ON FUNCTION private.public_event_media_is_approved_v2(TEXT, TEXT)
   FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION private.sanitize_public_event_details_write_v2()
+REVOKE ALL ON FUNCTION private.refresh_event_publication_v2(UUID)
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.refresh_event_publication_trigger_v2()
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.refresh_event_publication_from_event_trigger_v2()
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.refresh_event_publication_media_trigger_v2()
   FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS trg_sanitize_public_event_details_write_v2
+DROP TRIGGER IF EXISTS trg_refresh_event_publication_from_details_v2
   ON public.event_scraped_details;
-CREATE TRIGGER trg_sanitize_public_event_details_write_v2
-BEFORE INSERT OR UPDATE OF details
+CREATE TRIGGER trg_refresh_event_publication_from_details_v2
+AFTER INSERT OR UPDATE OF details, updated_at
 ON public.event_scraped_details
 FOR EACH ROW
-EXECUTE FUNCTION private.sanitize_public_event_details_write_v2();
+EXECUTE FUNCTION private.refresh_event_publication_trigger_v2();
 
-DROP TRIGGER IF EXISTS trg_enforce_scraped_event_publication_v1
-  ON public.event_scraped_details;
-CREATE TRIGGER trg_enforce_scraped_event_publication_v1
-AFTER INSERT OR UPDATE OF details
-ON public.event_scraped_details
+DROP TRIGGER IF EXISTS trg_refresh_event_publication_from_event_v2
+  ON public.events;
+CREATE TRIGGER trg_refresh_event_publication_from_event_v2
+AFTER UPDATE OF title, category_id, venue_id, city_id, language, created_by, organizer_id
+ON public.events
 FOR EACH ROW
-EXECUTE FUNCTION private.enforce_scraped_event_publication_v1();
+EXECUTE FUNCTION private.refresh_event_publication_from_event_trigger_v2();
 
--- One-time cleanup. Source evidence remains in source_records behind admin/
--- moderator RLS, while the public relation is reduced to the safe whitelist.
-ALTER TABLE public.event_scraped_details
-  DISABLE TRIGGER trg_event_scraped_details_invalidate_translations;
-ALTER TABLE public.event_scraped_details
-  DISABLE TRIGGER trg_enforce_scraped_event_publication_v1;
-UPDATE public.event_scraped_details
-SET details = private.sanitize_public_event_details_v2(details)
-WHERE details IS DISTINCT FROM private.sanitize_public_event_details_v2(details);
-ALTER TABLE public.event_scraped_details
-  ENABLE TRIGGER trg_enforce_scraped_event_publication_v1;
-ALTER TABLE public.event_scraped_details
-  ENABLE TRIGGER trg_event_scraped_details_invalidate_translations;
+DROP TRIGGER IF EXISTS trg_refresh_event_publication_from_media_v2
+  ON public.event_media;
+CREATE TRIGGER trg_refresh_event_publication_from_media_v2
+AFTER INSERT OR UPDATE OF event_id, url, media_type, attribution, license, source_url, sort_order
+ON public.event_media
+FOR EACH ROW
+EXECUTE FUNCTION private.refresh_event_publication_media_trigger_v2();
 
-ALTER TABLE public.events DISABLE TRIGGER trg_events_invalidate_translations;
-ALTER TABLE public.events DISABLE TRIGGER trg_sync_public_event_from_eventscrap_v1;
-
-WITH imported AS (
-  SELECT detail.event_id
-  FROM public.event_scraped_details AS detail
-), sanitized AS (
+-- The backfill only inserts into the new projection tables. Original rows stay
+-- untouched so the team can compare, audit and roll back before any later
+-- retirement migration is approved.
+WITH candidates AS (
   SELECT
-    event.id,
+    event.id AS event_id,
+    detail.details,
+    detail.updated_at AS source_updated_at,
     private.public_event_factual_summary_v1(
       event.title,
       CASE split_part(lower(coalesce(event.language, 'en')), '-', 1)
@@ -354,145 +470,100 @@ WITH imported AS (
       venue.name,
       city.name,
       event.language
-    ) AS summary
-  FROM public.events AS event
-  JOIN imported ON imported.event_id = event.id
+    ) AS summary,
+    event.created_by IS NULL AND NOT EXISTS (
+      SELECT 1
+      FROM public.organizer_members AS member
+      WHERE member.organizer_id = event.organizer_id
+    ) AS is_active
+  FROM public.event_scraped_details AS detail
+  JOIN public.events AS event ON event.id = detail.event_id
   LEFT JOIN public.event_categories AS category ON category.id = event.category_id
   LEFT JOIN public.venues AS venue ON venue.id = event.venue_id
   LEFT JOIN public.cities AS city ON city.id = event.city_id
-  WHERE event.created_by IS NULL
-    AND NOT EXISTS (
-      SELECT 1 FROM public.organizer_members AS member
-      WHERE member.organizer_id = event.organizer_id
-    )
 )
-UPDATE public.events AS event
-SET short_description = left(sanitized.summary, 280),
-    description = sanitized.summary,
-    cover_image_url = NULL
-FROM sanitized
-WHERE event.id = sanitized.id
-  AND sanitized.summary IS NOT NULL
-  AND (
-    event.short_description IS DISTINCT FROM left(sanitized.summary, 280)
-    OR event.description IS DISTINCT FROM sanitized.summary
-    OR event.cover_image_url IS NOT NULL
-  );
+INSERT INTO public.event_publications_v2(
+  event_id,
+  short_description,
+  description,
+  cover_image_url,
+  details,
+  source_updated_at,
+  projected_at,
+  projection_version,
+  is_active
+)
+SELECT
+  candidate.event_id,
+  left(candidate.summary, 280),
+  candidate.summary,
+  NULL,
+  private.sanitize_public_event_details_v2(candidate.details),
+  candidate.source_updated_at,
+  now(),
+  2,
+  candidate.is_active
+FROM candidates AS candidate
+ON CONFLICT (event_id) DO UPDATE SET
+  short_description = EXCLUDED.short_description,
+  description = EXCLUDED.description,
+  cover_image_url = EXCLUDED.cover_image_url,
+  details = EXCLUDED.details,
+  source_updated_at = EXCLUDED.source_updated_at,
+  projected_at = EXCLUDED.projected_at,
+  projection_version = EXCLUDED.projection_version,
+  is_active = EXCLUDED.is_active;
 
-ALTER TABLE public.events ENABLE TRIGGER trg_sync_public_event_from_eventscrap_v1;
-ALTER TABLE public.events ENABLE TRIGGER trg_events_invalidate_translations;
+INSERT INTO public.event_publication_media_v2(
+  source_media_id,
+  event_id,
+  url,
+  media_type,
+  attribution,
+  license,
+  source_url,
+  sort_order,
+  is_approved,
+  approval_reason,
+  projected_at
+)
+SELECT
+  media.id,
+  media.event_id,
+  media.url,
+  media.media_type,
+  media.attribution,
+  media.license,
+  media.source_url,
+  media.sort_order,
+  publication.is_active AND private.public_event_media_is_approved_v2(
+    media.license, media.attribution
+  ),
+  CASE
+    WHEN NOT publication.is_active THEN 'event_not_managed_by_projection'
+    WHEN private.public_event_media_is_approved_v2(media.license, media.attribution)
+      THEN 'commercially_reusable_license'
+    ELSE 'license_or_attribution_not_verified'
+  END,
+  now()
+FROM public.event_media AS media
+JOIN public.event_publications_v2 AS publication ON publication.event_id = media.event_id
+ON CONFLICT (source_media_id) DO UPDATE SET
+  event_id = EXCLUDED.event_id,
+  url = EXCLUDED.url,
+  media_type = EXCLUDED.media_type,
+  attribution = EXCLUDED.attribution,
+  license = EXCLUDED.license,
+  source_url = EXCLUDED.source_url,
+  sort_order = EXCLUDED.sort_order,
+  is_approved = EXCLUDED.is_approved,
+  approval_reason = EXCLUDED.approval_reason,
+  projected_at = EXCLUDED.projected_at;
 
--- Translation rows may contain the previous source prose in both dedicated
--- columns and the rich JSON overlay. They will be regenerated on demand from
--- the new factual summaries.
-DELETE FROM public.event_translations AS translation
-USING public.event_scraped_details AS detail
-WHERE translation.event_id = detail.event_id;
+ANALYZE public.event_publications_v2;
+ANALYZE public.event_publication_media_v2;
 
-DELETE FROM public.event_media AS media
-USING public.event_scraped_details AS detail, public.events AS event
-WHERE detail.event_id = media.event_id
-  AND event.id = media.event_id
-  AND event.created_by IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM public.organizer_members AS member
-    WHERE member.organizer_id = event.organizer_id
-  )
-  AND NOT (
-    lower(coalesce(media.license, '')) ~
-      '(cc0|public domain|creative commons|cc[- ]?by|licen[cs]e ouverte|open licen[cs]e|odbl)'
-    AND (
-      lower(coalesce(media.license, '')) ~ '(cc0|public domain)'
-      OR nullif(btrim(media.attribution), '') IS NOT NULL
-    )
-  );
-
-UPDATE public.venues AS venue
-SET description = NULL,
-    cover_image_url = NULL
-WHERE (venue.description IS NOT NULL OR venue.cover_image_url IS NOT NULL)
-  AND EXISTS (
-    SELECT 1
-    FROM public.events AS event
-    JOIN public.event_scraped_details AS detail ON detail.event_id = event.id
-    WHERE event.venue_id = venue.id
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM public.events AS event
-    WHERE event.venue_id = venue.id
-      AND (
-        event.created_by IS NOT NULL
-        OR EXISTS (
-          SELECT 1 FROM public.organizer_members AS member
-          WHERE member.organizer_id = event.organizer_id
-        )
-      )
-  );
-
-DELETE FROM public.venue_translations AS translation
-USING public.venues AS venue
-WHERE translation.venue_id = venue.id
-  AND EXISTS (
-    SELECT 1
-    FROM public.events AS event
-    JOIN public.event_scraped_details AS detail ON detail.event_id = event.id
-    WHERE event.venue_id = venue.id
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM public.events AS event
-    WHERE event.venue_id = venue.id
-      AND (
-        event.created_by IS NOT NULL
-        OR EXISTS (
-          SELECT 1 FROM public.organizer_members AS member
-          WHERE member.organizer_id = event.organizer_id
-        )
-      )
-  );
-
-UPDATE public.organizers AS organizer
-SET description = NULL,
-    logo_url = NULL
-WHERE (organizer.description IS NOT NULL OR organizer.logo_url IS NOT NULL)
-  AND NOT EXISTS (
-    SELECT 1 FROM public.organizer_members AS member
-    WHERE member.organizer_id = organizer.id
-  )
-  AND EXISTS (
-    SELECT 1
-    FROM public.events AS event
-    JOIN public.event_scraped_details AS detail ON detail.event_id = event.id
-    WHERE event.organizer_id = organizer.id
-  );
-
-UPDATE public.performers AS performer
-SET bio = NULL,
-    image_url = NULL
-WHERE (performer.bio IS NOT NULL OR performer.image_url IS NOT NULL)
-  AND EXISTS (
-    SELECT 1
-    FROM public.event_performers AS event_performer
-    JOIN public.event_scraped_details AS detail
-      ON detail.event_id = event_performer.event_id
-    WHERE event_performer.performer_id = performer.id
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM public.event_performers AS event_performer
-    JOIN public.events AS event ON event.id = event_performer.event_id
-    LEFT JOIN public.event_scraped_details AS detail ON detail.event_id = event.id
-    WHERE event_performer.performer_id = performer.id
-      AND (
-        detail.event_id IS NULL
-        OR event.created_by IS NOT NULL
-        OR EXISTS (
-          SELECT 1 FROM public.organizer_members AS member
-          WHERE member.organizer_id = event.organizer_id
-        )
-      )
-  );
-
-COMMENT ON TABLE public.event_scraped_details IS
-  'Public factual projection for imported events. Raw source evidence is private and never exposed to visitors.';
+COMMENT ON TABLE public.event_publications_v2 IS
+  'Reversible, factual public projection for imported events. Original source data remains unchanged.';
+COMMENT ON TABLE public.event_publication_media_v2 IS
+  'Reversible media projection. Source media remains unchanged; only approved rows are publicly readable.';
