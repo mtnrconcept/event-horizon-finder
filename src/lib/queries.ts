@@ -20,14 +20,7 @@ import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-vi
 const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
 export type QuickRange =
-  | "now"
-  | "tonight"
-  | "today"
-  | "tomorrow"
-  | "weekend"
-  | "week"
-  | "month"
-  | "year";
+  "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
 
 /**
  * "Ce soir" = nuit événementielle 18h → 6h le lendemain (heure locale de l'utilisateur).
@@ -397,6 +390,7 @@ export async function fetchMapOccurrencePreviews(
 
 async function fetchMapOccurrenceDetailCollections(
   eventId: string,
+  usesPublicationProjection: boolean,
 ): Promise<MapOccurrenceDetailCollections> {
   const [occurrences, offers, media, performers] = await Promise.all([
     loadAllPages<{ id: string }>({
@@ -448,12 +442,21 @@ async function fetchMapOccurrenceDetailCollections(
       pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
       getKey: (row) => row.id,
       fetchPage: async ({ limit, offset }) => {
-        const { data, error } = await supabase
-          .from("event_media")
-          .select("id,url,media_type,attribution,license,source_url,sort_order")
+        const relation = usesPublicationProjection ? "event_publication_media_v2" : "event_media";
+        const columns = usesPublicationProjection
+          ? "id:source_media_id,url,media_type,attribution,license,source_url,sort_order"
+          : "id,url,media_type,attribution,license,source_url,sort_order";
+        // Keep the cast at the rolling-deploy boundary until generated types
+        // include the parallel publication tables.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let query = (supabase as any)
+          .from(relation)
+          .select(columns)
           .eq("event_id", eventId)
-          .order("id", { ascending: true })
+          .order(usesPublicationProjection ? "source_media_id" : "id", { ascending: true })
           .range(offset, offset + limit - 1);
+        if (usesPublicationProjection) query = query.eq("is_approved", true);
+        const { data, error } = await query;
         if (error) throw error;
         return data ?? [];
       },
@@ -496,7 +499,7 @@ async function fetchMapOccurrenceDetailCollections(
  * This intentionally remains separate from the lightweight hover query: the
  * larger relation graph is downloaded only after a pin is opened. The cast is
  * kept at this query boundary until the generated Database type includes the
- * public event_scraped_details relation.
+ * parallel event_publications_v2 relation.
  */
 export async function fetchMapOccurrenceDetail(
   occurrenceId: string,
@@ -586,7 +589,14 @@ export async function fetchMapOccurrenceDetail(
           quiet_space,
           notes
         ),
-        scraped:event_scraped_details(details)
+        publication:event_publications_v2(
+          short_description,
+          description,
+          cover_image_url,
+          details,
+          projection_version,
+          is_active
+        )
       )
     `;
   const runDetailQuery = (select: string) =>
@@ -604,14 +614,20 @@ export async function fetchMapOccurrenceDetail(
   let { data, error } = await runDetailQuery(detailSelect);
   if (error && ["42P01", "PGRST200", "PGRST205"].includes(error.code ?? "")) {
     ({ data, error } = await runDetailQuery(
-      detailSelect.replace(",\n        scraped:event_scraped_details(details)", ""),
+      detailSelect.replace(
+        ",\n        publication:event_publications_v2(\n          short_description,\n          description,\n          cover_image_url,\n          details,\n          projection_version,\n          is_active\n        )",
+        "",
+      ),
     ));
   }
   if (error) throw error;
   const baseDetail = parseMapOccurrenceDetailRow(data);
   if (!baseDetail) return null;
 
-  const collections = await fetchMapOccurrenceDetailCollections(baseDetail.event_id);
+  const collections = await fetchMapOccurrenceDetailCollections(
+    baseDetail.event_id,
+    baseDetail.uses_publication_projection,
+  );
   return (
     parseMapOccurrenceDetailRow(attachMapOccurrenceDetailCollections(data, collections)) ??
     baseDetail

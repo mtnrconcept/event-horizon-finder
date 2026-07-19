@@ -2742,6 +2742,13 @@ export const UI_TRANSLATIONS = {
     ru: "Источники и полезные ссылки",
     es: "Fuentes y enlaces útiles",
   },
+  "Origine des informations": {
+    en: "Information origin",
+    pl: "Pochodzenie informacji",
+    it: "Origine delle informazioni",
+    ru: "Источник информации",
+    es: "Origen de la información",
+  },
   Source: { en: "Source", pl: "Źródło", it: "Fonte", ru: "Источник", es: "Fuente" },
   "Page source": {
     en: "Source page",
@@ -2749,6 +2756,13 @@ export const UI_TRANSLATIONS = {
     it: "Pagina fonte",
     ru: "Страница источника",
     es: "Página de origen",
+  },
+  "Annonce d’origine": {
+    en: "Original listing",
+    pl: "Oryginalne ogłoszenie",
+    it: "Annuncio originale",
+    ru: "Исходное объявление",
+    es: "Anuncio original",
   },
   "Jeu de données": {
     en: "Dataset",

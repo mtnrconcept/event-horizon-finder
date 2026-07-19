@@ -1,7 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CalendarDays,
   CircleAlert,
   Crosshair,
   FerrisWheel,
@@ -48,6 +47,7 @@ import {
 } from "@/lib/event-filters";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { LiveEventCounter } from "@/components/live-event-counter";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
 
@@ -555,12 +555,8 @@ function Discover() {
               {t("home.heroBody")}
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
-            <HeroStat
-              icon={CalendarDays}
-              label={t("home.total")}
-              value={loading || statsLoading ? "…" : formatNumber(stats.total_count)}
-            />
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+            <LiveEventCounter />
             <HeroStat
               icon={Ticket}
               label={t("home.free")}

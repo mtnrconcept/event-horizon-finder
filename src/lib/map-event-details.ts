@@ -8,12 +8,7 @@ const MAX_JSON_TEXT_LENGTH = 500_000;
 const PRICE_FORMATTERS = new Map<string, Intl.NumberFormat>();
 
 export type MapScrapedValue =
-  | string
-  | number
-  | boolean
-  | null
-  | MapScrapedValue[]
-  | { [key: string]: MapScrapedValue };
+  string | number | boolean | null | MapScrapedValue[] | { [key: string]: MapScrapedValue };
 
 export type MapScrapedDetails = Record<string, MapScrapedValue>;
 
@@ -161,6 +156,7 @@ export interface MapOccurrenceDetail {
   accessibility: MapDetailAccessibility | null;
   performers: MapDetailPerformer[];
   scraped_details: MapScrapedDetails | null;
+  uses_publication_projection: boolean;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
@@ -539,8 +535,27 @@ export function parseMapOccurrenceDetailRow(value: unknown): MapOccurrenceDetail
   if (!occurrences.some((occurrence) => occurrence.id === selectedOccurrence.id)) {
     occurrences.push(selectedOccurrence);
   }
-  const venue = parseVenue(event.venue);
-  const scraped = relationObject(event.scraped);
+  const publication = relationObject(event.publication);
+  const usesPublicationProjection =
+    optionalBoolean(publication?.is_active) === true &&
+    (optionalNumber(publication?.projection_version) ?? 0) >= 2;
+  const sourceVenue = parseVenue(event.venue);
+  const venue =
+    usesPublicationProjection && sourceVenue
+      ? { ...sourceVenue, description: null, cover_image_url: null }
+      : sourceVenue;
+  const sourceOrganizer = parseOrganizer(event.organizer);
+  const organizer =
+    usesPublicationProjection && sourceOrganizer
+      ? { ...sourceOrganizer, description: null, logo_url: null }
+      : sourceOrganizer;
+  const performers = sortPerformers(
+    relationValues(event.performers)
+      .map(parsePerformer)
+      .filter((item): item is MapDetailPerformer => item !== null),
+  ).map((performer) =>
+    usesPublicationProjection ? { ...performer, bio: null, image_url: null } : performer,
+  );
 
   return {
     occurrence_id: selectedOccurrence.id,
@@ -548,9 +563,15 @@ export function parseMapOccurrenceDetailRow(value: unknown): MapOccurrenceDetail
     event_id: event.id,
     slug,
     title,
-    short_description: optionalString(event.short_description),
-    description: optionalString(event.description),
-    cover_image_url: safeExternalUrl(event.cover_image_url),
+    short_description: optionalString(
+      usesPublicationProjection ? publication?.short_description : event.short_description,
+    ),
+    description: optionalString(
+      usesPublicationProjection ? publication?.description : event.description,
+    ),
+    cover_image_url: safeExternalUrl(
+      usesPublicationProjection ? publication?.cover_image_url : event.cover_image_url,
+    ),
     official_url: safeExternalUrl(event.official_url),
     age_restriction: optionalString(event.age_restriction),
     genres: stringList(event.genres),
@@ -560,7 +581,7 @@ export function parseMapOccurrenceDetailRow(value: unknown): MapOccurrenceDetail
     status,
     verification_level: optionalString(event.verification_level),
     category: parseCategory(event.category),
-    organizer: parseOrganizer(event.organizer),
+    organizer,
     venue,
     city: parseCity(event.city) ?? venue?.city ?? null,
     occurrences: sortOccurrences(occurrences),
@@ -575,12 +596,9 @@ export function parseMapOccurrenceDetailRow(value: unknown): MapOccurrenceDetail
         .filter((item): item is MapDetailMedia => item !== null),
     ),
     accessibility: parseAccessibility(event.accessibility),
-    performers: sortPerformers(
-      relationValues(event.performers)
-        .map(parsePerformer)
-        .filter((item): item is MapDetailPerformer => item !== null),
-    ),
-    scraped_details: scrapedDetails(scraped?.details),
+    performers,
+    scraped_details: scrapedDetails(publication?.details),
+    uses_publication_projection: usesPublicationProjection,
   };
 }
 

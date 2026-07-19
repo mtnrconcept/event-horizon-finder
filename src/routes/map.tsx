@@ -40,7 +40,6 @@ import {
   safeExternalUrl,
   type MapDetailOccurrence,
   type MapOccurrenceDetail,
-  type MapScrapedValue,
 } from "@/lib/map-event-details";
 import {
   countAdvancedFilters,
@@ -115,12 +114,10 @@ import {
   Globe2,
   House,
   LoaderCircle,
-  Mail,
   MapPin,
   Music,
   Navigation,
   PawPrint,
-  Phone,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -174,7 +171,6 @@ const CLUSTER_PREVIEW_CONCURRENCY = 4;
 const CLUSTER_HOVER_SAMPLE_SIZE = 12;
 const MAP_HOVER_DELAY_MS = 120;
 const DETAIL_LIST_BATCH_SIZE = 24;
-const SCRAPED_VALUE_BATCH_SIZE = 20;
 const MAP_EVENT_DETAIL_CACHE_LIMIT = 24;
 const MAP_EVENT_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -560,10 +556,7 @@ function formatDetailDateTime(
   }
 }
 
-function scrapedValue(
-  detail: MapOccurrenceDetail | null,
-  key: string,
-): MapScrapedValue | undefined {
+function scrapedValue(detail: MapOccurrenceDetail | null, key: string) {
   return detail?.scraped_details?.[key];
 }
 
@@ -582,114 +575,6 @@ function scrapedBoolean(detail: MapOccurrenceDetail | null, key: string): boolea
 function scrapedNumber(detail: MapOccurrenceDetail | null, key: string): number | null {
   const value = scrapedValue(detail, key);
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function safeContactEmail(value: string | null): string | null {
-  if (!value || value.length > 320 || /[\r\n]/.test(value)) return null;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
-}
-
-function safeContactPhone(value: string | null): string | null {
-  if (!value || value.length > 48 || !/^[+0-9().\s/-]{3,48}$/.test(value)) return null;
-  return value;
-}
-
-function readableScrapedKey(value: string): string {
-  const words = value.replaceAll("_", " ").trim();
-  return words ? `${words[0].toLocaleUpperCase()}${words.slice(1)}` : value;
-}
-
-function localizedScrapedDate(value: string, locale: string): string | null {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(
-      new Date(Date.UTC(year, month - 1, day)),
-    );
-  }
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(Date.parse(value))) return null;
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "long",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function ScrapedDetailValue({ value }: { value: MapScrapedValue }) {
-  const { tr, localeTag } = useTranslation();
-  const [visibleCount, setVisibleCount] = useState(SCRAPED_VALUE_BATCH_SIZE);
-  if (value == null) return null;
-  if (typeof value === "boolean") return <span>{value ? tr("Oui") : tr("Non")}</span>;
-  if (typeof value === "number") return <span>{value}</span>;
-  if (typeof value === "string") {
-    const text = detailPlainText(value);
-    const url = safeExternalUrl(text);
-    const date = localizedScrapedDate(text, localeTag);
-    return url ? (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 break-all font-semibold text-primary hover:underline"
-      >
-        {text} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-      </a>
-    ) : date ? (
-      <span>{date}</span>
-    ) : (
-      <span className="whitespace-pre-line">{text}</span>
-    );
-  }
-  if (Array.isArray(value)) {
-    if (!value.length) return null;
-    return (
-      <div>
-        <ul className="grid gap-1.5">
-          {value.slice(0, visibleCount).map((item, index) => (
-            <li key={index} className="rounded-lg bg-muted/45 px-2.5 py-1.5">
-              <ScrapedDetailValue value={item} />
-            </li>
-          ))}
-        </ul>
-        {visibleCount < value.length && (
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-2 min-h-11"
-            onClick={() => setVisibleCount((count) => count + SCRAPED_VALUE_BATCH_SIZE)}
-          >
-            {tr("Voir plus")}
-          </Button>
-        )}
-      </div>
-    );
-  }
-  const entries = Object.entries(value);
-  if (!entries.length) return null;
-  return (
-    <div>
-      <dl className="grid gap-2">
-        {entries.slice(0, visibleCount).map(([key, item]) => (
-          <div key={key} className="rounded-lg bg-muted/45 px-2.5 py-2">
-            <dt className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">
-              {readableScrapedKey(key)}
-            </dt>
-            <dd className="mt-1">
-              <ScrapedDetailValue value={item} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {visibleCount < entries.length && (
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-2 min-h-11"
-          onClick={() => setVisibleCount((count) => count + SCRAPED_VALUE_BATCH_SIZE)}
-        >
-          {tr("Voir plus")}
-        </Button>
-      )}
-    </div>
-  );
 }
 
 function MapDetailSection({
@@ -738,8 +623,9 @@ function SelectedMapEventDialog({
     locale,
     "full",
   );
-  const event = sourceEvent ? applyTranslationToMapPreview(sourceEvent, translation) : null;
-  const detail = sourceDetail ? applyTranslationToMapDetail(sourceDetail, translation) : null;
+  const safeTranslation = sourceDetail?.uses_publication_projection ? undefined : translation;
+  const event = sourceEvent ? applyTranslationToMapPreview(sourceEvent, safeTranslation) : null;
+  const detail = sourceDetail ? applyTranslationToMapDetail(sourceDetail, safeTranslation) : null;
   const [showOccurrenceList, setShowOccurrenceList] = useState(false);
   const [visibleOccurrenceCount, setVisibleOccurrenceCount] = useState(DETAIL_LIST_BATCH_SIZE);
   const [visibleOfferCount, setVisibleOfferCount] = useState(DETAIL_LIST_BATCH_SIZE);
@@ -755,23 +641,17 @@ function SelectedMapEventDialog({
   }, [open, selectionId]);
   const selectedOccurrence = detail?.selected_occurrence ?? null;
   const title =
-    (translation ? detail?.title : event?.title) ??
+    (safeTranslation ? detail?.title : event?.title) ??
     detail?.title ??
     event?.title ??
     tr("Événement sélectionné");
-  const sourceImageUrl = safeExternalUrl(scrapedText(detail, "image_url_raw"));
   const imageUrl =
     safeMapPreviewImageUrl(detail?.cover_image_url ?? event?.cover_image_url ?? null) ??
-    sourceImageUrl ??
     detail?.media.find((item) => item.media_type.toLowerCase().startsWith("image"))?.url ??
     null;
-  const description = detailPlainText(
-    detail?.description ?? scrapedText(detail, "description_full_raw") ?? event?.description,
-  );
+  const description = detailPlainText(detail?.description ?? event?.description);
   const shortDescription = mapPreviewExcerpt(
-    detail?.short_description ??
-      scrapedText(detail, "description_short_raw") ??
-      event?.short_description,
+    detail?.short_description ?? event?.short_description,
     800,
   );
   const occurrenceStatusLabels: Record<string, string> = {
@@ -796,28 +676,9 @@ function SelectedMapEventDialog({
   };
   const statusLabel = detail ? (eventStatusLabels[detail.status] ?? detail.status) : null;
   const locationParts = detail ? mapDetailLocationParts(detail) : [];
-  const sourceLocationParts = detail
-    ? [
-        scrapedText(detail, "venue_name_raw"),
-        scrapedText(detail, "venue_address"),
-        scrapedText(detail, "street"),
-        [scrapedText(detail, "postal_code_raw"), scrapedText(detail, "city_raw")]
-          .filter(Boolean)
-          .join(" ") || null,
-        scrapedText(detail, "region_raw"),
-        scrapedText(detail, "country_raw"),
-      ].filter(
-        (value, index, values): value is string =>
-          Boolean(value) && !locationParts.includes(value!) && values.indexOf(value) === index,
-      )
-    : [];
-  const displayLocationParts = [...locationParts, ...sourceLocationParts];
-  const sourceLatitude = scrapedNumber(detail, "latitude_raw");
-  const sourceLongitude = scrapedNumber(detail, "longitude_raw");
   const venueCoordinates = [
     [detail?.venue?.latitude, detail?.venue?.longitude],
     [selectedOccurrence?.latitude, selectedOccurrence?.longitude],
-    [sourceLatitude, sourceLongitude],
   ].find(
     (coordinates): coordinates is [number, number] =>
       coordinates[0] != null &&
@@ -829,20 +690,12 @@ function SelectedMapEventDialog({
     ? `https://www.openstreetmap.org/?mlat=${venueCoordinates[0]}&mlon=${venueCoordinates[1]}#map=17/${venueCoordinates[0]}/${venueCoordinates[1]}`
     : null;
   const scrapedTicketUrl = safeExternalUrl(scrapedText(detail, "ticket_or_registration_url"));
-  const videoUrl = safeExternalUrl(scrapedText(detail, "video_url"));
   const sourceUrl = safeExternalUrl(scrapedText(detail, "source_url"));
-  const datasetUrl = safeExternalUrl(scrapedText(detail, "source_dataset_url"));
   const licenseUrl = safeExternalUrl(scrapedText(detail, "source_license_url"));
   const venueWebsite =
     detail?.venue?.website ?? safeExternalUrl(scrapedText(detail, "venue_website"));
   const organizerWebsite =
     detail?.organizer?.website ?? safeExternalUrl(scrapedText(detail, "organizer_url"));
-  const contactPhoneText = scrapedText(detail, "contact_phone");
-  const contactEmailText = scrapedText(detail, "contact_email");
-  const contactPhone = safeContactPhone(contactPhoneText);
-  const contactEmail = safeContactEmail(contactEmailText);
-  const externalLinks = scrapedValue(detail, "external_links");
-  const mergedSources = scrapedValue(detail, "merged_sources");
   const onlineEvent = scrapedBoolean(detail, "online_event");
   const bookingRequired = scrapedBoolean(detail, "booking_required");
   const indoor = scrapedBoolean(detail, "indoor");
@@ -861,7 +714,6 @@ function SelectedMapEventDialog({
         t("common.free"),
       )
     : null;
-  const sourceOrganizer = scrapedText(detail, "organizer_raw");
   const displayLanguage = detail?.language ?? scrapedText(detail, "language_raw");
   const hasAccessInfo = Boolean(
     detail?.accessibility && Object.values(detail.accessibility).some((value) => value !== null),
@@ -870,12 +722,7 @@ function SelectedMapEventDialog({
     ? [
         [tr("Type"), scrapedText(detail, "event_type")],
         [tr("Sous-type"), scrapedText(detail, "event_subtype")],
-        [tr("Catégorie source"), scrapedText(detail, "category_original")],
-        [tr("Style musical source"), scrapedText(detail, "music_style")],
-        [tr("Programme"), scrapedText(detail, "animation_or_program")],
-        [tr("Série"), scrapedText(detail, "series_name")],
         [tr("Public"), scrapedText(detail, "audience")],
-        [tr("Conditions requises"), scrapedText(detail, "requirements")],
       ].filter((row): row is [string, string] => Boolean(row[1]))
     : [];
   const ageMinimum = scrapedText(detail, "age_min");
@@ -1096,41 +943,6 @@ function SelectedMapEventDialog({
                           )}
                         </div>
                       </div>
-                      {(scrapedText(detail, "occurrence_count_in_window") ||
-                        scrapedText(detail, "last_occurrence_start") ||
-                        scrapedText(detail, "last_occurrence_end") ||
-                        scrapedText(detail, "date_precision")) && (
-                        <dl className="grid gap-1.5 rounded-lg border bg-background p-3 text-xs">
-                          {scrapedText(detail, "occurrence_count_in_window") && (
-                            <div className="flex justify-between gap-3">
-                              <dt>{tr("Occurrences annoncées")}</dt>
-                              <dd className="font-black">
-                                {scrapedText(detail, "occurrence_count_in_window")}
-                              </dd>
-                            </div>
-                          )}
-                          {scrapedText(detail, "last_occurrence_start") && (
-                            <div>
-                              <dt className="font-black">{tr("Dernière occurrence annoncée")}</dt>
-                              <dd>{scrapedText(detail, "last_occurrence_start")}</dd>
-                            </div>
-                          )}
-                          {scrapedText(detail, "last_occurrence_end") && (
-                            <div>
-                              <dt className="font-black">{tr("Fin de la dernière occurrence")}</dt>
-                              <dd>{scrapedText(detail, "last_occurrence_end")}</dd>
-                            </div>
-                          )}
-                          {scrapedText(detail, "date_precision") && (
-                            <div className="flex justify-between gap-3">
-                              <dt>{tr("Précision horaire source")}</dt>
-                              <dd className="font-black">
-                                {scrapedText(detail, "date_precision")}
-                              </dd>
-                            </div>
-                          )}
-                        </dl>
-                      )}
                       {detail.occurrences.length > 1 && (
                         <div>
                           <button
@@ -1202,40 +1014,21 @@ function SelectedMapEventDialog({
                           )}
                         </div>
                       )}
-                      {scrapedText(detail, "schedule_text") && (
-                        <p className="whitespace-pre-line rounded-lg bg-muted/45 p-3">
-                          {scrapedText(detail, "schedule_text")}
-                        </p>
-                      )}
-                      {scrapedValue(detail, "schedule_json") != null && (
-                        <details>
-                          <summary className="cursor-pointer font-black text-primary">
-                            {tr("Planning détaillé")}
-                          </summary>
-                          <div className="mt-2">
-                            <ScrapedDetailValue value={scrapedValue(detail, "schedule_json")!} />
-                          </div>
-                        </details>
-                      )}
                     </div>
                   </MapDetailSection>
 
                   <MapDetailSection icon={MapPin} title={tr("Lieu et accès")}>
                     <div className="grid gap-2">
-                      {displayLocationParts.length ? (
+                      {locationParts.length ? (
                         <address className="not-italic">
-                          {displayLocationParts.map((part) => (
+                          {locationParts.map((part) => (
                             <span key={part} className="block">
                               {part}
                             </span>
                           ))}
                         </address>
                       ) : (
-                        <address className="not-italic">
-                          {scrapedText(detail, "venue_address") ??
-                            scrapedText(detail, "street") ??
-                            tr("Lieu à confirmer")}
-                        </address>
+                        <address className="not-italic">{tr("Lieu à confirmer")}</address>
                       )}
                       {detail.venue?.description && (
                         <p className="whitespace-pre-line text-muted-foreground">
@@ -1306,7 +1099,6 @@ function SelectedMapEventDialog({
                                 <p className="text-muted-foreground">
                                   {formatMapDetailPrice(offer, localeTag, t("common.free")) ??
                                     sourcePriceLabel ??
-                                    scrapedText(detail, "price_text") ??
                                     tr("Prix sur le site")}
                                 </p>
                               </div>
@@ -1329,11 +1121,7 @@ function SelectedMapEventDialog({
                           </article>
                         ))
                       ) : (
-                        <p>
-                          {sourcePriceLabel ??
-                            scrapedText(detail, "price_text") ??
-                            tr("Prix sur le site")}
-                        </p>
+                        <p>{sourcePriceLabel ?? tr("Prix sur le site")}</p>
                       )}
                       {visibleOfferCount < detail.offers.length && (
                         <Button
@@ -1354,16 +1142,6 @@ function SelectedMapEventDialog({
                             : tr("Réservation non obligatoire")}
                         </p>
                       )}
-                      {scrapedText(detail, "registration_conditions") && (
-                        <div>
-                          <p className="text-xs font-black uppercase text-muted-foreground">
-                            {tr("Conditions d’inscription")}
-                          </p>
-                          <p className="mt-1 whitespace-pre-line">
-                            {scrapedText(detail, "registration_conditions")}
-                          </p>
-                        </div>
-                      )}
                       {scrapedTicketUrl &&
                         !detail.offers.some((offer) => offer.ticket_url === scrapedTicketUrl) && (
                           <a
@@ -1378,12 +1156,7 @@ function SelectedMapEventDialog({
                     </div>
                   </MapDetailSection>
 
-                  {(detail.organizer ||
-                    sourceOrganizer ||
-                    organizerWebsite ||
-                    scrapedText(detail, "organizer_contact") ||
-                    contactPhoneText ||
-                    contactEmailText) && (
+                  {(detail.organizer || organizerWebsite) && (
                     <MapDetailSection icon={Building2} title={tr("Organisateur et contacts")}>
                       <div className="grid gap-2">
                         {detail.organizer && (
@@ -1396,9 +1169,6 @@ function SelectedMapEventDialog({
                             )}
                           </>
                         )}
-                        {!detail.organizer && sourceOrganizer && (
-                          <p className="font-black">{sourceOrganizer}</p>
-                        )}
                         {organizerWebsite && (
                           <a
                             href={organizerWebsite}
@@ -1409,36 +1179,6 @@ function SelectedMapEventDialog({
                             {tr("Site officiel")} <ExternalLink className="h-3.5 w-3.5" />
                           </a>
                         )}
-                        {scrapedText(detail, "organizer_contact") && (
-                          <p>{scrapedText(detail, "organizer_contact")}</p>
-                        )}
-                        {contactPhoneText &&
-                          (contactPhone ? (
-                            <a
-                              href={`tel:${contactPhone}`}
-                              className="inline-flex items-center gap-2 font-bold text-primary hover:underline"
-                            >
-                              <Phone className="h-4 w-4" /> {contactPhone}
-                            </a>
-                          ) : (
-                            <p className="flex items-center gap-2">
-                              <Phone className="h-4 w-4 text-primary" /> {contactPhoneText}
-                            </p>
-                          ))}
-                        {contactEmailText &&
-                          (contactEmail ? (
-                            <a
-                              href={`mailto:${contactEmail}`}
-                              className="inline-flex items-center gap-2 break-all font-bold text-primary hover:underline"
-                            >
-                              <Mail className="h-4 w-4 shrink-0" />
-                              {contactEmail}
-                            </a>
-                          ) : (
-                            <p className="flex items-center gap-2 break-all">
-                              <Mail className="h-4 w-4 shrink-0 text-primary" /> {contactEmailText}
-                            </p>
-                          ))}
                       </div>
                     </MapDetailSection>
                   )}
@@ -1457,7 +1197,6 @@ function SelectedMapEventDialog({
                     detail.genres.length > 0 ||
                     displayLanguage ||
                     ageLabel ||
-                    scrapedValue(detail, "keywords") != null ||
                     indoor != null ||
                     petsAllowed != null) && (
                     <MapDetailSection icon={Music} title={tr("Programme et informations")}>
@@ -1500,16 +1239,6 @@ function SelectedMapEventDialog({
                             <dd className="mt-1">{ageLabel}</dd>
                           </div>
                         )}
-                        {scrapedValue(detail, "keywords") != null && (
-                          <div>
-                            <dt className="text-xs font-black uppercase text-muted-foreground">
-                              {tr("Mots-clés")}
-                            </dt>
-                            <dd className="mt-1">
-                              <ScrapedDetailValue value={scrapedValue(detail, "keywords")!} />
-                            </dd>
-                          </div>
-                        )}
                         {(indoor != null || petsAllowed != null) && (
                           <div className="flex flex-wrap gap-2">
                             {indoor != null && (
@@ -1530,7 +1259,7 @@ function SelectedMapEventDialog({
                     </MapDetailSection>
                   )}
 
-                  {(hasAccessInfo || scrapedValue(detail, "accessibility_raw") != null) && (
+                  {hasAccessInfo && (
                     <MapDetailSection icon={Accessibility} title={tr("Accessibilité")}>
                       {detail.accessibility && (
                         <dl className="grid gap-2 sm:grid-cols-2">
@@ -1557,16 +1286,10 @@ function SelectedMapEventDialog({
                           )}
                         </dl>
                       )}
-                      {scrapedValue(detail, "accessibility_raw") != null && (
-                        <div className="mt-3">
-                          <ScrapedDetailValue value={scrapedValue(detail, "accessibility_raw")!} />
-                        </div>
-                      )}
                     </MapDetailSection>
                   )}
 
-                  {(detail.performers.length > 0 ||
-                    scrapedValue(detail, "performers_raw") != null) && (
+                  {detail.performers.length > 0 && (
                     <MapDetailSection icon={Users} title={tr("Artistes et intervenants")}>
                       <div className="grid gap-3">
                         {detail.performers.slice(0, visiblePerformerCount).map((performer) => (
@@ -1612,19 +1335,11 @@ function SelectedMapEventDialog({
                             {tr("Voir plus")}
                           </Button>
                         )}
-                        {scrapedValue(detail, "performers_raw") != null && (
-                          <div>
-                            <p className="mb-1 text-xs font-black uppercase text-muted-foreground">
-                              {tr("Informations artistes de la source")}
-                            </p>
-                            <ScrapedDetailValue value={scrapedValue(detail, "performers_raw")!} />
-                          </div>
-                        )}
                       </div>
                     </MapDetailSection>
                   )}
 
-                  {(detail.media.length > 0 || videoUrl || scrapedText(detail, "image_credit")) && (
+                  {detail.media.length > 0 && (
                     <MapDetailSection icon={Video} title={tr("Médias")} className="md:col-span-2">
                       <div className="grid gap-3 sm:grid-cols-2">
                         {detail.media.slice(0, visibleMediaCount).map((media, index) => (
@@ -1672,40 +1387,18 @@ function SelectedMapEventDialog({
                             {tr("Voir plus")}
                           </Button>
                         )}
-                        {videoUrl && (
-                          <a
-                            href={videoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-h-24 items-center justify-center gap-2 rounded-xl border p-3 font-black text-primary"
-                          >
-                            <Video className="h-5 w-5" /> {tr("Voir la vidéo")}
-                          </a>
-                        )}
-                        {scrapedText(detail, "image_credit") && (
-                          <p className="text-xs text-muted-foreground sm:col-span-2">
-                            <span className="font-black">{tr("Crédit image")} : </span>
-                            {scrapedText(detail, "image_credit")}
-                          </p>
-                        )}
                       </div>
                     </MapDetailSection>
                   )}
 
                   {(detail.official_url ||
                     sourceUrl ||
-                    datasetUrl ||
                     licenseUrl ||
                     scrapedText(detail, "source") ||
-                    scrapedText(detail, "source_event_id") ||
-                    scrapedText(detail, "source_license") ||
-                    scrapedText(detail, "last_source_update") ||
-                    scrapedText(detail, "scraped_at_utc") ||
-                    externalLinks != null ||
-                    mergedSources != null) && (
+                    scrapedText(detail, "source_license")) && (
                     <MapDetailSection
                       icon={Globe2}
-                      title={tr("Sources et liens utiles")}
+                      title={tr("Origine des informations")}
                       className="md:col-span-2"
                     >
                       <div className="grid gap-3">
@@ -1713,12 +1406,6 @@ function SelectedMapEventDialog({
                           <p>
                             <span className="font-black">{tr("Source")} : </span>
                             {scrapedText(detail, "source")}
-                          </p>
-                        )}
-                        {scrapedText(detail, "source_event_id") && (
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-black">{tr("Identifiant source")} : </span>
-                            {scrapedText(detail, "source_event_id")}
                           </p>
                         )}
                         <div className="flex flex-wrap gap-3 text-sm font-bold text-primary">
@@ -1739,17 +1426,7 @@ function SelectedMapEventDialog({
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 hover:underline"
                             >
-                              {tr("Page source")} <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
-                          )}
-                          {datasetUrl && (
-                            <a
-                              href={datasetUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 hover:underline"
-                            >
-                              {tr("Jeu de données")} <ExternalLink className="h-3.5 w-3.5" />
+                              {tr("Annonce d’origine")} <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           )}
                           {licenseUrl && (
@@ -1764,59 +1441,12 @@ function SelectedMapEventDialog({
                           )}
                         </div>
                         {scrapedText(detail, "source_license") && (
-                          <p>
+                          <p className="text-xs text-muted-foreground">
                             <span className="font-black">{tr("Licence")} : </span>
                             {scrapedText(detail, "source_license")}
                           </p>
                         )}
-                        {scrapedText(detail, "last_source_update") && (
-                          <p className="text-xs text-muted-foreground">
-                            {tr("Dernière mise à jour de la source : {date}", {
-                              date: scrapedText(detail, "last_source_update")!,
-                            })}
-                          </p>
-                        )}
-                        {scrapedText(detail, "scraped_at_utc") && (
-                          <p className="text-xs text-muted-foreground">
-                            {tr("Collecté le : {date}", {
-                              date: scrapedText(detail, "scraped_at_utc")!,
-                            })}
-                          </p>
-                        )}
-                        {externalLinks != null && (
-                          <div>
-                            <p className="mb-1 font-black">{tr("Liens complémentaires")}</p>
-                            <ScrapedDetailValue value={externalLinks} />
-                          </div>
-                        )}
-                        {mergedSources != null && (
-                          <details>
-                            <summary className="cursor-pointer font-black text-primary">
-                              {tr("Autres sources fusionnées")}
-                            </summary>
-                            <div className="mt-2">
-                              <ScrapedDetailValue value={mergedSources} />
-                            </div>
-                          </details>
-                        )}
                       </div>
-                    </MapDetailSection>
-                  )}
-
-                  {detail.scraped_details && Object.keys(detail.scraped_details).length > 0 && (
-                    <MapDetailSection
-                      icon={Globe2}
-                      title={tr("Toutes les données collectées")}
-                      className="md:col-span-2"
-                    >
-                      <details>
-                        <summary className="min-h-11 cursor-pointer py-2 font-black text-primary">
-                          {tr("Afficher le relevé complet de la source")}
-                        </summary>
-                        <div className="mt-2">
-                          <ScrapedDetailValue value={detail.scraped_details} />
-                        </div>
-                      </details>
                     </MapDetailSection>
                   )}
                 </div>

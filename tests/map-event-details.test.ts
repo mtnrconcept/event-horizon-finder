@@ -174,14 +174,17 @@ function rawDetail(overrides: Record<string, unknown> = {}) {
           },
         },
       ],
-      scraped: [
+      publication: [
         {
+          short_description: "Résumé factuel public.",
+          description: "Description factuelle publique.",
+          cover_image_url: null,
+          projection_version: 2,
+          is_active: true,
           details: {
-            price_text: "Dès CHF 25.50",
             booking_required: true,
-            registration_conditions: "Réservation conseillée",
-            external_links: ["https://partner.example.test"],
-            schedule_json: { doors: "19:00", show: "20:00" },
+            source: "Agenda public",
+            source_url: "https://partner.example.test",
           },
         },
       ],
@@ -211,6 +214,14 @@ test("parses the complete public event graph and keeps the clicked occurrence id
   assert.equal(detail.occurrence_id, OCCURRENCE_ID);
   assert.equal(detail.selected_occurrence.id, OCCURRENCE_ID);
   assert.equal(detail.event_id, EVENT_ID);
+  assert.equal(detail.uses_publication_projection, true);
+  assert.equal(detail.short_description, "Résumé factuel public.");
+  assert.equal(detail.description, "Description factuelle publique.");
+  assert.equal(detail.cover_image_url, null);
+  assert.equal(detail.venue?.description, null);
+  assert.equal(detail.venue?.cover_image_url, null);
+  assert.equal(detail.organizer?.description, null);
+  assert.equal(detail.organizer?.logo_url, null);
   assert.deepEqual(detail.genres, ["Electronic", "House"]);
   assert.deepEqual(
     detail.occurrences.map((item) => item.id),
@@ -231,12 +242,11 @@ test("parses the complete public event graph and keeps the clicked occurrence id
     ["A Artist", "B Artist"],
   );
   assert.deepEqual(detail.scraped_details, {
-    price_text: "Dès CHF 25.50",
     booking_required: true,
-    registration_conditions: "Réservation conseillée",
-    external_links: ["https://partner.example.test"],
-    schedule_json: { doors: "19:00", show: "20:00" },
+    source: "Agenda public",
+    source_url: "https://partner.example.test",
   });
+  assert.ok(detail.performers.every((performer) => !performer.bio && !performer.image_url));
   assert.deepEqual(mapDetailLocationParts(detail), [
     "Le Club",
     "Rue du Lac 1",
@@ -244,6 +254,19 @@ test("parses the complete public event graph and keeps the clicked occurrence id
     "Genève",
     "Suisse",
   ]);
+});
+
+test("keeps original fields for organizer-managed events without a publication projection", () => {
+  const value = rawDetail();
+  const event = value.event as Record<string, unknown>;
+  delete event.publication;
+  const detail = parseMapOccurrenceDetailRow(value);
+  assert.ok(detail);
+  assert.equal(detail.uses_publication_projection, false);
+  assert.equal(detail.description, "Programmation complète.");
+  assert.equal(detail.venue?.description, "Salle principale");
+  assert.equal(detail.organizer?.description, "Organisateur");
+  assert.equal(detail.performers[0].bio, "Bio A");
 });
 
 test("attaches every paginated row beyond 1,000 without mutating the main payload", async () => {
