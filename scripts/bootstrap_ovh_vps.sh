@@ -16,6 +16,7 @@ declare -a TEMP_FILES=()
 declare -a compose=()
 STACK_EXPOSED=false
 STACK_PREEXISTED=false
+PUBLIC_HOST_HAS_IPV6=false
 
 usage() {
   cat <<'EOF'
@@ -23,9 +24,10 @@ Usage: sudo bash bootstrap_ovh_vps.sh \
   --host HOSTNAME --expected-ip IPV4 --expected-ipv6 IPV6 --ref COMMIT_SHA
 
 Installs and secures the GlobalParty private search stack on Ubuntu 24.04.
-HOSTNAME must already resolve to this VPS. Secrets are generated locally and
-are never printed by this script. COMMIT_SHA must be the complete 40-character
-SHA of a reviewed commit.
+HOSTNAME must resolve in public DNS to IPV4. If HOSTNAME publishes an AAAA
+record, it must resolve to IPV6. Secrets are generated locally and are never
+printed by this script. COMMIT_SHA must be the complete 40-character SHA of a
+reviewed commit.
 EOF
 }
 
@@ -140,6 +142,7 @@ apt-get -o DPkg::Lock::Timeout=300 update
 apt-get -o DPkg::Lock::Timeout=300 install -y --no-install-recommends \
   ca-certificates \
   curl \
+  dnsutils \
   fail2ban \
   git \
   gnupg \
@@ -252,28 +255,73 @@ jq -e --arg address "$EXPECTED_IPV6" \
   '[.[].addr_info[]? | select(.family == "inet6") | .local] | index($address) != null' \
   <<<"$address_json" >/dev/null || die "${EXPECTED_IPV6} is not assigned to this VPS"
 
-log "checking that the public hostname resolves to both VPS addresses"
-resolved=false
+log "checking the public DNS records for the VPS addresses"
+dns_ipv4_answers="$(mktemp)"
+dns_ipv6_answers="$(mktemp)"
+TEMP_FILES+=("$dns_ipv4_answers" "$dns_ipv6_answers")
+public_dns_state="mismatch"
 for _ in $(seq 1 18); do
-  if python3 - "$PUBLIC_HOST" "$EXPECTED_IPV4" "$EXPECTED_IPV6" <<'PY'
+  : >"$dns_ipv4_answers"
+  : >"$dns_ipv6_answers"
+  ipv4_lookup_ok=false
+  ipv6_lookup_ok=false
+  if dig +time=3 +tries=1 +short A "${PUBLIC_HOST}." >"$dns_ipv4_answers" 2>/dev/null; then
+    ipv4_lookup_ok=true
+  fi
+  if dig +time=3 +tries=1 +short AAAA "${PUBLIC_HOST}." >"$dns_ipv6_answers" 2>/dev/null; then
+    ipv6_lookup_ok=true
+  fi
+  if [[ "$ipv4_lookup_ok" == true && "$ipv6_lookup_ok" == true ]]; then
+    public_dns_state="$(python3 - "$EXPECTED_IPV4" "$EXPECTED_IPV6" "$dns_ipv4_answers" "$dns_ipv6_answers" <<'PY'
 import ipaddress
-import socket
 import sys
 
-host, expected_v4, expected_v6 = sys.argv[1:]
-resolved = {
-    ipaddress.ip_address(item[4][0]).compressed
-    for item in socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-}
-raise SystemExit(0 if {expected_v4, expected_v6}.issubset(resolved) else 1)
+expected_v4, expected_v6, ipv4_path, ipv6_path = sys.argv[1:]
+
+
+def addresses(path, version):
+    resolved = set()
+    with open(path, encoding="utf-8") as answers:
+        for raw_answer in answers:
+            try:
+                address = ipaddress.ip_address(raw_answer.strip())
+            except ValueError:
+                # `dig +short` can include a CNAME before its address.
+                continue
+            if address.version == version:
+                resolved.add(address.compressed)
+    return resolved
+
+
+ipv4_addresses = addresses(ipv4_path, 4)
+ipv6_addresses = addresses(ipv6_path, 6)
+if expected_v4 not in ipv4_addresses:
+    print("mismatch")
+elif not ipv6_addresses:
+    print("ipv4-only")
+elif expected_v6 in ipv6_addresses:
+    print("dual-stack")
+else:
+    print("mismatch")
 PY
-  then
-    resolved=true
-    break
+    )"
+    case "$public_dns_state" in
+      dual-stack)
+        PUBLIC_HOST_HAS_IPV6=true
+        break
+        ;;
+      ipv4-only)
+        break
+        ;;
+    esac
   fi
   sleep 5
 done
-[[ "$resolved" == true ]] || die "${PUBLIC_HOST} does not resolve to the expected IPv4 and IPv6 addresses"
+[[ "$public_dns_state" != "mismatch" ]] \
+  || die "${PUBLIC_HOST} does not publish the expected IPv4 address or publishes an unexpected IPv6 address"
+if [[ "$PUBLIC_HOST_HAS_IPV6" != true ]]; then
+  log "the public hostname has no AAAA record; continuing with an IPv4 public endpoint"
+fi
 
 log "waiting for synchronized system time before ACME certificate issuance"
 timedatectl set-ntp true || true
@@ -408,9 +456,12 @@ done
 
 wait_for_https() {
   local address_family="$1"
-  local endpoint="$2"
+  local address="$2"
+  local endpoint="$3"
   for _ in $(seq 1 36); do
-    if curl "$address_family" --fail --silent --show-error --max-time 5 "$endpoint" >/dev/null 2>&1; then
+    if curl "$address_family" --noproxy '*' \
+      --resolve "${PUBLIC_HOST}:443:${address}" \
+      --fail --silent --show-error --max-time 5 "$endpoint" >/dev/null 2>&1; then
       return 0
     fi
     sleep 5
@@ -419,11 +470,17 @@ wait_for_https() {
 }
 
 log "waiting for the public TLS endpoint"
-wait_for_https --ipv4 "https://${PUBLIC_HOST}/healthz" || die "the public HTTPS endpoint did not become ready over IPv4"
-wait_for_https --ipv6 "https://${PUBLIC_HOST}/healthz" || die "the public HTTPS endpoint did not become ready over IPv6"
-wait_for_https --ipv4 "https://${PUBLIC_HOST}/safe-fetch/healthz" || die "the safe-fetch health endpoint did not become ready"
+wait_for_https --ipv4 "$EXPECTED_IPV4" "https://${PUBLIC_HOST}/healthz" \
+  || die "the public HTTPS endpoint did not become ready over IPv4"
+if [[ "$PUBLIC_HOST_HAS_IPV6" == true ]]; then
+  wait_for_https --ipv6 "[${EXPECTED_IPV6}]" "https://${PUBLIC_HOST}/healthz" \
+    || die "the public HTTPS endpoint did not become ready over IPv6"
+fi
+wait_for_https --ipv4 "$EXPECTED_IPV4" "https://${PUBLIC_HOST}/safe-fetch/healthz" \
+  || die "the safe-fetch health endpoint did not become ready"
 
 unauthorized_status="$(curl --silent --show-error --connect-timeout 5 --max-time 30 --output /dev/null --write-out '%{http_code}' \
+  --noproxy '*' --resolve "${PUBLIC_HOST}:443:${EXPECTED_IPV4}" \
   --get --data-urlencode 'q=Geneva events' --data-urlencode 'format=json' \
   "https://${PUBLIC_HOST}/search")"
 [[ "$unauthorized_status" == "401" ]] || die "the unauthenticated search endpoint returned ${unauthorized_status}, expected 401"
@@ -438,6 +495,7 @@ printf 'header = "Authorization: Bearer %s"\n' "$safe_fetch_token" >"$safe_fetch
 
 log "checking an authenticated SearXNG JSON response"
 curl --config "$searx_curl_config" --fail --silent --show-error --connect-timeout 5 --max-time 30 \
+  --noproxy '*' --resolve "${PUBLIC_HOST}:443:${EXPECTED_IPV4}" \
   --get --data-urlencode 'q=Agenda Geneva' --data-urlencode 'format=json' \
   "https://${PUBLIC_HOST}/search" \
   --output "$searx_health_json"
@@ -445,6 +503,7 @@ jq -e 'type == "object" and (.results | type == "array")' "$searx_health_json" >
 
 log "checking an authenticated safe fetch"
 curl --config "$safe_fetch_curl_config" --fail --silent --show-error --connect-timeout 5 --max-time 30 \
+  --noproxy '*' --resolve "${PUBLIC_HOST}:443:${EXPECTED_IPV4}" \
   --header 'Content-Type: application/json' \
   --data '{"url":"https://example.com/"}' \
   "https://${PUBLIC_HOST}/safe-fetch/v1/fetch" \
