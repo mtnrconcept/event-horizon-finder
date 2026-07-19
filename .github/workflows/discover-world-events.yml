@@ -166,7 +166,8 @@ jobs:
     needs: validate
     if: >-
       always() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      ((github.event_name == 'schedule' && vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
+      github.event_name == 'workflow_dispatch') &&
       (needs.validate.result == 'success' ||
       (github.event_name == 'schedule' && needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest

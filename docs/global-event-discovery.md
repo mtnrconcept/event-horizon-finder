@@ -197,7 +197,8 @@ Le workflow `.github/workflows/discover-world-events.yml` :
 - exécute les tests Node/Python/Go et le type-check Deno; le `--dry-run`
   GeoNames réseau est exécuté en PR/manuel, pas avant chaque cycle planifié ;
 - lance chaque heure jusqu’à huit workers de recherche et seize workers de
-  crawl bornés, puis les reprend via les files ;
+  crawl bornés, puis les reprend via les files, uniquement lorsque la variable
+  GitHub Actions `GLOBAL_DISCOVERY_ENABLED` vaut exactement `true` ;
 - rejoue toute l’histoire des migrations sur une base Supabase locale jetable
   en validation; aucune clé de production n’est disponible dans ce job ;
 - n’applique **jamais** de migration et ne déploie **jamais** sur un horaire ;
@@ -208,8 +209,10 @@ Le workflow `.github/workflows/discover-world-events.yml` :
 
 Le workflow ne crée pas l’hébergement public TLS de SearXNG et du proxy : cette
 infrastructure doit exister et réussir ses contrôles de santé avant le premier
-dispatch de déploiement. Les anciens endpoints Firecrawl répondent désormais
-`paid_provider_disabled` et ne sont plus déployés par le workflow supporté.
+dispatch de déploiement. Ne définir `GLOBAL_DISCOVERY_ENABLED=true` qu’après
+avoir configuré les cinq secrets Edge et vérifié les deux URLs HTTPS. Les
+anciens endpoints Firecrawl répondent désormais `paid_provider_disabled` et ne
+sont plus déployés par le workflow supporté.
 
 ## Exécution et reprise
 
