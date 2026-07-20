@@ -64,6 +64,15 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
     def test_scheduled_profile_runs_every_fifteen_minutes_without_raising_hourly_capacity(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('- cron: "2,17,32,47 * * * *"', workflow)
+        push_block = workflow.split("  push:", 1)[1].split("  pull_request:", 1)[0]
+        self.assertIn('".github/workflows/discover-world-events.yml"', push_block)
+        self.assertNotIn('"scripts/', push_block)
+        self.assertNotIn('"supabase/', push_block)
+        self.assertEqual(workflow.count("github.event_name == 'push'"), 8)
+        self.assertGreaterEqual(
+            workflow.count("vars.GLOBAL_DISCOVERY_ENABLED == 'true'"),
+            2,
+        )
         self.assertIn("inputs.plan_batches || 1", workflow)
         self.assertIn("inputs.search_batches || 3", workflow)
         self.assertIn("inputs.crawl_batches || 5", workflow)
