@@ -11,6 +11,10 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "run_global_event_discovery.py"
+WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "discover-world-events.yml"
+EDGE_FUNCTION = (
+    Path(__file__).parents[1] / "supabase" / "functions" / "global-event-discovery" / "index.ts"
+)
 SPEC = importlib.util.spec_from_file_location("global_discovery_runner", SCRIPT)
 assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -44,6 +48,42 @@ class FakeClient:
 
 
 class GlobalDiscoveryRunnerTests(unittest.TestCase):
+    def test_scheduled_profile_runs_every_fifteen_minutes_without_raising_hourly_capacity(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('- cron: "2,17,32,47 * * * *"', workflow)
+        self.assertIn("inputs.plan_batches || 1", workflow)
+        self.assertIn("inputs.search_batches || 4", workflow)
+        self.assertIn("inputs.crawl_batches || 5", workflow)
+        self.assertNotIn("queue: max", workflow)
+        self.assertIn(
+            "cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}",
+            workflow,
+        )
+        self.assertNotIn('json.load(open(".cache/global-event-discovery/state.json"', workflow)
+        self.assertNotIn('--campaign-id "$campaign_id"', workflow)
+        self.assertIn("Report 15-minute discovery health", workflow)
+        self.assertIn("Report post-slice campaign status", workflow)
+        self.assertIn("--no-state --timeout 30 --retries 1", workflow)
+        self.assertGreaterEqual(
+            workflow.count("mkdir -p .cache/global-event-discovery"),
+            4,
+        )
+        self.assertIn("TARGET_DATE: ${{ github.event_name == 'workflow_dispatch'", workflow)
+        self.assertGreaterEqual(workflow.count("TZ: Europe/Zurich"), 3)
+        self.assertNotIn('- cron: "17 * * * *"', workflow)
+
+    def test_crawl_batch_does_not_reduce_the_persistence_batch(self):
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+        self.assertIn(
+            "body.persistenceLimit ?? body.persistence_limit,\n"
+            "    DEFAULT_PERSISTENCE_BATCH,",
+            edge_function,
+        )
+        self.assertNotIn(
+            "body.persistenceLimit ?? body.persistence_limit ?? body.limit ?? body.batch_size",
+            edge_function,
+        )
+
     def test_normalizes_project_urls_and_local_stack(self):
         expected = (
             "https://xtwxmdbobehovnghfkes.supabase.co/functions/v1/"
@@ -121,6 +161,50 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             self.assertEqual(client.calls[0][1]["batch_size"], 5)
             lines = [json.loads(line) for line in output.getvalue().splitlines()]
             self.assertEqual(lines[-1]["stop_reason"], "idle")
+
+    def test_worker_loop_can_drain_global_queue_without_campaign_state(self):
+        client = FakeClient([{"claimed": 0, "completed": 0}])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = RUNNER.run_worker_loop(
+                client,
+                RUNNER.StateStore(None),
+                action="crawl",
+                campaign_id=None,
+                batch_size=2,
+                max_batches=3,
+                pause_seconds=0,
+            )
+
+        self.assertEqual(result.stop_reason, "idle")
+        self.assertEqual(client.calls, [("crawl", {"batch_size": 2})])
+
+    def test_status_can_resolve_the_current_campaign_without_local_state(self):
+        response = {
+            "ok": True,
+            "campaign": {"campaign_id": "campaign-current"},
+            "global_discovery_backlog": {"search_backlog": 1},
+        }
+        stdout = io.StringIO()
+        env = {
+            "SUPABASE_URL": "https://project.supabase.co",
+            "GLOBAL_SCRAPER_SECRET": "s" * 32,
+        }
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(RUNNER, "urlopen", return_value=FakeResponse(response)) as request,
+            contextlib.redirect_stdout(stdout),
+        ):
+            exit_code = RUNNER.main(["status", "--no-state"])
+
+        self.assertEqual(exit_code, 0)
+        body = json.loads(request.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(body["action"], "status")
+        self.assertEqual(
+            body["target_date"],
+            (RUNNER.date.today() + RUNNER.timedelta(days=RUNNER.DEFAULT_LOOKAHEAD_DAYS)).isoformat(),
+        )
+        self.assertEqual(json.loads(stdout.getvalue())["campaign_id"], "campaign-current")
 
     def test_worker_loop_is_bounded_for_an_unknown_response_shape(self):
         client = FakeClient([{"jobs": [{"id": 1}]}] * 4)

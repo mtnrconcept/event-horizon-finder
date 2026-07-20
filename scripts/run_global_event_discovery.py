@@ -331,7 +331,7 @@ class StateStore:
 @dataclass(frozen=True)
 class LoopResult:
     calls: int
-    campaign_id: str
+    campaign_id: str | None
     stop_reason: str
 
 
@@ -340,7 +340,7 @@ def run_worker_loop(
     state: StateStore,
     *,
     action: str,
-    campaign_id: str,
+    campaign_id: str | None,
     batch_size: int,
     max_batches: int,
     pause_seconds: float,
@@ -350,14 +350,15 @@ def run_worker_loop(
     calls = 0
 
     for iteration in range(1, max_batches + 1):
-        response = client.call(
-            action,
-            {"campaign_id": current_campaign, "batch_size": batch_size},
-        )
+        payload: dict[str, Any] = {"batch_size": batch_size}
+        if current_campaign:
+            payload["campaign_id"] = current_campaign
+        response = client.call(action, payload)
         require_success_response(response, action)
         calls = iteration
         current_campaign = extract_campaign_id(response) or current_campaign
-        state.save(current_campaign, action=action)
+        if current_campaign:
+            state.save(current_campaign, action=action)
         reason = infer_stop_reason(response, action)
         _json_line(
             {
@@ -431,10 +432,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _campaign_or_error(explicit: str | None, state: StateStore) -> str:
+def _optional_campaign(explicit: str | None, state: StateStore) -> str | None:
     campaign_id = (explicit or "").strip() or state.load_campaign_id()
     if not campaign_id:
-        raise RunnerError("--campaign-id is required until a plan has populated --state-file")
+        return None
     if any(ord(character) < 32 for character in campaign_id) or len(campaign_id) > 200:
         raise RunnerError("Invalid campaign id")
     return campaign_id
@@ -508,12 +509,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
 
-        campaign_id = _campaign_or_error(args.campaign_id, state)
         if args.action == "status":
-            response = client.call("status", {"campaign_id": campaign_id})
+            campaign_id = _optional_campaign(args.campaign_id, state)
+            payload = {"campaign_id": campaign_id} if campaign_id else {
+                "target_date": args.target_date
+                or (date.today() + timedelta(days=DEFAULT_LOOKAHEAD_DAYS)).isoformat()
+            }
+            response = client.call("status", payload)
             require_success_response(response, "status")
             current_campaign = extract_campaign_id(response) or campaign_id
-            state.save(current_campaign, action="status")
+            if current_campaign:
+                state.save(current_campaign, action="status")
             _json_line(
                 {
                     "ok": True,
@@ -525,6 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
 
+        campaign_id = _optional_campaign(args.campaign_id, state)
         batch_size = args.batch_size or (5 if args.action == "search" else 2)
         result = run_worker_loop(
             client,
