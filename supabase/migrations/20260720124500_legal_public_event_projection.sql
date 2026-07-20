@@ -221,13 +221,30 @@ IMMUTABLE
 PARALLEL SAFE
 SET search_path = ''
 AS $$
-  SELECT
-    lower(coalesce(_license, '')) ~
-      '(cc0|public domain|creative commons|cc[- ]?by|licen[cs]e ouverte|open licen[cs]e|odbl)'
-    AND (
-      lower(coalesce(_license, '')) ~ '(cc0|public domain)'
-      OR nullif(btrim(_attribution), '') IS NOT NULL
-    );
+  WITH normalized AS (
+    SELECT
+      lower(btrim(coalesce(_license, ''))) AS license_value,
+      nullif(btrim(_attribution), '') IS NOT NULL AS has_attribution
+  )
+  SELECT CASE
+    -- A commercially restricted label always wins, even when it also contains
+    -- the otherwise reusable "CC BY" token (for example CC BY-NC 4.0).
+    WHEN license_value ~
+      '(non[[:space:]_-]*commercial|no[[:space:]_-]+commercial[[:space:]_-]+use|by[[:space:]_-]*nc|(^|[^[:alnum:]])nc([^[:alnum:]]|$))'
+      THEN FALSE
+    -- CC0 and public-domain dedications do not require attribution.
+    WHEN license_value ~
+      '(cc[[:space:]_-]*0|creative[[:space:]_-]+commons[[:space:]_-]+zero|public[[:space:]_-]+domain|creativecommons[.]org/publicdomain)'
+      THEN TRUE
+    -- Do not accept the generic label "Creative Commons": require an
+    -- attribution/BY variant or a recognized open-license family, and keep
+    -- attribution mandatory for all of these licenses.
+    WHEN license_value ~
+      '(cc[[:space:]_-]*by|creative[[:space:]_-]+commons[[:space:]_-]+(attribution|by)|creativecommons[.]org/licenses/by(-sa)?/|licen[cs]e[[:space:]_-]+ouverte|open[[:space:]_-]+licen[cs]e|(^|[^[:alnum:]])odbl([^[:alnum:]]|$))'
+      THEN has_attribution
+    ELSE FALSE
+  END
+  FROM normalized;
 $$;
 
 CREATE OR REPLACE FUNCTION private.refresh_event_publication_v2(_event_id UUID)
@@ -452,118 +469,65 @@ ON public.event_media
 FOR EACH ROW
 EXECUTE FUNCTION private.refresh_event_publication_media_trigger_v2();
 
--- The backfill only inserts into the new projection tables. Original rows stay
--- untouched so the team can compare, audit and roll back before any later
--- retirement migration is approved.
-WITH candidates AS (
-  SELECT
-    event.id AS event_id,
-    detail.details,
-    detail.updated_at AS source_updated_at,
-    private.public_event_factual_summary_v1(
-      event.title,
-      CASE split_part(lower(coalesce(event.language, 'en')), '-', 1)
-        WHEN 'fr' THEN category.name_fr
-        WHEN 'en' THEN category.name_en
-        ELSE NULL
-      END,
-      venue.name,
-      city.name,
-      event.language
-    ) AS summary,
-    event.created_by IS NULL AND NOT EXISTS (
+-- Production contains more than 160,000 scraped-detail rows. Keep schema
+-- installation DDL-only: the historical projection is filled by explicit,
+-- short service-role calls after the migration commits. New and changed rows
+-- are projected immediately by the triggers above.
+CREATE OR REPLACE FUNCTION public.backfill_event_publications_v2(
+  _limit INTEGER DEFAULT 100
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  batch_limit INTEGER := greatest(1, least(coalesce(_limit, 100), 500));
+  candidate_event_id UUID;
+  processed_count INTEGER := 0;
+  has_more BOOLEAN := FALSE;
+BEGIN
+  FOR candidate_event_id IN
+    SELECT detail.event_id
+    FROM public.event_scraped_details AS detail
+    WHERE NOT EXISTS (
       SELECT 1
-      FROM public.organizer_members AS member
-      WHERE member.organizer_id = event.organizer_id
-    ) AS is_active
-  FROM public.event_scraped_details AS detail
-  JOIN public.events AS event ON event.id = detail.event_id
-  LEFT JOIN public.event_categories AS category ON category.id = event.category_id
-  LEFT JOIN public.venues AS venue ON venue.id = event.venue_id
-  LEFT JOIN public.cities AS city ON city.id = event.city_id
-)
-INSERT INTO public.event_publications_v2(
-  event_id,
-  short_description,
-  description,
-  cover_image_url,
-  details,
-  source_updated_at,
-  projected_at,
-  projection_version,
-  is_active
-)
-SELECT
-  candidate.event_id,
-  left(candidate.summary, 280),
-  candidate.summary,
-  NULL,
-  private.sanitize_public_event_details_v2(candidate.details),
-  candidate.source_updated_at,
-  now(),
-  2,
-  candidate.is_active
-FROM candidates AS candidate
-ON CONFLICT (event_id) DO UPDATE SET
-  short_description = EXCLUDED.short_description,
-  description = EXCLUDED.description,
-  cover_image_url = EXCLUDED.cover_image_url,
-  details = EXCLUDED.details,
-  source_updated_at = EXCLUDED.source_updated_at,
-  projected_at = EXCLUDED.projected_at,
-  projection_version = EXCLUDED.projection_version,
-  is_active = EXCLUDED.is_active;
+      FROM public.event_publications_v2 AS publication
+      WHERE publication.event_id = detail.event_id
+    )
+    ORDER BY detail.event_id
+    LIMIT batch_limit
+    FOR UPDATE OF detail SKIP LOCKED
+  LOOP
+    PERFORM private.refresh_event_publication_v2(candidate_event_id);
+    processed_count := processed_count + 1;
+  END LOOP;
 
-INSERT INTO public.event_publication_media_v2(
-  source_media_id,
-  event_id,
-  url,
-  media_type,
-  attribution,
-  license,
-  source_url,
-  sort_order,
-  is_approved,
-  approval_reason,
-  projected_at
-)
-SELECT
-  media.id,
-  media.event_id,
-  media.url,
-  media.media_type,
-  media.attribution,
-  media.license,
-  media.source_url,
-  media.sort_order,
-  publication.is_active AND private.public_event_media_is_approved_v2(
-    media.license, media.attribution
-  ),
-  CASE
-    WHEN NOT publication.is_active THEN 'event_not_managed_by_projection'
-    WHEN private.public_event_media_is_approved_v2(media.license, media.attribution)
-      THEN 'commercially_reusable_license'
-    ELSE 'license_or_attribution_not_verified'
-  END,
-  now()
-FROM public.event_media AS media
-JOIN public.event_publications_v2 AS publication ON publication.event_id = media.event_id
-ON CONFLICT (source_media_id) DO UPDATE SET
-  event_id = EXCLUDED.event_id,
-  url = EXCLUDED.url,
-  media_type = EXCLUDED.media_type,
-  attribution = EXCLUDED.attribution,
-  license = EXCLUDED.license,
-  source_url = EXCLUDED.source_url,
-  sort_order = EXCLUDED.sort_order,
-  is_approved = EXCLUDED.is_approved,
-  approval_reason = EXCLUDED.approval_reason,
-  projected_at = EXCLUDED.projected_at;
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_scraped_details AS detail
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.event_publications_v2 AS publication
+      WHERE publication.event_id = detail.event_id
+    )
+  ) INTO has_more;
 
-ANALYZE public.event_publications_v2;
-ANALYZE public.event_publication_media_v2;
+  RETURN jsonb_build_object(
+    'processed_count', processed_count,
+    'has_more', has_more
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.backfill_event_publications_v2(INTEGER)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.backfill_event_publications_v2(INTEGER)
+  TO service_role;
 
 COMMENT ON TABLE public.event_publications_v2 IS
   'Reversible, factual public projection for imported events. Original source data remains unchanged.';
 COMMENT ON TABLE public.event_publication_media_v2 IS
   'Reversible media projection. Source media remains unchanged; only approved rows are publicly readable.';
+COMMENT ON FUNCTION public.backfill_event_publications_v2(INTEGER) IS
+  'Service-role-only bounded backfill. Re-run until has_more is false; each call projects at most 500 missing events.';
