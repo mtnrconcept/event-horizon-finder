@@ -64,10 +64,11 @@ on:
         default: 12
         type: number
   schedule:
-    # Hourly resumable slices provide enough queue throughput for the complete
-    # adaptive GeoNames target set. Database backpressure, leases and exact-host
-    # delays remain the authoritative safety limits.
-    - cron: "17 * * * *"
+    # Four smaller resumable slices per hour keep the queues moving without
+    # increasing the previous search/crawl throughput. Off-quarter minutes
+    # reduce congestion on GitHub-hosted runners. Database backpressure,
+    # leases and exact-host delays remain the authoritative safety limits.
+    - cron: "2,17,32,47 * * * *"
 
 permissions:
   contents: read
@@ -181,6 +182,47 @@ jobs:
         if: always() && steps.setup_supabase_cli.outcome == 'success'
         run: supabase stop --no-backup
 
+  health-report:
+    name: Report 15-minute discovery health
+    if: >-
+      (github.event_name == 'schedule' && vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_discovery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Capture current queue and backpressure status
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          TZ: Europe/Zurich
+        run: |
+          mkdir -p .cache/global-event-discovery
+          report_file=".cache/global-event-discovery/health.jsonl"
+          set +e
+          python3 scripts/run_global_event_discovery.py status \
+            --no-state --timeout 30 --retries 1 2>&1 | tee "$report_file"
+          report_status="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "## 15-minute worldwide discovery health"
+            echo
+            echo "Generated at \`$(date +'%Y-%m-%dT%H:%M:%S%z')\` (Europe/Zurich)."
+            echo
+            echo '```json'
+            tail -n 2 "$report_file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$report_status"
+
   operations:
     name: Deploy or run worldwide discovery
     needs: validate
@@ -192,9 +234,11 @@ jobs:
       (github.event_name == 'schedule' && needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Keep at most the newest pending slice. Supabase queues are durable, and
+    # stale scheduled runs must not delay a manual corrective deployment.
     concurrency:
       group: worldwide-event-discovery-operations
-      cancel-in-progress: false
+      cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -313,10 +357,11 @@ jobs:
         if: github.event_name == 'schedule' || inputs.run_discovery
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
-          PLAN_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.plan_batches || 4 }}
+          PLAN_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.plan_batches || 1 }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           TARGET_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.target_date || '' }}
+          TZ: Europe/Zurich
         run: |
           args=(plan --batch-size 25 --max-batches "$PLAN_BATCHES" --pause-seconds 2)
           if [ -n "$TARGET_DATE" ]; then
@@ -325,26 +370,28 @@ jobs:
           python3 scripts/run_global_event_discovery.py "${args[@]}"
 
       - name: Process a bounded SearXNG search slice
-        if: github.event_name == 'schedule' || inputs.run_discovery
+        if: >-
+          !cancelled() &&
+          (github.event_name == 'schedule' || inputs.run_discovery)
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
-          SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 16 }}
+          SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 4 }}
           SEARCH_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.search_workers || 8 }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
+          mkdir -p .cache/global-event-discovery
           if [[ ! "$SEARCH_WORKERS" =~ ^[0-9]+$ ]] || (( SEARCH_WORKERS < 1 || SEARCH_WORKERS > 8 )); then
             echo "SEARCH_WORKERS must be between 1 and 8" >&2
             exit 1
           fi
-          campaign_id="$(python3 -c 'import json; print(json.load(open(".cache/global-event-discovery/state.json", encoding="utf-8"))["campaign_id"])')"
           pids=()
           logs=()
           for ((worker = 1; worker <= SEARCH_WORKERS; worker += 1)); do
             log_file=".cache/global-event-discovery/search-${worker}.jsonl"
             logs+=("$log_file")
             python3 scripts/run_global_event_discovery.py search \
-              --campaign-id "$campaign_id" --no-state \
+              --no-state \
               --batch-size 5 --max-batches "$SEARCH_BATCHES" --pause-seconds 2 \
               > "$log_file" &
             pids+=("$!")
@@ -357,26 +404,28 @@ jobs:
           exit "$failed"
 
       - name: Process a bounded direct-crawl slice
-        if: github.event_name == 'schedule' || inputs.run_discovery
+        if: >-
+          !cancelled() &&
+          (github.event_name == 'schedule' || inputs.run_discovery)
         env:
-          CRAWL_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_batches || 20 }}
+          CRAWL_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_batches || 5 }}
           CRAWL_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_workers || 16 }}
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
+          mkdir -p .cache/global-event-discovery
           if [[ ! "$CRAWL_WORKERS" =~ ^[0-9]+$ ]] || (( CRAWL_WORKERS < 1 || CRAWL_WORKERS > 16 )); then
             echo "CRAWL_WORKERS must be between 1 and 16" >&2
             exit 1
           fi
-          campaign_id="$(python3 -c 'import json; print(json.load(open(".cache/global-event-discovery/state.json", encoding="utf-8"))["campaign_id"])')"
           pids=()
           logs=()
           for ((worker = 1; worker <= CRAWL_WORKERS; worker += 1)); do
             log_file=".cache/global-event-discovery/crawl-${worker}.jsonl"
             logs+=("$log_file")
             python3 scripts/run_global_event_discovery.py crawl \
-              --campaign-id "$campaign_id" --no-state \
+              --no-state \
               --batch-size 2 --max-batches "$CRAWL_BATCHES" --pause-seconds 3 --timeout 360 \
               > "$log_file" &
             pids+=("$!")
@@ -388,10 +437,27 @@ jobs:
           for log_file in "${logs[@]}"; do cat "$log_file"; done
           exit "$failed"
 
-      - name: Report campaign status
+      - name: Report post-slice campaign status
         if: always() && (github.event_name == 'schedule' || inputs.run_discovery)
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        run: python3 scripts/run_global_event_discovery.py status
+          TZ: Europe/Zurich
+        run: |
+          mkdir -p .cache/global-event-discovery
+          report_file=".cache/global-event-discovery/status.jsonl"
+          set +e
+          python3 scripts/run_global_event_discovery.py status 2>&1 | tee "$report_file"
+          report_status="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "## Worldwide discovery status"
+            echo
+            echo "Generated at \`$(date +'%Y-%m-%dT%H:%M:%S%z')\` (Europe/Zurich)."
+            echo
+            echo '```json'
+            tail -n 2 "$report_file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$report_status"

@@ -1748,7 +1748,7 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     MAX_CRAWL_BATCH,
   );
   const persistenceLimit = boundedInteger(
-    body.persistenceLimit ?? body.persistence_limit ?? body.limit ?? body.batch_size,
+    body.persistenceLimit ?? body.persistence_limit,
     DEFAULT_PERSISTENCE_BATCH,
     1,
     MAX_PERSISTENCE_BATCH,
@@ -1791,7 +1791,7 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
     20_000,
     100,
-    500_000,
+    250_000,
   );
   const jobs = asRows<CrawlJob>(
     await rpc<unknown>(admin, "claim_global_crawl_jobs", {
@@ -1843,6 +1843,7 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     completed: summaries.filter((summary) => summary.ok === true).length,
     failed: summaries.filter((summary) => summary.ok === false).length,
     persistence: {
+      batchLimit: persistenceLimit,
       claimed: persistenceJobs.length,
       completed: persistenceSummaries.filter((summary) => summary.ok === true).length,
       failed: persistenceSummaries.filter((summary) => summary.ok === false).length,
@@ -1879,6 +1880,20 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
   );
   const backlog =
     asRows<JsonObject>(await rpc<unknown>(admin, "global_discovery_backlog", {}))[0] ?? null;
+  const crawlBacklog = Math.max(0, Number(backlog?.crawl_backlog ?? 0));
+  const persistenceBacklog = Math.max(0, Number(backlog?.persistence_backlog ?? 0));
+  const maximumCrawlBacklog = boundedInteger(
+    Deno.env.get("GLOBAL_MAX_QUEUED_CRAWL_JOBS"),
+    5_000,
+    100,
+    250_000,
+  );
+  const maximumPersistenceBacklog = boundedInteger(
+    Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+    20_000,
+    100,
+    250_000,
+  );
   const eventPersistence =
     asRows<JsonObject>(
       await rpc<unknown>(admin, "global_event_persistence_campaign_status", {
@@ -1890,6 +1905,18 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     action: "status",
     campaign: rows[0] ?? null,
     global_discovery_backlog: backlog,
+    backpressure: {
+      search_crawl_backpressure_active:
+        crawlBacklog > maximumCrawlBacklog - SEARCH_RESULT_LIMIT,
+      search_backpressure_reason:
+        crawlBacklog > maximumCrawlBacklog - SEARCH_RESULT_LIMIT ? "crawl_backlog" : null,
+      crawl_fetch_claims_blocked: persistenceBacklog >= maximumPersistenceBacklog,
+      crawl_fetch_blocked_by:
+        persistenceBacklog >= maximumPersistenceBacklog ? "persistence_backlog" : null,
+      persistence_drain_required: persistenceBacklog > 0,
+      maximum_crawl_backlog: maximumCrawlBacklog,
+      maximum_persistence_backlog: maximumPersistenceBacklog,
+    },
     event_persistence: eventPersistence,
   };
 }

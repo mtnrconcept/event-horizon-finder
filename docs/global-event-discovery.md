@@ -240,9 +240,14 @@ Le workflow `.github/workflows/discover-world-events.yml` :
 
 - exécute les tests Node/Python/Go et le type-check Deno; le `--dry-run`
   GeoNames réseau est exécuté en PR/manuel, pas avant chaque cycle planifié ;
-- lance chaque heure jusqu’à huit workers de recherche et seize workers de
-  crawl bornés, puis les reprend via les files, uniquement lorsque la variable
-  GitHub Actions `GLOBAL_DISCOVERY_ENABLED` vaut exactement `true` ;
+- lance une tranche toutes les quinze minutes avec jusqu’à huit workers de
+  recherche et seize workers de crawl bornés, puis les reprend via les files,
+  uniquement lorsque la variable GitHub Actions `GLOBAL_DISCOVERY_ENABLED`
+  vaut exactement `true` ;
+- publie après chaque tranche un rapport JSON horodaté dans le résumé de
+  l’exécution GitHub Actions, y compris lorsqu’une étape précédente échoue ;
+- traite les files Search et Crawl globalement, sans dépendre du fichier d’état
+  produit par Plan : une panne de planification ne bloque donc plus leur vidange ;
 - rejoue toute l’histoire des migrations sur une base Supabase locale jetable
   en validation; aucune clé de production n’est disponible dans ce job ;
 - n’applique **jamais** de migration et ne déploie **jamais** sur un horaire ;
@@ -286,9 +291,10 @@ python3 scripts/run_global_event_discovery.py status
 
 Le dernier `campaign_id` est écrit sans secret dans
 `.cache/global-event-discovery/state.json`. `--campaign-id <uuid>` permet une
-reprise explicite ; `--no-state` désactive le fichier et exige alors cet
-identifiant pour `search`, `crawl` et `status`. Chaque appel produit une ligne
-JSON nettoyée, puis un résumé. La boucle s’arrête lorsque le serveur renvoie
+reprise explicite. `--no-state` désactive le fichier : `search` et `crawl`
+vident alors les files globales sans dépendre de Plan, tandis que `status`
+résout automatiquement la campagne correspondant à la fenêtre de demain.
+Chaque appel produit une ligne JSON nettoyée, puis un résumé. La boucle s’arrête lorsque le serveur renvoie
 `claimed: 0`/`has_more: false` ou lorsque `--max-batches` est atteint. Les
 limites du client et de la fonction bornent chaque worker, tandis que les
 continuations persistées reprennent jusqu’à épuisement de l’agenda. Un plafond
@@ -318,7 +324,7 @@ même agenda apparaît dans plusieurs requêtes. L’unicité
 évite de dupliquer la même page pour une ville. Le `--dry-run` GeoNames reste
 la source de vérité si le dump évolue.
 
-Le profil GitHub par défaut exécute une tranche **chaque heure**. Le
+Le profil GitHub par défaut exécute une tranche **toutes les quinze minutes**. Le
 planificateur n’ajoute plus de villes lorsque le backlog global atteint 2 000
 recherches ou 5 000 crawls. La réclamation d’une recherche réserve en plus dix
 places de crawl sous verrou transactionnel : plusieurs workers ne peuvent donc
@@ -329,13 +335,22 @@ configurables par `GLOBAL_MAX_QUEUED_SEARCH_JOBS`,
 `GLOBAL_MAX_QUEUED_CRAWL_JOBS` et
 `GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS`.
 
-Avec le profil horaire actuel, les plafonds théoriques sont :
+Le nombre de lots par tranche est divisé par quatre afin de conserver le même
+plafond journalier que l’ancien profil horaire, tout en évitant les longues
+périodes sans consommateur. Les plafonds théoriques sont :
 
-- plan : `4 appels × 25 villes × 24 passages/jour` = 2 400 villes/jour ;
-- recherche : `8 workers × 16 appels × 5 requêtes × 24` = 15 360
+- plan : `1 appel × 25 villes × 96 passages/jour` = 2 400 villes/jour ;
+- recherche : `8 workers × 4 appels × 5 requêtes × 96` = 15 360
   recherches/jour ;
-- crawl : `16 workers × 20 appels × 2 sites × 24` = 15 360 pages/jour, avant
+- crawl : `16 workers × 5 appels × 2 sites × 96` = 15 360 pages/jour, avant
   les continuations durables de pagination et de fiches détail.
+
+Lorsque le backlog Crawl dépasse 5 000, `claimed: 0` côté Search est une
+pause de backpressure attendue, pas l’absence d’un worker. De même, au-dessus
+de 20 000 éléments de persistance, chaque appel Crawl commence par vider la
+file de persistance avant de réclamer de nouvelles pages. Le lot de persistance
+est volontairement indépendant du lot Crawl : le profil `--batch-size 2`
+conserve donc la valeur de vidange prévue de 10 événements par appel.
 
 Sur le dump audité en juillet 2026 (246 pays/territoires et 3 414 villes
 sélectionnées), un cycle représente environ 34 140 à 54 624 recherches : la
