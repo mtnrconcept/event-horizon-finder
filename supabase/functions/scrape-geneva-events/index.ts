@@ -9,6 +9,7 @@ import {
   type EventSourceContext,
   type NormalizedEvent,
 } from "../_shared/event-precision.ts";
+import { failureRetryDelayMs } from "../_shared/source-retry-policy.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": Deno.env.get("APP_ALLOWED_ORIGINS") ?? "*",
@@ -474,7 +475,7 @@ Deno.serve(async (req) => {
                 .from("data_sources")
                 .update({
                   next_sync_at: new Date(
-                    Date.now() + (task.source.sync_frequency === "weekly" ? 6 * 60 : 30) * 60_000,
+                    Date.now() + failureRetryDelayMs(message, task.source.sync_frequency),
                   ).toISOString(),
                 })
                 .eq("id", task.source.id)
