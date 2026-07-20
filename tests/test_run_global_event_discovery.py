@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,18 @@ assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = RUNNER
 SPEC.loader.exec_module(RUNNER)
+
+
+def scheduled_workflow_default(workflow: str, name: str) -> int:
+    pattern = (
+        r"^\s*"
+        + re.escape(name)
+        + r":\s*\$\{\{[^\n]*\|\|\s*(\d+)\s*\}\}\s*$"
+    )
+    match = re.search(pattern, workflow, flags=re.MULTILINE)
+    if not match:
+        raise AssertionError(f"scheduled workflow default not found: {name}")
+    return int(match.group(1))
 
 
 class FakeResponse:
@@ -52,8 +65,37 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('- cron: "2,17,32,47 * * * *"', workflow)
         self.assertIn("inputs.plan_batches || 1", workflow)
-        self.assertIn("inputs.search_batches || 4", workflow)
+        self.assertIn("inputs.search_batches || 3", workflow)
         self.assertIn("inputs.crawl_batches || 5", workflow)
+
+        # run_worker_loop performs up to --max-batches calls for every spawned
+        # process, so scheduled capacity is workers * batches * four slices.
+        scheduled = {
+            name: scheduled_workflow_default(workflow, name)
+            for name in (
+                "SEARCH_BATCHES",
+                "SEARCH_WORKERS",
+                "CRAWL_BATCHES",
+                "CRAWL_WORKERS",
+            )
+        }
+        self.assertEqual(
+            scheduled,
+            {
+                "SEARCH_BATCHES": 3,
+                "SEARCH_WORKERS": 4,
+                "CRAWL_BATCHES": 5,
+                "CRAWL_WORKERS": 4,
+            },
+        )
+        self.assertEqual(
+            scheduled["SEARCH_BATCHES"] * scheduled["SEARCH_WORKERS"] * 4,
+            48,
+        )
+        self.assertEqual(
+            scheduled["CRAWL_BATCHES"] * scheduled["CRAWL_WORKERS"] * 4,
+            80,
+        )
         self.assertNotIn("queue: max", workflow)
         self.assertIn(
             "cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}",
@@ -63,6 +105,10 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertNotIn('--campaign-id "$campaign_id"', workflow)
         self.assertIn("Report 15-minute discovery health", workflow)
         self.assertIn("Report post-slice campaign status", workflow)
+        self.assertGreaterEqual(
+            workflow.count("tests/test_legal_public_event_projection_migration.py"),
+            2,
+        )
         self.assertIn("--no-state --timeout 30 --retries 1", workflow)
         self.assertGreaterEqual(
             workflow.count("mkdir -p .cache/global-event-discovery"),

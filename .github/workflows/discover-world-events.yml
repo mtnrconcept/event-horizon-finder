@@ -16,6 +16,7 @@ on:
       - "supabase/migrations/**"
       - "tests/test_global_event_currency_migration.py"
       - "tests/test_import_geonames_city_targets.py"
+      - "tests/test_legal_public_event_projection_migration.py"
       - "tests/test_run_global_event_discovery.py"
   workflow_dispatch:
     inputs:
@@ -59,15 +60,16 @@ on:
         default: 12
         type: number
       crawl_workers:
-        description: Parallel crawl workers (bounded to 1-16; one lease/domain)
+        description: Parallel crawl workers (bounded to 1-16; safe default 4)
         required: false
-        default: 12
+        default: 4
         type: number
   schedule:
-    # Four smaller resumable slices per hour keep the queues moving without
-    # increasing the previous search/crawl throughput. Off-quarter minutes
-    # reduce congestion on GitHub-hosted runners. Database backpressure,
-    # leases and exact-host delays remain the authoritative safety limits.
+    # Four small resumable slices per hour keep the queues moving. Worker and
+    # batch defaults below are deliberately capped together because every
+    # worker executes --max-batches Edge calls. Off-quarter minutes reduce
+    # congestion on GitHub-hosted runners; database backpressure and leases
+    # remain the authoritative safety limits.
     - cron: "2,17,32,47 * * * *"
 
 permissions:
@@ -152,6 +154,7 @@ jobs:
           python3 -m unittest
           tests/test_global_event_currency_migration.py
           tests/test_import_geonames_city_targets.py
+          tests/test_legal_public_event_projection_migration.py
           tests/test_run_global_event_discovery.py
 
       - name: Validate the GeoNames import without writing
@@ -376,8 +379,8 @@ jobs:
           (github.event_name == 'schedule' || inputs.run_discovery)
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
-          SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 4 }}
-          SEARCH_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.search_workers || 8 }}
+          SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 3 }}
+          SEARCH_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.search_workers || 4 }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
@@ -410,7 +413,7 @@ jobs:
           (github.event_name == 'schedule' || inputs.run_discovery)
         env:
           CRAWL_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_batches || 5 }}
-          CRAWL_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_workers || 16 }}
+          CRAWL_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_workers || 4 }}
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

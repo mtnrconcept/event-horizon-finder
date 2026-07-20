@@ -240,8 +240,8 @@ Le workflow `.github/workflows/discover-world-events.yml` :
 
 - exécute les tests Node/Python/Go et le type-check Deno; le `--dry-run`
   GeoNames réseau est exécuté en PR/manuel, pas avant chaque cycle planifié ;
-- lance une tranche toutes les quinze minutes avec jusqu’à huit workers de
-  recherche et seize workers de crawl bornés, puis les reprend via les files,
+- lance une tranche toutes les quinze minutes avec quatre workers de
+  recherche et quatre workers de crawl par défaut, puis les reprend via les files,
   uniquement lorsque la variable GitHub Actions `GLOBAL_DISCOVERY_ENABLED`
   vaut exactement `true` ;
 - publie après chaque tranche un rapport JSON horodaté dans le résumé de
@@ -335,15 +335,20 @@ configurables par `GLOBAL_MAX_QUEUED_SEARCH_JOBS`,
 `GLOBAL_MAX_QUEUED_CRAWL_JOBS` et
 `GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS`.
 
-Le nombre de lots par tranche est divisé par quatre afin de conserver le même
-plafond journalier que l’ancien profil horaire, tout en évitant les longues
-périodes sans consommateur. Les plafonds théoriques sont :
+Les workers multiplient le nombre de lots configuré : chaque processus exécute
+sa propre boucle `--max-batches`. Le profil planifié plafonne donc ensemble les
+deux valeurs afin de limiter à quatre les appels Edge simultanés et de réduire
+la pression continue sur PostgREST. Les plafonds théoriques sont :
 
 - plan : `1 appel × 25 villes × 96 passages/jour` = 2 400 villes/jour ;
-- recherche : `8 workers × 4 appels × 5 requêtes × 96` = 15 360
+- recherche : `4 workers × 3 appels × 5 requêtes × 96` = 5 760
   recherches/jour ;
-- crawl : `16 workers × 5 appels × 2 sites × 96` = 15 360 pages/jour, avant
+- crawl : `4 workers × 5 appels × 2 sites × 96` = 3 840 pages/jour, avant
   les continuations durables de pagination et de fiches détail.
+- persistance : les mêmes appels Crawl peuvent vider jusqu’à
+  `4 workers × 5 appels × 10 événements × 96` = 19 200 événements/jour,
+  séquentiellement dans chaque invocation et seulement tant que la file contient
+  du travail.
 
 Lorsque le backlog Crawl dépasse 5 000, `claimed: 0` côté Search est une
 pause de backpressure attendue, pas l’absence d’un worker. De même, au-dessus
