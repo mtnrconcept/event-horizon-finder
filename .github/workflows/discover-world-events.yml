@@ -1,6 +1,14 @@
 name: Discover worldwide events
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      # A workflow change is a safe one-shot bootstrap: the merge that changes
+      # runtime scheduling immediately processes one bounded slice instead of
+      # waiting for GitHub's best-effort cron service.
+      - ".github/workflows/discover-world-events.yml"
   pull_request:
     paths:
       - ".github/workflows/discover-world-events.yml"
@@ -189,7 +197,8 @@ jobs:
   health-report:
     name: Report 15-minute discovery health
     if: >-
-      (github.event_name == 'schedule' && vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
+      ((github.event_name == 'schedule' || github.event_name == 'push') &&
+      vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.run_discovery)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -232,10 +241,12 @@ jobs:
     needs: validate
     if: >-
       always() &&
-      ((github.event_name == 'schedule' && vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
+      (((github.event_name == 'schedule' || github.event_name == 'push') &&
+      vars.GLOBAL_DISCOVERY_ENABLED == 'true') ||
       github.event_name == 'workflow_dispatch') &&
       (needs.validate.result == 'success' ||
-      (github.event_name == 'schedule' && needs.validate.result == 'skipped'))
+      ((github.event_name == 'schedule' || github.event_name == 'push') &&
+      needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Keep at most the newest pending slice. Supabase queues are durable, and
@@ -348,7 +359,7 @@ jobs:
           --cache-dir .cache/geonames
 
       - name: Validate discovery runtime secrets
-        if: github.event_name == 'schedule' || inputs.run_discovery
+        if: github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
@@ -358,7 +369,7 @@ jobs:
           test "${#GLOBAL_SCRAPER_SECRET}" -ge 32 || { echo "GLOBAL_SCRAPER_SECRET must contain at least 32 characters" >&2; exit 1; }
 
       - name: Plan due cities in bounded batches
-        if: github.event_name == 'schedule' || inputs.run_discovery
+        if: github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           PLAN_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.plan_batches || 1 }}
@@ -376,7 +387,7 @@ jobs:
       - name: Process a bounded SearXNG search slice
         if: >-
           !cancelled() &&
-          (github.event_name == 'schedule' || inputs.run_discovery)
+          (github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery)
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SEARCH_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.search_batches || 3 }}
@@ -410,7 +421,7 @@ jobs:
       - name: Process a bounded direct-crawl slice
         if: >-
           !cancelled() &&
-          (github.event_name == 'schedule' || inputs.run_discovery)
+          (github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery)
         env:
           CRAWL_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_batches || 5 }}
           CRAWL_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.crawl_workers || 4 }}
@@ -442,7 +453,9 @@ jobs:
           exit "$failed"
 
       - name: Report post-slice campaign status
-        if: always() && (github.event_name == 'schedule' || inputs.run_discovery)
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery)
         env:
           GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
