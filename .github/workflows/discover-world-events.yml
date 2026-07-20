@@ -108,6 +108,7 @@ jobs:
           supabase/functions/_shared/event-precision.test.ts
           supabase/functions/_shared/global-discovery.test.ts
           supabase/functions/_shared/robots-policy.test.ts
+          supabase/functions/_shared/source-retry-policy.test.ts
 
       - name: Type-check the deployed Edge Function entrypoint
         run: >-
