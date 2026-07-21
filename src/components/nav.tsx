@@ -1,5 +1,14 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Calendar, Compass, Heart, Map as MapIcon, Rss, User } from "lucide-react";
+import {
+  Calendar,
+  CircleHelp,
+  Compass,
+  Heart,
+  Map as MapIcon,
+  Rss,
+  Settings,
+  User,
+} from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
@@ -22,7 +31,7 @@ const desktopItems = [
 ] as const;
 
 export function MobileNav() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { t } = useTranslation();
   return (
     <nav
@@ -52,7 +61,7 @@ export function MobileNav() {
 }
 
 export function DesktopHeader() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { t } = useTranslation();
   return (
     <header className="glass sticky top-0 z-40 hidden border-b md:block">
@@ -91,7 +100,23 @@ export function DesktopHeader() {
             );
           })}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <Link
+            to="/help"
+            aria-label="Centre d’aide"
+            title="Centre d’aide"
+            className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/help") || pathname.startsWith("/faq") ? "text-primary" : "text-muted-foreground"}`}
+          >
+            <CircleHelp className="h-5 w-5" />
+          </Link>
+          <Link
+            to="/settings"
+            aria-label="Paramètres"
+            title="Paramètres"
+            className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground"}`}
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
           <LanguageSwitcher />
         </div>
       </div>
