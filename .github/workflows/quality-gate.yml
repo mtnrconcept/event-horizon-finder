@@ -1,0 +1,107 @@
+name: Quality gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: https://ci-placeholder.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      SITE_URL: https://preview.example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Production build and route generation
+        id: build
+        shell: bash
+        run: |
+          set +e
+          npm run build 2>&1 | tee production-build.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: TypeScript
+        id: typecheck
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee typecheck.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: MCP tests
+        id: mcp
+        shell: bash
+        run: |
+          set +e
+          npm run test:mcp 2>&1 | tee mcp-tests.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-diagnostics
+          path: |
+            typecheck.log
+            mcp-tests.log
+            production-build.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload source snapshot for diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-source-snapshot
+          path: |
+            src/lib/i18n.tsx
+            src/lib/ui-translations.ts
+            src/lib/mcp-server.ts
+            src/routes/settings.tsx
+            src/routes/help.tsx
+            src/components/app-footer.tsx
+            src/components/client-consent-banner.tsx
+            .github/workflows/quality-gate.yml
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce quality gate
+        if: always()
+        shell: bash
+        run: |
+          echo "Build: ${{ steps.build.outputs.exit_code }}"
+          echo "TypeScript: ${{ steps.typecheck.outputs.exit_code }}"
+          echo "MCP tests: ${{ steps.mcp.outputs.exit_code }}"
+          test "${{ steps.build.outputs.exit_code }}" = "0"
+          test "${{ steps.typecheck.outputs.exit_code }}" = "0"
+          test "${{ steps.mcp.outputs.exit_code }}" = "0"

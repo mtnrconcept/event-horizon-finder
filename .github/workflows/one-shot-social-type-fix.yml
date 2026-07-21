@@ -1,0 +1,15 @@
+name: Archived one-shot social type fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archived:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Archived workflow
+        run: echo "The guarded type fix was applied successfully and this workflow is intentionally inert."

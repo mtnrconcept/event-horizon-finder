@@ -10,6 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { MobileNav, DesktopHeader } from "@/components/nav";
+import { AppFooter } from "@/components/app-footer";
 import { ClientConsentBanner } from "@/components/client-consent-banner";
 import { ClientJourneyTracker } from "@/components/client-journey-tracker";
 import { BrandArrival } from "@/components/brand/brand-arrival";
@@ -134,7 +135,9 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  const isMapRoute = useRouterState({ select: (state) => state.location.pathname === "/map" });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const isMapRoute = pathname === "/map";
+  const hidesFooter = isMapRoute || pathname === "/auth" || pathname.startsWith("/admin");
   return (
     <QueryClientProvider client={queryClient}>
       <BrandArrival />
@@ -143,6 +146,7 @@ function RootComponent() {
       <main className={isMapRoute ? "pb-0 md:pb-8" : "pb-24 md:pb-8"}>
         <Outlet />
       </main>
+      {!hidesFooter && <AppFooter />}
       <MobileNav />
       <ClientConsentBanner />
       <Toaster position="top-center" theme="dark" />
