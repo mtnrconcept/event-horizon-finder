@@ -66,9 +66,6 @@ const QUICK_LINKS = [
 ];
 
 export const Route = createFileRoute("/help")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    q: typeof search.q === "string" ? search.q : undefined,
-  }),
   head: () => ({
     meta: [
       { title: "Centre d’aide — Global Party" },
@@ -80,7 +77,7 @@ export const Route = createFileRoute("/help")({
 
 function HelpCenterPage() {
   const { tr } = useTranslation();
-  const search = Route.useSearch();
+  const search = Route.useSearch() as { q?: string };
   const [query, setQuery] = useState(search.q ?? "");
   const [categories, setCategories] = useState<HelpCategory[]>(FALLBACK_CATEGORIES);
   const [articles, setArticles] = useState<HelpArticle[]>([]);

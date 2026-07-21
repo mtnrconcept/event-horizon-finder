@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";
+import { UI_TRANSLATIONS, translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";
 import { translateCategory, translateGenre } from "@/lib/taxonomy-translations";
 
 export const SUPPORTED_LOCALES = ["fr", "en", "pl", "it", "ru", "es"] as const;
@@ -740,7 +740,7 @@ type TranslationContextValue = {
   setLocale: (locale: AppLocale) => void;
   t: (key: TranslationKey, variables?: Record<string, string | number>) => string;
   formatNumber: (value: number) => string;
-  tr: (phrase: UiTranslationPhrase, variables?: Record<string, string | number>) => string;
+  tr: (phrase: string, variables?: Record<string, string | number>) => string;
   categoryLabel: (slug: string, fallback?: string) => string;
   genreLabel: (slug: string, fallback?: string) => string;
 };
@@ -784,8 +784,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [locale],
   );
   const tr = useCallback(
-    (phrase: UiTranslationPhrase, variables: Record<string, string | number> = {}) =>
-      translateUiPhrase(locale, phrase, variables),
+    (phrase: string, variables: Record<string, string | number> = {}) => {
+      if (Object.prototype.hasOwnProperty.call(UI_TRANSLATIONS, phrase)) {
+        return translateUiPhrase(locale, phrase as UiTranslationPhrase, variables);
+      }
+      return Object.entries(variables).reduce(
+        (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+        phrase,
+      );
+    },
     [locale],
   );
   const categoryLabel = useCallback(

@@ -559,7 +559,8 @@ async function discover(request: Request, args: Record<string, unknown>) {
 async function searchTool(request: Request, args: Record<string, unknown>) {
   const query = safeText(args.query, 200);
   if (!query) throw new Error("query is required");
-  let payload = await discover(request, { query, limit: 10 });
+  let payload: { events: EventCard[]; applied_filters: Record<string, unknown> } =
+    await discover(request, { query, limit: 10 });
   if (!payload.events.length) {
     const cityId = await resolveCityId(query, null);
     if (cityId) {

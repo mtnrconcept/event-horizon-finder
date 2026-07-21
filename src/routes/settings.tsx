@@ -214,9 +214,6 @@ const sections: Array<{
 ];
 
 export const Route = createFileRoute("/settings")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    section: typeof search.section === "string" ? search.section : undefined,
-  }),
   head: () => ({
     meta: [
       { title: "Paramètres — Global Party" },
@@ -232,7 +229,7 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   const { tr } = useTranslation();
   const navigate = useNavigate();
-  const search = Route.useSearch();
+  const search = Route.useSearch() as { section?: string };
   const initialSection = sections.some((item) => item.id === search.section)
     ? (search.section as SettingsSection)
     : "account";
@@ -436,7 +433,10 @@ function SettingsPage() {
     }
     if (!window.confirm(tr("Déconnecter ce service de ton compte ?"))) return;
     const { error } = await settingsDb.auth.unlinkIdentity(identity);
-    if (error) return toast.error(tr("Le service n’a pas pu être déconnecté."));
+    if (error) {
+      toast.error(tr("Le service n’a pas pu être déconnecté."));
+      return;
+    }
     setIdentities((current) => current.filter((item) => item.id !== identity.id));
     toast.success(tr("Service déconnecté."));
   };
@@ -457,7 +457,10 @@ function SettingsPage() {
       message,
     });
     setRequesting(null);
-    if (error) return toast.error(tr("La demande n’a pas pu être créée."));
+    if (error) {
+      toast.error(tr("La demande n’a pas pu être créée."));
+      return;
+    }
     toast.success(tr("Demande transmise au centre d’aide."));
   };
 
