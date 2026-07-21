@@ -1,107 +1,15 @@
-name: One-shot social type fix
+name: Archived one-shot social type fix
 
 on:
-  push:
-    branches:
-      - feat/social-settings-legal-chatgpt-mcp
+  workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: one-shot-social-type-fix
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  apply:
-    if: ${{ !contains(github.event.head_commit.message, '[type-fix-applied]') }}
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
-      - name: Checkout feature branch
-        uses: actions/checkout@v4
-        with:
-          ref: feat/social-settings-legal-chatgpt-mcp
-          fetch-depth: 0
-
-      - name: Apply guarded replacements
-        shell: bash
-        run: |
-          python <<'PY'
-          from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              content = file.read_text()
-              count = content.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
-              file.write_text(content.replace(old, new, 1))
-
-          replace_once(
-              "src/lib/i18n.tsx",
-              'import { translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";',
-              'import { UI_TRANSLATIONS, translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";',
-          )
-          replace_once(
-              "src/lib/i18n.tsx",
-              '  tr: (phrase: UiTranslationPhrase, variables?: Record<string, string | number>) => string;',
-              '  tr: (phrase: string, variables?: Record<string, string | number>) => string;',
-          )
-          replace_once(
-              "src/lib/i18n.tsx",
-              '''  const tr = useCallback(\n    (phrase: UiTranslationPhrase, variables: Record<string, string | number> = {}) =>\n      translateUiPhrase(locale, phrase, variables),\n    [locale],\n  );''',
-              '''  const tr = useCallback(\n    (phrase: string, variables: Record<string, string | number> = {}) => {\n      if (Object.prototype.hasOwnProperty.call(UI_TRANSLATIONS, phrase)) {\n        return translateUiPhrase(locale, phrase as UiTranslationPhrase, variables);\n      }\n      return Object.entries(variables).reduce(\n        (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),\n        phrase,\n      );\n    },\n    [locale],\n  );''',
-          )
-
-          replace_once(
-              "src/lib/mcp-server.ts",
-              '  let payload = await discover(request, { query, limit: 10 });',
-              '''  let payload: { events: EventCard[]; applied_filters: Record<string, unknown> } =\n    await discover(request, { query, limit: 10 });''',
-          )
-
-          replace_once(
-              "src/routes/settings.tsx",
-              '''export const Route = createFileRoute("/settings")({\n  validateSearch: (search: Record<string, unknown>) => ({\n    section: typeof search.section === "string" ? search.section : undefined,\n  }),\n  head:''',
-              '''export const Route = createFileRoute("/settings")({\n  head:''',
-          )
-          replace_once(
-              "src/routes/settings.tsx",
-              '  const search = Route.useSearch();',
-              '  const search = Route.useSearch() as { section?: string };',
-          )
-          replace_once(
-              "src/routes/settings.tsx",
-              '''    if (error) return toast.error(tr("Le service n’a pas pu être déconnecté."));\n    setIdentities''',
-              '''    if (error) {\n      toast.error(tr("Le service n’a pas pu être déconnecté."));\n      return;\n    }\n    setIdentities''',
-          )
-          replace_once(
-              "src/routes/settings.tsx",
-              '''    if (error) return toast.error(tr("La demande n’a pas pu être créée."));\n    toast.success''',
-              '''    if (error) {\n      toast.error(tr("La demande n’a pas pu être créée."));\n      return;\n    }\n    toast.success''',
-          )
-
-          replace_once(
-              "src/routes/help.tsx",
-              '''export const Route = createFileRoute("/help")({\n  validateSearch: (search: Record<string, unknown>) => ({\n    q: typeof search.q === "string" ? search.q : undefined,\n  }),\n  head:''',
-              '''export const Route = createFileRoute("/help")({\n  head:''',
-          )
-          replace_once(
-              "src/routes/help.tsx",
-              '  const search = Route.useSearch();',
-              '  const search = Route.useSearch() as { q?: string };',
-          )
-          PY
-
-      - name: Commit fixes
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No changes required"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/i18n.tsx src/lib/mcp-server.ts src/routes/settings.tsx src/routes/help.tsx
-          git commit -m "fix(ci): resolve social route and translation types [type-fix-applied]"
-          git push origin HEAD:feat/social-settings-legal-chatgpt-mcp
+      - name: Archived workflow
+        run: echo "The guarded type fix was applied successfully and this workflow is intentionally inert."
