@@ -14,6 +14,9 @@ import { AppFooter } from "@/components/app-footer";
 import { ClientConsentBanner } from "@/components/client-consent-banner";
 import { ClientJourneyTracker } from "@/components/client-journey-tracker";
 import { BrandArrival } from "@/components/brand/brand-arrival";
+import { OnlineStatus } from "@/components/online-status";
+import { PerformanceMonitor } from "@/components/performance-monitor";
+import { PwaRuntime } from "@/components/pwa-runtime";
 import { LanguageProvider, useTranslation } from "@/lib/i18n";
 
 import appCss from "../styles.css?url";
@@ -106,9 +109,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
-      // Vercel-protected previews require credentials for manifest requests.
-      // Without this, the browser follows the SSO redirect as an anonymous
-      // cross-origin fetch and reports a misleading CORS error.
       { rel: "manifest", href: "/manifest.webmanifest", crossOrigin: "use-credentials" },
       { rel: "apple-touch-icon", href: "/brand/global-party-logo.png" },
     ],
@@ -140,6 +140,8 @@ function RootComponent() {
   const hidesFooter = isMapRoute || pathname === "/auth" || pathname.startsWith("/admin");
   return (
     <QueryClientProvider client={queryClient}>
+      <PwaRuntime />
+      <PerformanceMonitor />
       <BrandArrival />
       <ClientJourneyTracker />
       <DesktopHeader />
@@ -148,6 +150,7 @@ function RootComponent() {
       </main>
       {!hidesFooter && <AppFooter />}
       <MobileNav />
+      <OnlineStatus />
       <ClientConsentBanner />
       <Toaster position="top-center" theme="dark" />
     </QueryClientProvider>
