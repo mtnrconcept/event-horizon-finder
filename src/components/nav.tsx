@@ -62,7 +62,7 @@ export function MobileNav() {
 
 export function DesktopHeader() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { t } = useTranslation();
+  const { t, tr } = useTranslation();
   return (
     <header className="glass sticky top-0 z-40 hidden border-b md:block">
       <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-2.5 lg:gap-8">
@@ -103,16 +103,16 @@ export function DesktopHeader() {
         <div className="ml-auto flex items-center gap-1">
           <Link
             to="/help"
-            aria-label="Centre d’aide"
-            title="Centre d’aide"
+            aria-label={tr("Centre d’aide")}
+            title={tr("Centre d’aide")}
             className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/help") || pathname.startsWith("/faq") ? "text-primary" : "text-muted-foreground"}`}
           >
             <CircleHelp className="h-5 w-5" />
           </Link>
           <Link
             to="/settings"
-            aria-label="Paramètres"
-            title="Paramètres"
+            aria-label={tr("Paramètres")}
+            title={tr("Paramètres")}
             className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground"}`}
           >
             <Settings className="h-5 w-5" />

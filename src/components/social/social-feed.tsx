@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Clock3, MessageCircle, RefreshCw, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SocialPostCard } from "@/components/social/social-post-card";
+import { SocialAiBriefing } from "@/components/social/social-ai-briefing";
 import { useSocialFeed } from "@/hooks/use-social-feed";
+import { rankFeedPosts, type FeedIntent } from "@/lib/feed-intelligence";
 import type { SocialFeedFilter } from "@/lib/social-queries";
 import { useTranslation } from "@/lib/i18n";
 
@@ -24,11 +26,22 @@ function PostSkeleton() {
     <div className="glass overflow-hidden rounded-3xl">
       <div className="flex items-center gap-3 p-4">
         <Skeleton className="h-11 w-11 rounded-full" />
-        <div className="space-y-2"><Skeleton className="h-3.5 w-36" /><Skeleton className="h-3 w-20" /></div>
+        <div className="space-y-2">
+          <Skeleton className="h-3.5 w-36" />
+          <Skeleton className="h-3 w-20" />
+        </div>
       </div>
-      <div className="space-y-2 px-4 pb-4"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-4/5" /></div>
+      <div className="space-y-2 px-4 pb-4">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-4/5" />
+      </div>
       <Skeleton className="aspect-video w-full rounded-none" />
-      <div className="grid grid-cols-4 gap-3 p-3"><Skeleton className="h-8" /><Skeleton className="h-8" /><Skeleton className="h-8" /><Skeleton className="h-8" /></div>
+      <div className="grid grid-cols-4 gap-3 p-3">
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+      </div>
     </div>
   );
 }
@@ -44,9 +57,11 @@ export function SocialFeed({
 }) {
   const { tr, t } = useTranslation();
   const feed = useSocialFeed(filter, currentUserId);
+  const [intent, setIntent] = useState<FeedIntent>("all");
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feed;
   const posts = useMemo(() => feed.data?.pages.flatMap((page) => page.posts) ?? [], [feed.data]);
+  const rankedPosts = useMemo(() => rankFeedPosts(posts, intent), [intent, posts]);
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -70,7 +85,11 @@ export function SocialFeed({
             type="button"
             onClick={() => onFilterChange(value)}
             disabled={Boolean(requiresAuth && !currentUserId)}
-            title={requiresAuth && !currentUserId ? tr("Connecte-toi pour voir tes abonnements") : undefined}
+            title={
+              requiresAuth && !currentUserId
+                ? tr("Connecte-toi pour voir tes abonnements")
+                : undefined
+            }
             className={`flex min-h-10 min-w-fit flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition-colors sm:text-sm ${filter === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <Icon className="h-4 w-4" /> {tr(label)}
@@ -78,14 +97,26 @@ export function SocialFeed({
         ))}
       </div>
 
+      {!feed.isLoading && !feed.isError && posts.length > 0 && (
+        <SocialAiBriefing posts={posts} intent={intent} onIntentChange={setIntent} />
+      )}
+
       {feed.isLoading ? (
-        <div className="space-y-4">{Array.from({ length: 3 }).map((_, index) => <PostSkeleton key={index} />)}</div>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <PostSkeleton key={index} />
+          ))}
+        </div>
       ) : feed.isError ? (
         <div className="glass rounded-3xl p-8 text-center">
           <RefreshCw className="mx-auto h-9 w-9 text-muted-foreground" />
           <p className="mt-3 font-semibold">{tr("Le fil n’a pas pu être chargé")}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{tr("Vérifie ta connexion puis réessaie.")}</p>
-          <Button variant="outline" onClick={() => feed.refetch()} className="mt-4 rounded-full">{t("common.retry")}</Button>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {tr("Vérifie ta connexion puis réessaie.")}
+          </p>
+          <Button variant="outline" onClick={() => feed.refetch()} className="mt-4 rounded-full">
+            {t("common.retry")}
+          </Button>
         </div>
       ) : posts.length === 0 ? (
         <div className="glass rounded-3xl p-8 text-center">
@@ -105,12 +136,18 @@ export function SocialFeed({
         </div>
       ) : (
         <div className="space-y-4">
-          {posts.map((post) => <SocialPostCard key={post.id} post={post} currentUserId={currentUserId} />)}
+          {rankedPosts.map((post) => (
+            <SocialPostCard key={post.id} post={post} currentUserId={currentUserId} />
+          ))}
           <div ref={loadMoreRef} className="flex min-h-16 items-center justify-center">
             {feed.isFetchingNextPage ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="h-4 w-4 animate-spin" /> {t("common.loading")}</div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" /> {t("common.loading")}
+              </div>
             ) : feed.hasNextPage ? (
-              <Button variant="ghost" size="sm" onClick={() => feed.fetchNextPage()}>{tr("Voir plus")}</Button>
+              <Button variant="ghost" size="sm" onClick={() => feed.fetchNextPage()}>
+                {tr("Voir plus")}
+              </Button>
             ) : (
               <p className="text-xs text-muted-foreground">{tr("Tu es à jour.")}</p>
             )}

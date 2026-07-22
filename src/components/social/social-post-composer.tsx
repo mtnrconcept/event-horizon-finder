@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarPlus, ChevronDown, Globe2, ImagePlus, MapPin, Send, Users, X } from "lucide-react";
+import {
+  CalendarPlus,
+  ChevronDown,
+  Globe2,
+  ImagePlus,
+  MapPin,
+  Send,
+  Sparkles,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -15,6 +25,7 @@ import {
   validateSocialFiles,
 } from "@/lib/social-queries";
 import { useTranslation } from "@/lib/i18n";
+import { improveSocialDraft } from "@/lib/feed-intelligence";
 import {
   applyTranslationToEventRecord,
   useEventContentTranslations,
@@ -83,6 +94,12 @@ export function SocialPostComposer({ userId }: { userId: string }) {
   const selectedEvent = availableEvents.find((event) => event.id === eventId) ?? null;
   const canSubmit = Boolean(body.trim() || files.length || eventId) && !createPost.isPending;
 
+  const improveDraft = () => {
+    setBody(improveSocialDraft(body, selectedEvent?.title));
+    setExpanded(true);
+    toast.success(tr("Proposition IA ajoutée — tu gardes le contrôle"));
+  };
+
   const chooseFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -136,7 +153,9 @@ export function SocialPostComposer({ userId }: { userId: string }) {
     >
       <div className="flex items-start gap-3 p-4 sm:p-5">
         <Avatar className="h-11 w-11 border bg-surface-2">
-          {author.avatar_url && <AvatarImage src={author.avatar_url} alt="" className="object-cover" />}
+          {author.avatar_url && (
+            <AvatarImage src={author.avatar_url} alt="" className="object-cover" />
+          )}
           <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
             {author.name.slice(0, 2).toUpperCase()}
           </AvatarFallback>
@@ -153,7 +172,9 @@ export function SocialPostComposer({ userId }: { userId: string }) {
               >
                 <option value="personal">{context.data.personal.name}</option>
                 {context.data.organizers.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
                 ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
@@ -170,7 +191,11 @@ export function SocialPostComposer({ userId }: { userId: string }) {
                   <option value="followers">{tr("Abonnés")}</option>
                   <option value="private">{tr("Privé")}</option>
                 </select>
-                {visibility === "public" ? <Globe2 className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" /> : <Users className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />}
+                {visibility === "public" ? (
+                  <Globe2 className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
+                ) : (
+                  <Users className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
+                )}
                 <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
               </label>
             )}
@@ -181,27 +206,42 @@ export function SocialPostComposer({ userId }: { userId: string }) {
             onChange={(event) => setBody(event.target.value)}
             maxLength={5000}
             rows={expanded ? 4 : 2}
-            placeholder={tr("Partage une découverte, une ambiance ou les coulisses d’un événement…")}
+            placeholder={tr(
+              "Partage une découverte, une ambiance ou les coulisses d’un événement…",
+            )}
             className="min-h-20 resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
           />
-          {body.length > 4400 && <p className="text-right text-[10px] text-muted-foreground">{body.length}/5 000</p>}
+          {body.length > 4400 && (
+            <p className="text-right text-[10px] text-muted-foreground">{body.length}/5 000</p>
+          )}
         </div>
       </div>
 
       {previews.length > 0 && (
         <div className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-3 sm:px-5">
           {previews.map(({ file, url }, index) => (
-            <div key={`${file.name}-${file.lastModified}`} className="relative aspect-square overflow-hidden rounded-xl bg-muted">
-              {file.type.startsWith("video/") ? <video src={url} muted playsInline className="h-full w-full object-cover" /> : <img src={url} alt={tr("Aperçu du média")} className="h-full w-full object-cover" />}
+            <div
+              key={`${file.name}-${file.lastModified}`}
+              className="relative aspect-square overflow-hidden rounded-xl bg-muted"
+            >
+              {file.type.startsWith("video/") ? (
+                <video src={url} muted playsInline className="h-full w-full object-cover" />
+              ) : (
+                <img src={url} alt={tr("Aperçu du média")} className="h-full w-full object-cover" />
+              )}
               <button
                 type="button"
-                onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                onClick={() =>
+                  setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                }
                 aria-label={`${tr("Retirer")} ${file.name}`}
                 className="absolute right-2 top-2 rounded-full bg-black/65 p-1.5 text-white hover:bg-black/80"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
-              <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white">{(file.size / 1024 / 1024).toFixed(1)} Mio</span>
+              <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white">
+                {(file.size / 1024 / 1024).toFixed(1)} Mio
+              </span>
             </div>
           ))}
         </div>
@@ -209,16 +249,36 @@ export function SocialPostComposer({ userId }: { userId: string }) {
 
       {eventPickerOpen && organizer && (
         <div className="mx-4 mb-4 rounded-2xl border bg-surface/50 p-3 sm:mx-5">
-          <label htmlFor="social-event" className="text-xs font-medium">{tr("Événement associé")}</label>
+          <label htmlFor="social-event" className="text-xs font-medium">
+            {tr("Événement associé")}
+          </label>
           {availableEvents.length ? (
-            <select id="social-event" value={eventId} onChange={(event) => setEventId(event.target.value)} className="mt-2 w-full rounded-xl border bg-surface px-3 py-2 text-sm outline-none focus:border-primary">
+            <select
+              id="social-event"
+              value={eventId}
+              onChange={(event) => setEventId(event.target.value)}
+              className="mt-2 w-full rounded-xl border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+            >
               <option value="">{tr("Aucun événement")}</option>
-              {availableEvents.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+              {availableEvents.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.title}
+                </option>
+              ))}
             </select>
-          ) : <p className="mt-1 text-xs text-muted-foreground">{tr("Cette organisation n’a pas encore d’événement publié.")}</p>}
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {tr("Cette organisation n’a pas encore d’événement publié.")}
+            </p>
+          )}
           {selectedEvent && (
             <div className="mt-3 flex items-center gap-3 rounded-xl border p-2">
-              <EventArtworkImage eventId={selectedEvent.id} sourceUrl={selectedEvent.cover_image_url} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              <EventArtworkImage
+                eventId={selectedEvent.id}
+                sourceUrl={selectedEvent.cover_image_url}
+                alt=""
+                className="h-12 w-12 rounded-lg object-cover"
+              />
               <p className="line-clamp-2 text-xs font-medium">{selectedEvent.title}</p>
             </div>
           )}
@@ -229,26 +289,77 @@ export function SocialPostComposer({ userId }: { userId: string }) {
         <div className="mx-4 mb-4 grid gap-3 rounded-2xl border bg-accent/20 p-3 sm:mx-5 sm:grid-cols-[1fr_auto]">
           <label className="relative flex min-h-10 items-center">
             <MapPin className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-            <input value={locationName} onChange={(event) => setLocationName(event.target.value.slice(0, 160))} placeholder={tr("Ajouter un lieu")} className="field-control h-full w-full pl-9" />
+            <input
+              value={locationName}
+              onChange={(event) => setLocationName(event.target.value.slice(0, 160))}
+              placeholder={tr("Ajouter un lieu")}
+              className="field-control h-full w-full pl-9"
+            />
           </label>
           <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2 text-xs font-semibold">
             {tr("Commentaires")}
-            <input type="checkbox" checked={commentsEnabled} onChange={(event) => setCommentsEnabled(event.target.checked)} className="h-4 w-4 accent-[var(--color-primary)]" />
+            <input
+              type="checkbox"
+              checked={commentsEnabled}
+              onChange={(event) => setCommentsEnabled(event.target.checked)}
+              className="h-4 w-4 accent-[var(--color-primary)]"
+            />
           </label>
         </div>
       )}
 
-      <input ref={fileInputRef} type="file" accept={SOCIAL_ALLOWED_MIME_TYPES.join(",")} multiple className="sr-only" onChange={chooseFiles} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={SOCIAL_ALLOWED_MIME_TYPES.join(",")}
+        multiple
+        className="sr-only"
+        onChange={chooseFiles}
+      />
       <div className="flex flex-wrap items-center gap-1 border-t px-3 py-2 sm:px-4">
-        <Button type="button" variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} disabled={files.length >= SOCIAL_MAX_MEDIA || createPost.isPending} className="rounded-full text-muted-foreground">
-          <ImagePlus className="h-4 w-4" /> {tr("Média")} <span className="text-[10px]">{files.length}/{SOCIAL_MAX_MEDIA}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={improveDraft}
+          disabled={createPost.isPending}
+          className="rounded-full bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
+        >
+          <Sparkles className="h-4 w-4" /> {tr("Améliorer avec l’IA")}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={files.length >= SOCIAL_MAX_MEDIA || createPost.isPending}
+          className="rounded-full text-muted-foreground"
+        >
+          <ImagePlus className="h-4 w-4" /> {tr("Média")}{" "}
+          <span className="text-[10px]">
+            {files.length}/{SOCIAL_MAX_MEDIA}
+          </span>
         </Button>
         {organizer && (
-          <Button type="button" variant={eventId ? "secondary" : "ghost"} size="sm" onClick={() => { setEventPickerOpen((value) => !value); setExpanded(true); }} disabled={createPost.isPending} className="rounded-full text-muted-foreground">
+          <Button
+            type="button"
+            variant={eventId ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => {
+              setEventPickerOpen((value) => !value);
+              setExpanded(true);
+            }}
+            disabled={createPost.isPending}
+            className="rounded-full text-muted-foreground"
+          >
             <CalendarPlus className="h-4 w-4" /> {tr("Événement")}
           </Button>
         )}
-        <span className="ml-1 hidden text-[10px] text-muted-foreground lg:inline">{tr("Images 12 Mio · vidéos {size} Mio max.", { size: (SOCIAL_MAX_FILE_BYTES / 1024 / 1024).toFixed(0) })}</span>
+        <span className="ml-1 hidden text-[10px] text-muted-foreground lg:inline">
+          {tr("Images 12 Mio · vidéos {size} Mio max.", {
+            size: (SOCIAL_MAX_FILE_BYTES / 1024 / 1024).toFixed(0),
+          })}
+        </span>
         <Button type="submit" size="sm" disabled={!canSubmit} className="ml-auto rounded-full px-4">
           <Send className="h-4 w-4" /> {createPost.isPending ? tr("Publication…") : tr("Publier")}
         </Button>
