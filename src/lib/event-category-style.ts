@@ -83,8 +83,8 @@ export function eventCategoryVisuals(): readonly EventCategoryVisual[] {
 
 /**
  * MapLibre's OSM fallback glyph endpoint does not contain every emoji. Render
- * the category symbols once on a canvas and register them as bitmap icons so
- * the same recognizable marker works with Mapbox, OSM and mobile WebGL.
+ * complete, high-density pins once on a canvas. The silhouette, white rim and
+ * category colour remain legible on both light and dark basemaps.
  */
 export function registerEventCategoryImages(map: maplibregl.Map): void {
   if (typeof document === "undefined") return;
@@ -93,17 +93,38 @@ export function registerEventCategoryImages(map: maplibregl.Map): void {
     if (map.hasImage(visual.imageId)) continue;
     const canvas = document.createElement("canvas");
     const pixelRatio = 2;
-    const logicalSize = 36;
+    const logicalSize = 52;
     canvas.width = logicalSize * pixelRatio;
     canvas.height = logicalSize * pixelRatio;
     const context = canvas.getContext("2d");
     if (!context) continue;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+    context.save();
+    context.scale(pixelRatio, pixelRatio);
+    context.shadowColor = "rgba(15, 23, 42, 0.38)";
+    context.shadowBlur = 5;
+    context.shadowOffsetY = 3;
+    context.beginPath();
+    context.arc(26, 21, 17, Math.PI * 0.18, Math.PI * 0.82, true);
+    context.quadraticCurveTo(26, 49, 15.5, 33);
+    context.arc(26, 21, 17, Math.PI * 0.82, Math.PI * 0.18, true);
+    context.closePath();
+    context.fillStyle = visual.color;
+    context.fill();
+    context.shadowColor = "transparent";
+    context.lineWidth = 3;
+    context.strokeStyle = "#ffffff";
+    context.stroke();
+    context.beginPath();
+    context.arc(26, 21, 12.5, 0, Math.PI * 2);
+    context.fillStyle = "rgba(255,255,255,0.96)";
+    context.fill();
+    context.restore();
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.font = `${24 * pixelRatio}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    context.fillText(visual.icon, canvas.width / 2, canvas.height / 2 + pixelRatio / 2);
+    context.font = `${16 * pixelRatio}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    context.fillText(visual.icon, canvas.width / 2, 21 * pixelRatio + pixelRatio / 2);
     map.addImage(visual.imageId, context.getImageData(0, 0, canvas.width, canvas.height), {
       pixelRatio,
     });

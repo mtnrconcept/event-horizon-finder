@@ -266,10 +266,10 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       filter: ["!", ["has", "point_count"]],
       paint: {
         "circle-color": ["get", "category_color"],
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 9, 12, 13, 16, 18],
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 16, 3],
-        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.68, 1],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 10, 12, 14, 16, 19],
+        "circle-blur": 0.45,
+        "circle-stroke-width": 0,
+        "circle-opacity": ["case", ["==", ["get", "approximate"], 1], 0.16, 0.24],
       },
     });
   }
@@ -282,7 +282,7 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       filter: ["!", ["has", "point_count"]],
       layout: {
         "icon-image": ["get", "category_icon_image"],
-        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.54, 12, 0.74, 16, 1],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.62, 12, 0.78, 16, 1.02],
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
