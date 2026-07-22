@@ -51,7 +51,9 @@ function relativeDate(value: string, locale: string) {
 }
 
 function compactCount(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(
+    value,
+  );
 }
 
 export function SocialPostCard({
@@ -75,8 +77,7 @@ export function SocialPostCard({
   const [bodyExpanded, setBodyExpanded] = useState(standalone);
   const [menuOpen, setMenuOpen] = useState(false);
   const isOwn = Boolean(
-    currentUserId &&
-      (post.author_user_id === currentUserId || post.created_by === currentUserId),
+    currentUserId && (post.author_user_id === currentUserId || post.created_by === currentUserId),
   );
 
   const requireAuth = () => {
@@ -99,7 +100,9 @@ export function SocialPostCard({
     if (!requireAuth() || isOwn) return;
     toggleFollow.mutate(post, {
       onSuccess: () =>
-        toast.success(post.followed_by_viewer ? tr("Abonnement retiré") : tr("Abonnement mis à jour")),
+        toast.success(
+          post.followed_by_viewer ? tr("Abonnement retiré") : tr("Abonnement mis à jour"),
+        ),
     });
   };
 
@@ -161,7 +164,9 @@ export function SocialPostCard({
     <article className="glass overflow-visible rounded-3xl shadow-[var(--shadow-card)]">
       <header className="flex items-start gap-3 px-4 py-4 sm:px-5">
         <Avatar className="h-11 w-11 border bg-surface-2">
-          {post.organizer.logo_url && <AvatarImage src={post.organizer.logo_url} alt="" className="object-cover" />}
+          {post.organizer.logo_url && (
+            <AvatarImage src={post.organizer.logo_url} alt="" className="object-cover" />
+          )}
           <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
             {post.organizer.name.slice(0, 2).toUpperCase()}
           </AvatarFallback>
@@ -169,7 +174,12 @@ export function SocialPostCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-semibold sm:text-base">{post.organizer.name}</p>
-            {post.organizer.is_verified && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" aria-label={tr("Compte vérifié")} />}
+            {post.organizer.is_verified && (
+              <BadgeCheck
+                className="h-4 w-4 shrink-0 text-primary"
+                aria-label={tr("Compte vérifié")}
+              />
+            )}
             {!isOwn && currentUserId && (
               <button
                 type="button"
@@ -177,13 +187,21 @@ export function SocialPostCard({
                 disabled={toggleFollow.isPending}
                 className={`ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${post.followed_by_viewer ? "bg-accent text-foreground" : "bg-primary/10 text-primary"}`}
               >
-                {post.followed_by_viewer ? <UserCheck className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
+                {post.followed_by_viewer ? (
+                  <UserCheck className="h-3 w-3" />
+                ) : (
+                  <UserPlus className="h-3 w-3" />
+                )}
                 {post.followed_by_viewer ? tr("Suivi") : tr("Suivre")}
               </button>
             )}
             {post.visibility !== "public" && (
               <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] text-muted-foreground">
-                {post.visibility === "followers" ? <Users className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                {post.visibility === "followers" ? (
+                  <Users className="h-3 w-3" />
+                ) : (
+                  <EyeOff className="h-3 w-3" />
+                )}
                 {post.visibility === "followers" ? tr("Abonnés") : tr("Privé")}
               </span>
             )}
@@ -192,12 +210,20 @@ export function SocialPostCard({
             {standalone ? (
               <time>{relativeDate(post.published_at, localeTag)}</time>
             ) : (
-              <Link to="/post/$id" params={{ id: post.id }} className="hover:text-foreground hover:underline">
+              <Link
+                to="/post/$id"
+                params={{ id: post.id }}
+                className="hover:text-foreground hover:underline"
+              >
                 {relativeDate(post.published_at, localeTag)}
               </Link>
             )}
             {post.edited_at && <span>· {tr("modifié")}</span>}
-            {post.location_name && <span className="inline-flex items-center gap-1">· <MapPin className="h-3 w-3" /> {post.location_name}</span>}
+            {post.location_name && (
+              <span className="inline-flex items-center gap-1">
+                · <MapPin className="h-3 w-3" /> {post.location_name}
+              </span>
+            )}
           </div>
         </div>
         <div className="relative">
@@ -212,9 +238,21 @@ export function SocialPostCard({
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-11 z-30 w-56 rounded-2xl border bg-background p-1.5 shadow-2xl">
-              {!isOwn && <MenuAction icon={EyeOff} onClick={mute}>{tr("Masquer ce compte")}</MenuAction>}
-              {!isOwn && <MenuAction icon={Flag} onClick={report}>{tr("Signaler la publication")}</MenuAction>}
-              {isOwn && <MenuAction icon={Trash2} danger onClick={remove}>{tr("Supprimer")}</MenuAction>}
+              {!isOwn && (
+                <MenuAction icon={EyeOff} onClick={mute}>
+                  {tr("Masquer ce compte")}
+                </MenuAction>
+              )}
+              {!isOwn && (
+                <MenuAction icon={Flag} onClick={report}>
+                  {tr("Signaler la publication")}
+                </MenuAction>
+              )}
+              {isOwn && (
+                <MenuAction icon={Trash2} danger onClick={remove}>
+                  {tr("Supprimer")}
+                </MenuAction>
+              )}
             </div>
           )}
         </div>
@@ -222,14 +260,40 @@ export function SocialPostCard({
 
       {post.body && (
         <div className="px-4 pb-4 sm:px-5">
-          <p className={!bodyExpanded && post.body.length > 480 ? "line-clamp-6 whitespace-pre-wrap break-words text-[15px] leading-relaxed" : "whitespace-pre-wrap break-words text-[15px] leading-relaxed"}>{post.body}</p>
-          {showMore && <button type="button" onClick={() => setBodyExpanded(true)} className="mt-1 text-sm font-medium text-primary hover:underline">{tr("Voir plus")}</button>}
-          {!!post.tags.length && <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-sm font-semibold text-primary">{post.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
+          <p
+            className={
+              !bodyExpanded && post.body.length > 480
+                ? "line-clamp-6 whitespace-pre-wrap break-words text-[15px] leading-relaxed"
+                : "whitespace-pre-wrap break-words text-[15px] leading-relaxed"
+            }
+          >
+            {post.body}
+          </p>
+          {showMore && (
+            <button
+              type="button"
+              onClick={() => setBodyExpanded(true)}
+              className="mt-1 text-sm font-medium text-primary hover:underline"
+            >
+              {tr("Voir plus")}
+            </button>
+          )}
+          {!!post.tags.length && (
+            <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-sm font-semibold text-primary">
+              {post.tags.map((tag) => (
+                <span key={tag}>#{tag}</span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       <SocialMediaGrid media={post.media} />
-      {post.event && <div className={post.media.length ? "pt-4" : ""}><SocialEventAttachment event={post.event} /></div>}
+      {post.event && (
+        <div className={post.media.length ? "pt-4" : ""}>
+          <SocialEventAttachment event={post.event} />
+        </div>
+      )}
 
       <div className="grid grid-cols-4 border-t px-2 py-1.5 sm:px-3">
         <ActionButton
@@ -261,7 +325,9 @@ export function SocialPostCard({
           active={post.saved_by_viewer}
           disabled={toggleSave.isPending}
           onClick={save}
-          icon={<Bookmark className="h-4 w-4" fill={post.saved_by_viewer ? "currentColor" : "none"} />}
+          icon={
+            <Bookmark className="h-4 w-4" fill={post.saved_by_viewer ? "currentColor" : "none"} />
+          }
           label={tr("Enregistrer")}
           count={post.save_count}
           locale={localeTag}
@@ -270,23 +336,89 @@ export function SocialPostCard({
 
       {authPrompt && !currentUserId && (
         <div className="flex items-center justify-between gap-3 border-t bg-primary/5 px-4 py-3">
-          <p className="text-xs text-muted-foreground">{tr("Connecte-toi pour participer à la communauté.")}</p>
+          <p className="text-xs text-muted-foreground">
+            {tr("Connecte-toi pour participer à la communauté.")}
+          </p>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setAuthPrompt(false)} className="text-xs text-muted-foreground hover:text-foreground">{tr("Plus tard")}</button>
-            <Button asChild size="sm" className="rounded-full"><a href={`/auth?redirect=${encodeURIComponent(`/post/${post.id}`)}`}>{tr("Se connecter")}</a></Button>
+            <button
+              type="button"
+              onClick={() => setAuthPrompt(false)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              {tr("Plus tard")}
+            </button>
+            <Button asChild size="sm" className="rounded-full">
+              <a href={`/auth?redirect=${encodeURIComponent(`/post/${post.id}`)}`}>
+                {tr("Se connecter")}
+              </a>
+            </Button>
           </div>
         </div>
       )}
 
-      <SocialComments postId={post.id} currentUserId={currentUserId} expanded={commentsExpanded} commentsEnabled={post.comments_enabled} />
+      <SocialComments
+        postId={post.id}
+        currentUserId={currentUserId}
+        expanded={commentsExpanded}
+        commentsEnabled={post.comments_enabled}
+      />
     </article>
   );
 }
 
-function ActionButton({ active = false, disabled = false, onClick, icon, label, count, locale }: { active?: boolean; disabled?: boolean; onClick: () => void; icon: React.ReactNode; label: string; count: number; locale: string }) {
-  return <Button type="button" variant="ghost" onClick={onClick} disabled={disabled} aria-pressed={active} title={label} className={`min-w-0 rounded-xl px-1 sm:px-3 ${active ? "text-primary" : "text-muted-foreground"}`}><span className="shrink-0">{icon}</span><span className="hidden lg:inline">{label}</span>{count > 0 && <span className="text-xs">{compactCount(count, locale)}</span>}</Button>;
+function ActionButton({
+  active = false,
+  disabled = false,
+  onClick,
+  icon,
+  label,
+  count,
+  locale,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  locale: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      title={label}
+      className={`min-w-0 rounded-xl px-1 sm:px-3 ${active ? "text-primary" : "text-muted-foreground"}`}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="hidden lg:inline">{label}</span>
+      {count > 0 && <span className="text-xs">{compactCount(count, locale)}</span>}
+    </Button>
+  );
 }
 
-function MenuAction({ icon: Icon, danger = false, onClick, children }: { icon: typeof Flag; danger?: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-accent ${danger ? "text-destructive" : ""}`}><Icon className="h-4 w-4" />{children}</button>;
+function MenuAction({
+  icon: Icon,
+  danger = false,
+  onClick,
+  children,
+}: {
+  icon: typeof Flag;
+  danger?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-accent ${danger ? "text-destructive" : ""}`}
+    >
+      <Icon className="h-4 w-4" />
+      {children}
+    </button>
+  );
 }

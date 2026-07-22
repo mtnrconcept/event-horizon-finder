@@ -40,7 +40,9 @@ export function OnlineStatus() {
     >
       {online ? <Wifi className="h-4 w-4 shrink-0" /> : <WifiOff className="h-4 w-4 shrink-0" />}
       <span className="truncate">
-        {online ? "Connexion rétablie" : "Mode hors ligne — certaines données peuvent être indisponibles"}
+        {online
+          ? "Connexion rétablie"
+          : "Mode hors ligne — certaines données peuvent être indisponibles"}
       </span>
     </div>
   );

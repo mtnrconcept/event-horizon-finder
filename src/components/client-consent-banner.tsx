@@ -95,9 +95,12 @@ export function ClientConsentBanner() {
           ? databaseChoices
           : local?.policyVersion === CONSENT_VERSION
             ? local
-            : databaseChoices ?? DEFAULT_CHOICES;
+            : (databaseChoices ?? DEFAULT_CHOICES);
       setChoices(current);
-      setVisible(databaseChoices?.policyVersion !== CONSENT_VERSION && local?.policyVersion !== CONSENT_VERSION);
+      setVisible(
+        databaseChoices?.policyVersion !== CONSENT_VERSION &&
+          local?.policyVersion !== CONSENT_VERSION,
+      );
     };
 
     void load();
@@ -108,7 +111,9 @@ export function ClientConsentBanner() {
     };
   }, []);
 
-  const persist = async (nextValues: Pick<ConsentChoices, "analytics" | "personalization" | "advertising">) => {
+  const persist = async (
+    nextValues: Pick<ConsentChoices, "analytics" | "personalization" | "advertising">,
+  ) => {
     if (saving) return;
     setSaving(true);
     const now = new Date().toISOString();
@@ -141,20 +146,19 @@ export function ClientConsentBanner() {
               consent_updated_at: now,
             })
             .eq("id", userId),
-          clientDb
-            .from("user_settings")
-            .upsert(
-              {
-                user_id: userId,
-                analytics_enabled: next.analytics,
-                personalized_recommendations: next.personalization,
-                personalized_ads: next.advertising,
-                updated_at: now,
-              },
-              { onConflict: "user_id" },
-            ),
+          clientDb.from("user_settings").upsert(
+            {
+              user_id: userId,
+              analytics_enabled: next.analytics,
+              personalized_recommendations: next.personalization,
+              personalized_ads: next.advertising,
+              updated_at: now,
+            },
+            { onConflict: "user_id" },
+          ),
         ]);
-        const profileWriteFailed = operations[1].status === "rejected" ||
+        const profileWriteFailed =
+          operations[1].status === "rejected" ||
           (operations[1].status === "fulfilled" && Boolean((operations[1].value as any).error));
         if (profileWriteFailed) {
           throw new Error("profile-consent-write-failed");
@@ -190,44 +194,120 @@ export function ClientConsentBanner() {
         <div className="min-w-0 flex-1">
           <p className="font-black">{tr("Tes choix de confidentialité")}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            {tr("Les fonctions indispensables restent actives. L’analyse, la personnalisation et la publicité sont facultatives et désactivées tant que tu ne les acceptes pas.")}
+            {tr(
+              "Les fonctions indispensables restent actives. L’analyse, la personnalisation et la publicité sont facultatives et désactivées tant que tu ne les acceptes pas.",
+            )}
           </p>
           {!customizing ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button size="sm" disabled={saving} onClick={() => void persist({ analytics: true, personalization: true, advertising: true })}>
+              <Button
+                size="sm"
+                disabled={saving}
+                onClick={() =>
+                  void persist({ analytics: true, personalization: true, advertising: true })
+                }
+              >
                 {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                 {tr("Tout accepter")}
               </Button>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void persist({ analytics: false, personalization: false, advertising: false })}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                onClick={() =>
+                  void persist({ analytics: false, personalization: false, advertising: false })
+                }
+              >
                 {tr("Tout refuser")}
               </Button>
-              <Button size="sm" variant="ghost" disabled={saving} onClick={() => setCustomizing(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={saving}
+                onClick={() => setCustomizing(true)}
+              >
                 {tr("Personnaliser")}
               </Button>
             </div>
           ) : (
             <div className="mt-4 space-y-2">
-              <ConsentChoice icon={Cookie} title={tr("Nécessaires")} description={tr("Connexion, sécurité, langue et préférences essentielles.")} checked locked onChange={() => undefined} />
-              <ConsentChoice icon={BarChart3} title={tr("Analyse") } description={tr("Comprendre les parcours et améliorer les performances.")} checked={choices.analytics} onChange={(analytics) => setChoices((current) => ({ ...current, analytics }))} />
-              <ConsentChoice icon={Sparkles} title={tr("Personnalisation")} description={tr("Adapter les recommandations à tes intérêts et interactions.")} checked={choices.personalization} onChange={(personalization) => setChoices((current) => ({ ...current, personalization }))} />
-              <ConsentChoice icon={Megaphone} title={tr("Publicité personnalisée")} description={tr("Adapter les contenus sponsorisés lorsque tu l’autorises.")} checked={choices.advertising} onChange={(advertising) => setChoices((current) => ({ ...current, advertising }))} />
+              <ConsentChoice
+                icon={Cookie}
+                title={tr("Nécessaires")}
+                description={tr("Connexion, sécurité, langue et préférences essentielles.")}
+                checked
+                locked
+                onChange={() => undefined}
+              />
+              <ConsentChoice
+                icon={BarChart3}
+                title={tr("Analyse")}
+                description={tr("Comprendre les parcours et améliorer les performances.")}
+                checked={choices.analytics}
+                onChange={(analytics) => setChoices((current) => ({ ...current, analytics }))}
+              />
+              <ConsentChoice
+                icon={Sparkles}
+                title={tr("Personnalisation")}
+                description={tr("Adapter les recommandations à tes intérêts et interactions.")}
+                checked={choices.personalization}
+                onChange={(personalization) =>
+                  setChoices((current) => ({ ...current, personalization }))
+                }
+              />
+              <ConsentChoice
+                icon={Megaphone}
+                title={tr("Publicité personnalisée")}
+                description={tr("Adapter les contenus sponsorisés lorsque tu l’autorises.")}
+                checked={choices.advertising}
+                onChange={(advertising) => setChoices((current) => ({ ...current, advertising }))}
+              />
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button size="sm" disabled={saving} onClick={() => void persist(choices)}>
                   {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                   {tr("Enregistrer mes choix")}
                 </Button>
-                <Button size="sm" variant="ghost" disabled={saving} onClick={() => setCustomizing(false)}>{tr("Retour")}</Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={saving}
+                  onClick={() => setCustomizing(false)}
+                >
+                  {tr("Retour")}
+                </Button>
               </div>
             </div>
           )}
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-            <Link to="/cookies" className="underline-offset-2 hover:text-foreground hover:underline">{tr("Politique de cookies")}</Link>
-            <Link to="/privacy" className="underline-offset-2 hover:text-foreground hover:underline">{tr("Politique de confidentialité")}</Link>
-            <Link to="/settings" search={{ section: "cookies" }} className="underline-offset-2 hover:text-foreground hover:underline">{tr("Modifier plus tard dans les paramètres")}</Link>
+            <Link
+              to="/cookies"
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {tr("Politique de cookies")}
+            </Link>
+            <Link
+              to="/privacy"
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {tr("Politique de confidentialité")}
+            </Link>
+            <Link
+              to="/settings"
+              search={{ section: "cookies" }}
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {tr("Modifier plus tard dans les paramètres")}
+            </Link>
           </div>
         </div>
         {customizing && (
-          <button type="button" onClick={() => setCustomizing(false)} disabled={saving} aria-label={tr("Fermer la personnalisation")} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent disabled:opacity-50">
+          <button
+            type="button"
+            onClick={() => setCustomizing(false)}
+            disabled={saving}
+            aria-label={tr("Fermer la personnalisation")}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent disabled:opacity-50"
+          >
             <X className="h-4 w-4" />
           </button>
         )}
@@ -236,12 +316,39 @@ export function ClientConsentBanner() {
   );
 }
 
-function ConsentChoice({ icon: Icon, title, description, checked, locked = false, onChange }: { icon: typeof Cookie; title: string; description: string; checked: boolean; locked?: boolean; onChange: (value: boolean) => void }) {
+function ConsentChoice({
+  icon: Icon,
+  title,
+  description,
+  checked,
+  locked = false,
+  onChange,
+}: {
+  icon: typeof Cookie;
+  title: string;
+  description: string;
+  checked: boolean;
+  locked?: boolean;
+  onChange: (value: boolean) => void;
+}) {
   return (
-    <label className={`flex items-center gap-3 rounded-2xl border px-3 py-3 ${locked ? "cursor-default opacity-75" : "cursor-pointer"}`}>
+    <label
+      className={`flex items-center gap-3 rounded-2xl border px-3 py-3 ${locked ? "cursor-default opacity-75" : "cursor-pointer"}`}
+    >
       <Icon className="h-4 w-4 shrink-0 text-primary" />
-      <span className="min-w-0 flex-1"><span className="block text-xs font-bold">{title}</span><span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{description}</span></span>
-      <input type="checkbox" checked={checked} disabled={locked} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-bold">{title}</span>
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={locked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+      />
       <span className="relative h-6 w-11 shrink-0 rounded-full bg-muted transition peer-checked:bg-primary peer-disabled:opacity-80 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5" />
     </label>
   );

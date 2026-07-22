@@ -56,24 +56,38 @@ export function LegalPage({ document }: { document: LegalDocument }) {
           <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
             <div>
-              <p className="font-bold text-foreground">{tr("Validation juridique requise avant lancement commercial")}</p>
-              <p className="mt-1 leading-relaxed text-muted-foreground">{tr(document.reviewNotice)}</p>
+              <p className="font-bold text-foreground">
+                {tr("Validation juridique requise avant lancement commercial")}
+              </p>
+              <p className="mt-1 leading-relaxed text-muted-foreground">
+                {tr(document.reviewNotice)}
+              </p>
             </div>
           </div>
 
           <div className="glass rounded-3xl px-5 py-2 sm:px-8">
             {document.sections.map((section) => (
-              <section key={section.id} id={section.id} className="scroll-mt-28 border-b py-7 last:border-b-0">
+              <section
+                key={section.id}
+                id={section.id}
+                className="scroll-mt-28 border-b py-7 last:border-b-0"
+              >
                 <h2 className="text-xl font-black sm:text-2xl">{tr(section.title)}</h2>
                 {section.paragraphs?.map((paragraph, index) => (
-                  <p key={index} className="mt-4 text-sm leading-7 text-muted-foreground sm:text-[15px]">
+                  <p
+                    key={index}
+                    className="mt-4 text-sm leading-7 text-muted-foreground sm:text-[15px]"
+                  >
                     {tr(paragraph)}
                   </p>
                 ))}
                 {section.bullets && (
                   <ul className="mt-4 space-y-3">
                     {section.bullets.map((item, index) => (
-                      <li key={index} className="flex gap-3 text-sm leading-7 text-muted-foreground sm:text-[15px]">
+                      <li
+                        key={index}
+                        className="flex gap-3 text-sm leading-7 text-muted-foreground sm:text-[15px]"
+                      >
                         <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                         <span>{tr(item)}</span>
                       </li>
@@ -87,13 +101,21 @@ export function LegalPage({ document }: { document: LegalDocument }) {
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4">
             <div>
               <p className="font-bold">{tr("Une question sur ce document ?")}</p>
-              <p className="text-xs text-muted-foreground">{tr("Le centre d’aide centralise les demandes et leur suivi.")}</p>
+              <p className="text-xs text-muted-foreground">
+                {tr("Le centre d’aide centralise les demandes et leur suivi.")}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link to="/help" className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">
+              <Link
+                to="/help"
+                className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
+              >
                 {tr("Centre d’aide")}
               </Link>
-              <a href="#top" className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-accent">
+              <a
+                href="#top"
+                className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-accent"
+              >
                 <ArrowUp className="h-4 w-4" /> {tr("Haut de page")}
               </a>
             </div>

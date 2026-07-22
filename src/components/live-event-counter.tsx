@@ -4,10 +4,7 @@ import { Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/lib/i18n";
 import { normalizePublishedEventCount } from "@/lib/live-event-counter";
-import {
-  BRAND_ARRIVAL_COMPLETE_EVENT,
-  hasBrandArrivalCompleted,
-} from "@/lib/brand-arrival-events";
+import { BRAND_ARRIVAL_COMPLETE_EVENT, hasBrandArrivalCompleted } from "@/lib/brand-arrival-events";
 
 type CounterRow = {
   published_event_count?: number | string | null;

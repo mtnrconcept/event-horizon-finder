@@ -321,10 +321,18 @@ async function fetchViewerState(postIds: string[], userId: string | null): Promi
   }
   const [likesResult, savesResult, usersResult, organizersResult] = await Promise.all([
     postIds.length
-      ? socialDb.from("social_post_likes").select("post_id").eq("user_id", userId).in("post_id", postIds)
+      ? socialDb
+          .from("social_post_likes")
+          .select("post_id")
+          .eq("user_id", userId)
+          .in("post_id", postIds)
       : Promise.resolve({ data: [], error: null }),
     postIds.length
-      ? socialDb.from("social_post_saves").select("post_id").eq("user_id", userId).in("post_id", postIds)
+      ? socialDb
+          .from("social_post_saves")
+          .select("post_id")
+          .eq("user_id", userId)
+          .in("post_id", postIds)
       : Promise.resolve({ data: [], error: null }),
     socialDb
       .from("social_user_follows")
@@ -429,7 +437,9 @@ export async function fetchSocialComments(postId: string): Promise<SocialComment
   const safePostId = validateUuid(postId, "Publication invalide");
   const { data, error } = await socialDb
     .from("social_comments")
-    .select("id,post_id,user_id,body,status,author_display_name,author_avatar_url,created_at,updated_at")
+    .select(
+      "id,post_id,user_id,body,status,author_display_name,author_avatar_url,created_at,updated_at",
+    )
     .eq("post_id", safePostId)
     .eq("status", "published")
     .order("created_at", { ascending: true })
@@ -450,15 +460,17 @@ export async function fetchSocialComments(postId: string): Promise<SocialComment
 
 export async function fetchSocialPostingContext(userId: string): Promise<SocialPostingContext> {
   const safeUserId = validateUuid(userId, "Utilisateur invalide");
-  const [{ data: profileRow, error: profileError }, { data: membershipRows, error: membershipError }] =
-    await Promise.all([
-      socialDb.from("profiles").select("id,display_name,avatar_url").eq("id", safeUserId).single(),
-      socialDb
-        .from("organizer_members")
-        .select("organizer_id,role,organizer:organizers(id,slug,name,logo_url,is_verified)")
-        .eq("user_id", safeUserId)
-        .in("role", ["owner", "admin", "editor"]),
-    ]);
+  const [
+    { data: profileRow, error: profileError },
+    { data: membershipRows, error: membershipError },
+  ] = await Promise.all([
+    socialDb.from("profiles").select("id,display_name,avatar_url").eq("id", safeUserId).single(),
+    socialDb
+      .from("organizer_members")
+      .select("organizer_id,role,organizer:organizers(id,slug,name,logo_url,is_verified)")
+      .eq("user_id", safeUserId)
+      .in("role", ["owner", "admin", "editor"]),
+  ]);
   if (profileError) throw profileError;
   if (membershipError) throw membershipError;
 
@@ -533,13 +545,9 @@ export function validateSocialFiles(files: File[]): void {
         `${file.name} n'est pas pris en charge. Formats acceptés : JPEG, PNG, WebP, GIF, MP4, WebM et MOV.`,
       );
     }
-    const limit = file.type.startsWith("video/")
-      ? SOCIAL_MAX_VIDEO_BYTES
-      : SOCIAL_MAX_IMAGE_BYTES;
+    const limit = file.type.startsWith("video/") ? SOCIAL_MAX_VIDEO_BYTES : SOCIAL_MAX_IMAGE_BYTES;
     if (file.size > limit) {
-      throw new Error(
-        `${file.name} dépasse la limite de ${Math.round(limit / 1024 / 1024)} Mio.`,
-      );
+      throw new Error(`${file.name} dépasse la limite de ${Math.round(limit / 1024 / 1024)} Mio.`);
     }
   }
 }
@@ -754,7 +762,9 @@ export async function createSocialComment(
   const { data, error } = await socialDb
     .from("social_comments")
     .insert({ post_id: safePostId, user_id: authData.user.id, body })
-    .select("id,post_id,user_id,body,status,author_display_name,author_avatar_url,created_at,updated_at")
+    .select(
+      "id,post_id,user_id,body,status,author_display_name,author_avatar_url,created_at,updated_at",
+    )
     .single();
   if (error) throw error;
   return {

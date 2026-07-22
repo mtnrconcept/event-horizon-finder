@@ -1906,8 +1906,7 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     campaign: rows[0] ?? null,
     global_discovery_backlog: backlog,
     backpressure: {
-      search_crawl_backpressure_active:
-        crawlBacklog > maximumCrawlBacklog - SEARCH_RESULT_LIMIT,
+      search_crawl_backpressure_active: crawlBacklog > maximumCrawlBacklog - SEARCH_RESULT_LIMIT,
       search_backpressure_reason:
         crawlBacklog > maximumCrawlBacklog - SEARCH_RESULT_LIMIT ? "crawl_backlog" : null,
       crawl_fetch_claims_blocked: persistenceBacklog >= maximumPersistenceBacklog,

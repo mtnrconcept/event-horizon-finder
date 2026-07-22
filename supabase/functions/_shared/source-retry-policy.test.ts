@@ -20,7 +20,12 @@ test("permanent source failures back off until the next daily or weekly cycle", 
 });
 
 test("transient upstream failures use a shorter but non-aggressive retry", () => {
-  for (const message of ["direct_timeout", "direct_http_429", "direct_http_503", "error sending request"]) {
+  for (const message of [
+    "direct_timeout",
+    "direct_http_429",
+    "direct_http_503",
+    "error sending request",
+  ]) {
     assert.equal(failureRetryDelayMs(message, "daily"), 2 * HOUR_MS);
     assert.equal(failureRetryDelayMs(message, "weekly"), 24 * HOUR_MS);
   }
