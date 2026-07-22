@@ -55,6 +55,7 @@ export type Database = {
       ad_campaigns: {
         Row: {
           body: string | null;
+          checkout_attempt: number;
           created_at: string;
           created_by: string;
           cta_label: string;
@@ -68,11 +69,15 @@ export type Database = {
           name: string;
           objective: string;
           organizer_id: string;
+          paid_at: string | null;
+          payment_status: string;
           placements: string[];
           promoted_event_id: string | null;
           promoted_post_id: string | null;
           starts_at: string;
           status: string;
+          stripe_checkout_session_id: string | null;
+          stripe_payment_intent_id: string | null;
           target_age_max: number | null;
           target_age_min: number | null;
           target_city_ids: string[];
@@ -82,6 +87,7 @@ export type Database = {
         };
         Insert: {
           body?: string | null;
+          checkout_attempt?: number;
           created_at?: string;
           created_by: string;
           cta_label?: string;
@@ -95,11 +101,15 @@ export type Database = {
           name: string;
           objective?: string;
           organizer_id: string;
+          paid_at?: string | null;
+          payment_status?: string;
           placements?: string[];
           promoted_event_id?: string | null;
           promoted_post_id?: string | null;
           starts_at?: string;
           status?: string;
+          stripe_checkout_session_id?: string | null;
+          stripe_payment_intent_id?: string | null;
           target_age_max?: number | null;
           target_age_min?: number | null;
           target_city_ids?: string[];
@@ -109,6 +119,7 @@ export type Database = {
         };
         Update: {
           body?: string | null;
+          checkout_attempt?: number;
           created_at?: string;
           created_by?: string;
           cta_label?: string;
@@ -122,11 +133,15 @@ export type Database = {
           name?: string;
           objective?: string;
           organizer_id?: string;
+          paid_at?: string | null;
+          payment_status?: string;
           placements?: string[];
           promoted_event_id?: string | null;
           promoted_post_id?: string | null;
           starts_at?: string;
           status?: string;
+          stripe_checkout_session_id?: string | null;
+          stripe_payment_intent_id?: string | null;
           target_age_max?: number | null;
           target_age_min?: number | null;
           target_city_ids?: string[];
@@ -2356,6 +2371,10 @@ export type Database = {
           impression_count: number;
           unique_reach: number;
         }[];
+      };
+      process_stripe_ad_event: {
+        Args: { _event_id: string; _event_type: string; _session: Json };
+        Returns: boolean;
       };
       gettransactionid: { Args: never; Returns: unknown };
       has_role: {

@@ -22,3 +22,9 @@ verify_jwt = false
 
 [functions.stripe-ad-webhook]
 verify_jwt = false
+
+[functions.create-ad-checkout]
+verify_jwt = true
+
+[functions.generate-ad-draft]
+verify_jwt = true
