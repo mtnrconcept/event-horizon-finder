@@ -32,6 +32,9 @@ type ProfileState = {
   home_city_id: string;
   birth_year: string;
   music_preferences: string[];
+  event_preferences: string[];
+  discovery_mood: "calm" | "balanced" | "social" | "surprise";
+  preferred_price: "any" | "free" | "budget" | "premium";
   analytics_consent: boolean;
   personalized_ads_consent: boolean;
 };
@@ -42,6 +45,9 @@ const EMPTY_PROFILE: ProfileState = {
   home_city_id: "",
   birth_year: "",
   music_preferences: [],
+  event_preferences: [],
+  discovery_mood: "balanced",
+  preferred_price: "any",
   analytics_consent: false,
   personalized_ads_consent: false,
 };
@@ -67,7 +73,7 @@ function Profile() {
         profileDb
           .from("profiles")
           .select(
-            "display_name,account_type,home_city_id,birth_year,music_preferences,analytics_consent,personalized_ads_consent,home_city:cities(name)",
+            "display_name,account_type,home_city_id,birth_year,music_preferences,event_preferences,discovery_mood,preferred_price,analytics_consent,personalized_ads_consent,home_city:cities(name)",
           )
           .eq("id", data.user.id)
           .maybeSingle(),
@@ -84,6 +90,9 @@ function Profile() {
           home_city_id: profileRow.home_city_id ?? "",
           birth_year: profileRow.birth_year ? String(profileRow.birth_year) : "",
           music_preferences: profileRow.music_preferences ?? [],
+          event_preferences: profileRow.event_preferences ?? [],
+          discovery_mood: profileRow.discovery_mood ?? "balanced",
+          preferred_price: profileRow.preferred_price ?? "any",
           analytics_consent: Boolean(profileRow.analytics_consent),
           personalized_ads_consent: Boolean(profileRow.personalized_ads_consent),
         });
@@ -113,6 +122,9 @@ function Profile() {
         home_city_id: profile.home_city_id || null,
         birth_year: profile.birth_year ? Number(profile.birth_year) : null,
         music_preferences: profile.music_preferences,
+        event_preferences: profile.event_preferences,
+        discovery_mood: profile.discovery_mood,
+        preferred_price: profile.preferred_price,
         analytics_consent: profile.analytics_consent,
         personalized_ads_consent: profile.personalized_ads_consent,
         consent_updated_at: new Date().toISOString(),
@@ -216,6 +228,83 @@ function Profile() {
               />
             </label>
           )}
+        </div>
+      </section>
+
+      <section className="glass mb-4 space-y-4 rounded-3xl p-5 md:p-6">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-primary">
+            {tr("Boussole IA")}
+          </p>
+          <h2 className="text-lg font-semibold">{tr("Mon profil de découverte")}</h2>
+          <p className="text-xs text-muted-foreground">
+            {tr("Ces choix explicites ont toujours priorité sur les signaux de navigation.")}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            ["concerts", "Concerts"],
+            ["soirees", "Soirées"],
+            ["festivals", "Festivals"],
+            ["culture", "Culture"],
+            ["sports", "Sports"],
+            ["famille", "Famille"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={profile.event_preferences.includes(value)}
+              onClick={() =>
+                setProfile((current) => ({
+                  ...current,
+                  event_preferences: current.event_preferences.includes(value)
+                    ? current.event_preferences.filter((item) => item !== value)
+                    : [...current.event_preferences, value],
+                }))
+              }
+              className={`rounded-full border px-3 py-1.5 text-xs ${profile.event_preferences.includes(value) ? "border-primary bg-primary text-primary-foreground" : ""}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="text-xs font-medium">
+            <span className="mb-1.5 block">{tr("Énergie recherchée")}</span>
+            <select
+              className="field-control"
+              value={profile.discovery_mood}
+              onChange={(event) =>
+                setProfile((current) => ({
+                  ...current,
+                  discovery_mood: event.target.value as ProfileState["discovery_mood"],
+                }))
+              }
+            >
+              <option value="calm">{tr("Ambiance calme")}</option>
+              <option value="balanced">{tr("Un peu de tout")}</option>
+              <option value="social">{tr("Très social")}</option>
+              <option value="surprise">{tr("Surprends-moi")}</option>
+            </select>
+          </label>
+          <label className="text-xs font-medium">
+            <span className="mb-1.5 block">{tr("Budget habituel")}</span>
+            <select
+              className="field-control"
+              value={profile.preferred_price}
+              onChange={(event) =>
+                setProfile((current) => ({
+                  ...current,
+                  preferred_price: event.target.value as ProfileState["preferred_price"],
+                }))
+              }
+            >
+              <option value="any">{tr("Tous les prix")}</option>
+              <option value="free">{tr("Gratuit")}</option>
+              <option value="budget">{tr("Petit budget")}</option>
+              <option value="premium">{tr("Premium")}</option>
+            </select>
+          </label>
         </div>
       </section>
 
