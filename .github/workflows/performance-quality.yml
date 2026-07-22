@@ -46,6 +46,7 @@ jobs:
           npm run test:mcp
           npm run test:i18n
           npm run test:translations
+          npm run test:performance
 
       - name: Production build
         run: npm run build
