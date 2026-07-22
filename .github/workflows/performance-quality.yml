@@ -53,3 +53,9 @@ jobs:
 
       - name: Bundle budget
         run: npm run check:bundle
+
+      - name: Vercel production build
+        run: |
+          npm run build:vercel
+          test -f .vercel/output/config.json
+          test -f .vercel/output/functions/__server.func/index.mjs

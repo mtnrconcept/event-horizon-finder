@@ -66,6 +66,21 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Vercel production build
+        id: vercel_build
+        shell: bash
+        run: |
+          set +e
+          npm run build:vercel 2>&1 | tee vercel-build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" = "0" ]; then
+            test -f .vercel/output/config.json && \
+              test -f .vercel/output/functions/__server.func/index.mjs
+            code=$?
+          fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Upload validation diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -75,6 +90,7 @@ jobs:
             typecheck.log
             mcp-tests.log
             production-build.log
+            vercel-build.log
           if-no-files-found: error
           retention-days: 7
 
@@ -102,6 +118,8 @@ jobs:
           echo "Build: ${{ steps.build.outputs.exit_code }}"
           echo "TypeScript: ${{ steps.typecheck.outputs.exit_code }}"
           echo "MCP tests: ${{ steps.mcp.outputs.exit_code }}"
+          echo "Vercel build: ${{ steps.vercel_build.outputs.exit_code }}"
           test "${{ steps.build.outputs.exit_code }}" = "0"
           test "${{ steps.typecheck.outputs.exit_code }}" = "0"
           test "${{ steps.mcp.outputs.exit_code }}" = "0"
+          test "${{ steps.vercel_build.outputs.exit_code }}" = "0"
