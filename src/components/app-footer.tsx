@@ -75,7 +75,7 @@ export function AppFooter() {
       </div>
       <div className="border-t">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
-          <p>© {new Date().getFullYear()} Global Party. {tr("Tous droits réservés.")}</p>
+          <p>© {new Date().getFullYear()} {"Global Party."} {tr("Tous droits réservés.")}</p>
           <div className="flex flex-wrap gap-4">
             <Link to="/help" className="inline-flex items-center gap-1.5 hover:text-foreground"><HelpCircle className="h-3.5 w-3.5" /> {tr("Aide")}</Link>
             <Link to="/settings" className="inline-flex items-center gap-1.5 hover:text-foreground"><Settings className="h-3.5 w-3.5" /> {tr("Paramètres")}</Link>
