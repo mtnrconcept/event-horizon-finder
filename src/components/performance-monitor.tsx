@@ -16,13 +16,15 @@ type LayoutShiftEntry = PerformanceEntry & { value: number; hadRecentInput: bool
 type InteractionEntry = PerformanceEntry & { duration: number; interactionId: number };
 
 function ratingFor(name: MetricName, value: number): MetricRating {
-  if (name === "LCP") return value <= 2_500 ? "good" : value <= 4_000 ? "needs-improvement" : "poor";
+  if (name === "LCP")
+    return value <= 2_500 ? "good" : value <= 4_000 ? "needs-improvement" : "poor";
   if (name === "CLS") return value <= 0.1 ? "good" : value <= 0.25 ? "needs-improvement" : "poor";
   return value <= 200 ? "good" : value <= 500 ? "needs-improvement" : "poor";
 }
 
 function navigationType() {
-  const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  const entry = performance.getEntriesByType("navigation")[0] as
+    PerformanceNavigationTiming | undefined;
   return entry?.type ?? "navigate";
 }
 
@@ -36,7 +38,9 @@ function publishMetric(name: MetricName, value: number) {
     timestamp: Date.now(),
   };
 
-  window.dispatchEvent(new CustomEvent<PerformanceMetric>("global-party:performance", { detail: metric }));
+  window.dispatchEvent(
+    new CustomEvent<PerformanceMetric>("global-party:performance", { detail: metric }),
+  );
   if (import.meta.env.DEV) console.info("[performance]", metric);
 }
 

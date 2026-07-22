@@ -5,7 +5,17 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
 
 test("service worker excludes sensitive and authenticated routes", () => {
-  for (const route of ["/auth", "/profile", "/favorites", "/agenda", "/organizer", "/admin", "/settings", "/mcp", "/api"]) {
+  for (const route of [
+    "/auth",
+    "/profile",
+    "/favorites",
+    "/agenda",
+    "/organizer",
+    "/admin",
+    "/settings",
+    "/mcp",
+    "/api",
+  ]) {
     assert.match(source, new RegExp(route.replace("/", "\\/")));
   }
 });

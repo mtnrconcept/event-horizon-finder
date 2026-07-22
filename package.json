@@ -21,7 +21,7 @@
     "test:translations": "node --test tests/event-content-translations.test.ts",
     "test:performance": "node --test tests/service-worker-safety.test.ts tests/performance-monitor-contract.test.ts",
     "check:bundle": "node scripts/check-bundle-budget.mjs",
-    "check": "npm run check:routes && npm run typecheck && npm run test:map && npm run test:mcp && npm run test:i18n && npm run test:translations && npm run test:performance && npm run build && npm run check:bundle",
+    "check": "npm run lint && npm run check:routes && npm run typecheck && npm run test:map && npm run test:mcp && npm run test:i18n && npm run test:translations && npm run test:performance && npm run build && npm run check:bundle",
     "format": "prettier --write ."
   },
   "dependencies": {

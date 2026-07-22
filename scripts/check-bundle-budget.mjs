@@ -55,9 +55,15 @@ for (const asset of [...measurements].sort((a, b) => b.gzip - a.gzip).slice(0, 1
 }
 
 const failures = [];
-if (totalJsGzip > limits.totalJavaScriptGzip) failures.push(`JavaScript total supérieur au budget (${kb(totalJsGzip)})`);
-if (totalCssGzip > limits.totalCssGzip) failures.push(`CSS total supérieur au budget (${kb(totalCssGzip)})`);
-failures.push(...oversized.map((asset) => `Chunk JavaScript trop volumineux : ${asset.path} (${kb(asset.gzip)})`));
+if (totalJsGzip > limits.totalJavaScriptGzip)
+  failures.push(`JavaScript total supérieur au budget (${kb(totalJsGzip)})`);
+if (totalCssGzip > limits.totalCssGzip)
+  failures.push(`CSS total supérieur au budget (${kb(totalCssGzip)})`);
+failures.push(
+  ...oversized.map(
+    (asset) => `Chunk JavaScript trop volumineux : ${asset.path} (${kb(asset.gzip)})`,
+  ),
+);
 
 if (failures.length) {
   console.error("\nBudget de performance dépassé :");

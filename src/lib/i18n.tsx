@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { UI_TRANSLATIONS, translateUiPhrase, type UiTranslationPhrase } from "@/lib/ui-translations";
+import {
+  UI_TRANSLATIONS,
+  translateUiPhrase,
+  type UiTranslationPhrase,
+} from "@/lib/ui-translations";
 import { translateCategory, translateGenre } from "@/lib/taxonomy-translations";
 
 export const SUPPORTED_LOCALES = ["fr", "en", "pl", "it", "ru", "es"] as const;

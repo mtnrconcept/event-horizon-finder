@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  handleMcpRequest,
-  TOOLS,
-  WIDGET_MIME_TYPE,
-  WIDGET_URI,
-} from "../src/lib/mcp-server.ts";
+import { handleMcpRequest, TOOLS, WIDGET_MIME_TYPE, WIDGET_URI } from "../src/lib/mcp-server.ts";
 
 function rpcRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("https://eventa.example/mcp", {
@@ -78,7 +73,10 @@ test("MCP tools/list returns descriptors with ChatGPT metadata", async () => {
     payload.result.tools.map((tool) => tool.name),
     ["search", "fetch", "discover_events", "upcoming_events", "search_help"],
   );
-  assert.equal(payload.result.tools[0]._meta["openai/toolInvocation/invoking"], "Recherche des événements…");
+  assert.equal(
+    payload.result.tools[0]._meta["openai/toolInvocation/invoking"],
+    "Recherche des événements…",
+  );
 });
 
 test("MCP lists and reads the self-contained event widget", async () => {
@@ -132,7 +130,10 @@ test("MCP health endpoint is available with GET and HEAD", async () => {
   };
   assert.equal(payload.status, "ok");
   assert.equal(payload.version, "2.0.0");
-  assert.deepEqual(payload.tools, TOOLS.map((tool) => tool.name));
+  assert.deepEqual(
+    payload.tools,
+    TOOLS.map((tool) => tool.name),
+  );
   assert.equal(payload.widget, WIDGET_URI);
 
   const headResponse = await handleMcpRequest(
@@ -179,5 +180,8 @@ test("MCP supports JSON-RPC batches and preserves notification semantics", async
   );
   assert.equal(response.status, 200);
   const payload = (await response.json()) as Array<{ id: number }>;
-  assert.deepEqual(payload.map((item) => item.id), [1, 2]);
+  assert.deepEqual(
+    payload.map((item) => item.id),
+    [1, 2],
+  );
 });

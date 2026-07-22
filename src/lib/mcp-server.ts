@@ -45,7 +45,8 @@ type EventDetailRow = {
   status: string;
   genres: string[] | null;
   category: { slug: string; name_fr: string } | { slug: string; name_fr: string }[] | null;
-  organizer: { name: string; website: string | null } | { name: string; website: string | null }[] | null;
+  organizer:
+    { name: string; website: string | null } | { name: string; website: string | null }[] | null;
   venue:
     | {
         name: string;
@@ -163,7 +164,19 @@ const EVENT_OUTPUT_SCHEMA = {
           wheelchair_accessible: { type: "boolean" },
           image_url: { type: ["string", "null"] },
         },
-        required: ["id", "occurrence_id", "title", "url", "genres", "starts_at", "timezone", "free", "verified", "tickets_available", "wheelchair_accessible"],
+        required: [
+          "id",
+          "occurrence_id",
+          "title",
+          "url",
+          "genres",
+          "starts_at",
+          "timezone",
+          "free",
+          "verified",
+          "tickets_available",
+          "wheelchair_accessible",
+        ],
         additionalProperties: false,
       },
     },
@@ -254,7 +267,14 @@ const TOOLS = [
       "Search Global Party's public event catalogue by keywords, artist, venue or city. Use this first for broad catalogue research, then call fetch with one returned id for authoritative details.",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", minLength: 1, maxLength: 200, description: "Keywords, artist, venue, city or event name" } },
+      properties: {
+        query: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Keywords, artist, venue, city or event name",
+        },
+      },
       required: ["query"],
       additionalProperties: false,
     },
@@ -270,7 +290,14 @@ const TOOLS = [
       "Fetch the full authoritative public details for one Global Party event. Accepts an event UUID or slug returned by search or discover_events.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", minLength: 1, maxLength: 180, description: "Global Party event UUID or slug" } },
+      properties: {
+        id: {
+          type: "string",
+          minLength: 1,
+          maxLength: 180,
+          description: "Global Party event UUID or slug",
+        },
+      },
       required: ["id"],
       additionalProperties: false,
     },
@@ -287,17 +314,32 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", maxLength: 200, description: "Optional artist, venue or event keywords" },
-        city: { type: "string", maxLength: 100, description: "City name, for example Geneva or Paris" },
+        query: {
+          type: "string",
+          maxLength: 200,
+          description: "Optional artist, venue or event keywords",
+        },
+        city: {
+          type: "string",
+          maxLength: 100,
+          description: "City name, for example Geneva or Paris",
+        },
         country: { type: "string", maxLength: 80, description: "Country name or ISO code" },
         date_from: { type: "string", format: "date-time", description: "Inclusive ISO-8601 start" },
         date_to: { type: "string", format: "date-time", description: "Exclusive ISO-8601 end" },
         categories: {
           type: "array",
-          items: { type: "string", enum: ["concerts", "festivals", "soirees", "expositions", "theatre", "famille"] },
+          items: {
+            type: "string",
+            enum: ["concerts", "festivals", "soirees", "expositions", "theatre", "famille"],
+          },
           maxItems: 6,
         },
-        genres: { type: "array", items: { type: "string", minLength: 1, maxLength: 60 }, maxItems: 12 },
+        genres: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 60 },
+          maxItems: 12,
+        },
         free_only: { type: "boolean", default: false },
         tickets_only: { type: "boolean", default: false },
         verified_only: { type: "boolean", default: false },
@@ -360,7 +402,8 @@ function publicConfig() {
   } catch {
     throw new Error("Global Party public catalogue is temporarily unavailable.");
   }
-  if (parsed.protocol !== "https:") throw new Error("Global Party public catalogue is temporarily unavailable.");
+  if (parsed.protocol !== "https:")
+    throw new Error("Global Party public catalogue is temporarily unavailable.");
   return { url: parsed.origin, key };
 }
 
@@ -382,7 +425,10 @@ async function postgrest<T>(path: string, init?: RequestInit): Promise<T> {
       signal: controller.signal,
     });
     if (!response.ok) {
-      console.error("[mcp] catalogue request failed", { status: response.status, path: path.split("?")[0] });
+      console.error("[mcp] catalogue request failed", {
+        status: response.status,
+        path: path.split("?")[0],
+      });
       throw new Error("Global Party catalogue request failed.");
     }
     return (await response.json()) as T;
@@ -410,7 +456,9 @@ function safeLookupTerm(value: unknown, maxLength: number) {
 
 function safeIso(value: unknown, fallback: Date) {
   const text = safeText(value, 40);
-  return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : fallback.toISOString();
+  return text && Number.isFinite(Date.parse(text))
+    ? new Date(text).toISOString()
+    : fallback.toISOString();
 }
 
 function canonicalBase(request: Request) {
@@ -440,10 +488,18 @@ async function resolveCountryId(country: string) {
   if (!term) return null;
   const query = new URLSearchParams({ select: "id,code,name", limit: "10" });
   query.set("or", `(code.ilike.${term},name.ilike.*${term}*)`);
-  const rows = await postgrest<Array<{ id: string; code: string; name: string }>>(`countries?${query}`);
+  const rows = await postgrest<Array<{ id: string; code: string; name: string }>>(
+    `countries?${query}`,
+  );
   const normalized = term.toLocaleLowerCase();
   return (
-    (rows.find((row) => row.code.toLocaleLowerCase() === normalized || row.name.toLocaleLowerCase() === normalized) ?? rows[0])?.id ?? null
+    (
+      rows.find(
+        (row) =>
+          row.code.toLocaleLowerCase() === normalized ||
+          row.name.toLocaleLowerCase() === normalized,
+      ) ?? rows[0]
+    )?.id ?? null
   );
 }
 
@@ -453,10 +509,16 @@ async function resolveCityId(city: string, countryId: string | null) {
   const query = new URLSearchParams({ select: "id,name,slug", limit: "20" });
   query.set("name", `ilike.*${term}*`);
   if (countryId) query.set("country_id", `eq.${countryId}`);
-  const rows = await postgrest<Array<{ id: string; name: string; slug: string }>>(`cities?${query}`);
+  const rows = await postgrest<Array<{ id: string; name: string; slug: string }>>(
+    `cities?${query}`,
+  );
   const normalized = term.toLocaleLowerCase();
   return (
-    (rows.find((row) => row.name.toLocaleLowerCase() === normalized) ?? rows.find((row) => row.name.toLocaleLowerCase().startsWith(normalized)) ?? rows[0])?.id ?? null
+    (
+      rows.find((row) => row.name.toLocaleLowerCase() === normalized) ??
+      rows.find((row) => row.name.toLocaleLowerCase().startsWith(normalized)) ??
+      rows[0]
+    )?.id ?? null
   );
 }
 
@@ -508,7 +570,11 @@ async function discover(request: Request, args: Record<string, unknown>) {
   const genres = normalizeStringArray(args.genres, 12, 60);
   if (categories?.length) body._category_slugs = categories;
   if (genres?.length) body._genres = genres;
-  if (typeof args.max_price === "number" && Number.isFinite(args.max_price) && args.max_price >= 0) {
+  if (
+    typeof args.max_price === "number" &&
+    Number.isFinite(args.max_price) &&
+    args.max_price >= 0
+  ) {
     body._price_max = Math.min(args.max_price, 100_000);
   }
 
@@ -559,8 +625,10 @@ async function discover(request: Request, args: Record<string, unknown>) {
 async function searchTool(request: Request, args: Record<string, unknown>) {
   const query = safeText(args.query, 200);
   if (!query) throw new Error("query is required");
-  let payload: { events: EventCard[]; applied_filters: Record<string, unknown> } =
-    await discover(request, { query, limit: 10 });
+  let payload: { events: EventCard[]; applied_filters: Record<string, unknown> } = await discover(
+    request,
+    { query, limit: 10 },
+  );
   if (!payload.events.length) {
     const cityId = await resolveCityId(query, null);
     if (cityId) {
@@ -568,7 +636,13 @@ async function searchTool(request: Request, args: Record<string, unknown>) {
       const oneYear = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1_000);
       const rows = await postgrest<DiscoveredEventRow[]>("rpc/discover_events", {
         method: "POST",
-        body: JSON.stringify({ _city_id: cityId, _from: now.toISOString(), _to: oneYear.toISOString(), _limit: 10, _offset: 0 }),
+        body: JSON.stringify({
+          _city_id: cityId,
+          _from: now.toISOString(),
+          _to: oneYear.toISOString(),
+          _limit: 10,
+          _offset: 0,
+        }),
       });
       payload = {
         events: rows.map((row) => ({
@@ -605,9 +679,12 @@ async function searchTool(request: Request, args: Record<string, unknown>) {
 async function fetchTool(request: Request, args: Record<string, unknown>) {
   const rawId = safeText(args.id, 180);
   if (!rawId) throw new Error("id is required");
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId);
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    rawId,
+  );
   const id = isUuid ? rawId : rawId.toLocaleLowerCase();
-  if (!isUuid && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error("Invalid event id or slug");
+  if (!isUuid && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
+    throw new Error("Invalid event id or slug");
   const select =
     "id,slug,title,short_description,description,official_url,cover_image_url,is_free,is_verified,status,genres,category:event_categories(slug,name_fr),organizer:organizers(name,website),venue:venues(name,address,postal_code,city:cities(name,timezone,country:countries(code,name),region:regions(name))),occurrences:event_occurrences(starts_at,ends_at,timezone),offers:ticket_offers(name,price_min,price_max,currency,is_free,ticket_url,status)";
   const query = new URLSearchParams({ select, limit: "1", status: "eq.published" });
@@ -615,7 +692,9 @@ async function fetchTool(request: Request, args: Record<string, unknown>) {
   const rows = await postgrest<EventDetailRow[]>(`events?${query}`);
   const event = rows[0];
   if (!event) throw new Error("Event not found");
-  const occurrence = [...(event.occurrences ?? [])].sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
+  const occurrence = [...(event.occurrences ?? [])].sort((a, b) =>
+    a.starts_at.localeCompare(b.starts_at),
+  )[0];
   const offer = (event.offers ?? [])[0];
   const venue = firstRelation(event.venue);
   const city = firstRelation(venue?.city);
@@ -623,22 +702,40 @@ async function fetchTool(request: Request, args: Record<string, unknown>) {
   const region = firstRelation(city?.region);
   const category = firstRelation(event.category);
   const organizer = firstRelation(event.organizer);
-  const location = [venue?.name, venue?.address, venue?.postal_code, city?.name, region?.name, country?.name].filter(Boolean).join(", ");
-  const price = offer?.is_free || event.is_free
-    ? "Free"
-    : offer
-      ? `${[offer.price_min, offer.price_max].filter((value) => value != null).join(" – ")}${offer.currency ? ` ${offer.currency}` : ""}`
-      : "Not specified";
+  const location = [
+    venue?.name,
+    venue?.address,
+    venue?.postal_code,
+    city?.name,
+    region?.name,
+    country?.name,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const price =
+    offer?.is_free || event.is_free
+      ? "Free"
+      : offer
+        ? `${[offer.price_min, offer.price_max].filter((value) => value != null).join(" – ")}${offer.currency ? ` ${offer.currency}` : ""}`
+        : "Not specified";
   const text = [
     event.short_description,
     event.description,
-    occurrence ? `Date: ${occurrence.starts_at}${occurrence.ends_at ? ` to ${occurrence.ends_at}` : ""} (${occurrence.timezone})` : null,
+    occurrence
+      ? `Date: ${occurrence.starts_at}${occurrence.ends_at ? ` to ${occurrence.ends_at}` : ""} (${occurrence.timezone})`
+      : null,
     location ? `Location: ${location}` : null,
     `Price: ${price}`,
     event.genres?.length ? `Music styles: ${event.genres.join(", ")}` : null,
     organizer?.name ? `Organizer: ${organizer.name}` : null,
-    offer?.ticket_url ? `Tickets: ${offer.ticket_url}` : event.official_url ? `Official page: ${event.official_url}` : null,
-  ].filter(Boolean).join("\n\n");
+    offer?.ticket_url
+      ? `Tickets: ${offer.ticket_url}`
+      : event.official_url
+        ? `Official page: ${event.official_url}`
+        : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const url = eventUrl(request, event.slug);
   return {
     id: event.id,
@@ -696,19 +793,55 @@ async function searchHelp(request: Request, args: Record<string, unknown>) {
   });
   faqParams.set("or", `(question.ilike.*${query}*,answer_markdown.ilike.*${query}*)`);
   const [articles, faqs] = await Promise.all([
-    postgrest<Array<{ id: string; slug: string; title: string; excerpt: string | null }>>(`help_articles?${articleParams}`),
-    postgrest<Array<{ id: string; question: string; answer_markdown: string; category: string }>>(`faq_items?${faqParams}`),
+    postgrest<Array<{ id: string; slug: string; title: string; excerpt: string | null }>>(
+      `help_articles?${articleParams}`,
+    ),
+    postgrest<Array<{ id: string; question: string; answer_markdown: string; category: string }>>(
+      `faq_items?${faqParams}`,
+    ),
   ]);
   const base = canonicalBase(request);
   const results: HelpResult[] = [
-    ...articles.map((article) => ({ id: article.id, title: article.title, excerpt: article.excerpt ?? "", url: `${base}/help?q=${encodeURIComponent(article.title)}`, kind: "article" as const })),
-    ...faqs.map((faq) => ({ id: faq.id, title: faq.question, excerpt: faq.answer_markdown.slice(0, 280), url: `${base}/faq?q=${encodeURIComponent(faq.question)}`, kind: "faq" as const })),
+    ...articles.map((article) => ({
+      id: article.id,
+      title: article.title,
+      excerpt: article.excerpt ?? "",
+      url: `${base}/help?q=${encodeURIComponent(article.title)}`,
+      kind: "article" as const,
+    })),
+    ...faqs.map((faq) => ({
+      id: faq.id,
+      title: faq.question,
+      excerpt: faq.answer_markdown.slice(0, 280),
+      url: `${base}/faq?q=${encodeURIComponent(faq.question)}`,
+      kind: "faq" as const,
+    })),
   ];
   const legal = [
-    { id: "privacy", title: "Politique de confidentialité", excerpt: "Données, finalités, destinataires et droits.", url: `${base}/privacy`, kind: "legal" as const },
-    { id: "cookies", title: "Politique de cookies", excerpt: "Stockages nécessaires et choix facultatifs.", url: `${base}/cookies`, kind: "legal" as const },
-    { id: "terms", title: "Conditions générales d’utilisation", excerpt: "Règles du service et de la communauté.", url: `${base}/terms`, kind: "legal" as const },
-  ].filter((item) => `${item.title} ${item.excerpt}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+    {
+      id: "privacy",
+      title: "Politique de confidentialité",
+      excerpt: "Données, finalités, destinataires et droits.",
+      url: `${base}/privacy`,
+      kind: "legal" as const,
+    },
+    {
+      id: "cookies",
+      title: "Politique de cookies",
+      excerpt: "Stockages nécessaires et choix facultatifs.",
+      url: `${base}/cookies`,
+      kind: "legal" as const,
+    },
+    {
+      id: "terms",
+      title: "Conditions générales d’utilisation",
+      excerpt: "Règles du service et de la communauté.",
+      url: `${base}/terms`,
+      kind: "legal" as const,
+    },
+  ].filter((item) =>
+    `${item.title} ${item.excerpt}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+  );
   return { results: [...results, ...legal].slice(0, 15) };
 }
 
@@ -726,13 +859,18 @@ function toolResult(structuredContent: unknown, summary?: string, meta?: Record<
 
 async function callTool(request: Request, params: Record<string, unknown>) {
   const name = safeText(params.name, 80);
-  const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments)
-    ? (params.arguments as Record<string, unknown>)
-    : {};
+  const args =
+    params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments)
+      ? (params.arguments as Record<string, unknown>)
+      : {};
 
   if (name === "search") {
     const payload = await searchTool(request, args);
-    return toolResult({ results: payload.results }, `Found ${payload.results.length} Global Party events.`, { events: payload.events });
+    return toolResult(
+      { results: payload.results },
+      `Found ${payload.results.length} Global Party events.`,
+      { events: payload.events },
+    );
   }
   if (name === "fetch") {
     const payload = await fetchTool(request, args);
@@ -740,7 +878,10 @@ async function callTool(request: Request, params: Record<string, unknown>) {
   }
   if (name === "discover_events") {
     const payload = await discover(request, args);
-    return toolResult(payload, `Found ${payload.events.length} events matching the requested filters.`);
+    return toolResult(
+      payload,
+      `Found ${payload.events.length} events matching the requested filters.`,
+    );
   }
   if (name === "upcoming_events") {
     const days = Math.min(Math.max(Math.trunc(Number(args.days)) || 30, 1), 180);
@@ -752,7 +893,10 @@ async function callTool(request: Request, params: Record<string, unknown>) {
       date_to: new Date(now.getTime() + days * 24 * 60 * 60 * 1_000).toISOString(),
       limit: args.limit,
     });
-    return toolResult(payload, `Found ${payload.events.length} upcoming events for the next ${days} days.`);
+    return toolResult(
+      payload,
+      `Found ${payload.events.length} upcoming events for the next ${days} days.`,
+    );
   }
   if (name === "search_help") {
     const payload = await searchHelp(request, args);
@@ -805,7 +949,8 @@ function resourceContents(request: Request) {
         domain: base,
         csp: { connectDomains: [], resourceDomains },
       },
-      "openai/widgetDescription": "Displays Global Party event recommendations as compact date cards with city, venue, price and accessibility indicators.",
+      "openai/widgetDescription":
+        "Displays Global Party event recommendations as compact date cards with city, venue, price and accessibility indicators.",
       "openai/widgetPrefersBorder": true,
       "openai/widgetCSP": { connect_domains: [], resource_domains: resourceDomains },
     },
@@ -824,7 +969,9 @@ async function processMessage(request: Request, message: JsonRpcRequest) {
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : DEFAULT_PROTOCOL_VERSION,
+          protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+            ? requested
+            : DEFAULT_PROTOCOL_VERSION,
           capabilities: {
             tools: { listChanged: false },
             resources: { subscribe: false, listChanged: false },
@@ -837,14 +984,18 @@ async function processMessage(request: Request, message: JsonRpcRequest) {
     }
     if (message.method === "ping") return { jsonrpc: "2.0", id, result: {} };
     if (message.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
-    if (message.method === "tools/call") return { jsonrpc: "2.0", id, result: await callTool(request, message.params ?? {}) };
-    if (message.method === "resources/list") return { jsonrpc: "2.0", id, result: { resources: [resourceDescriptor()] } };
+    if (message.method === "tools/call")
+      return { jsonrpc: "2.0", id, result: await callTool(request, message.params ?? {}) };
+    if (message.method === "resources/list")
+      return { jsonrpc: "2.0", id, result: { resources: [resourceDescriptor()] } };
     if (message.method === "resources/read") {
       const uri = safeText(message.params?.uri, 300);
-      if (uri !== WIDGET_URI) return { jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found" } };
+      if (uri !== WIDGET_URI)
+        return { jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found" } };
       return { jsonrpc: "2.0", id, result: { contents: [resourceContents(request)] } };
     }
-    if (message.method === "resources/templates/list") return { jsonrpc: "2.0", id, result: { resourceTemplates: [] } };
+    if (message.method === "resources/templates/list")
+      return { jsonrpc: "2.0", id, result: { resourceTemplates: [] } };
     if (message.method === "prompts/list") return { jsonrpc: "2.0", id, result: { prompts: [] } };
     return { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } };
   } catch (error) {
@@ -881,7 +1032,8 @@ export async function handleMcpRequest(request: Request) {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "authorization, content-type, accept, mcp-protocol-version, mcp-session-id, last-event-id",
+        "Access-Control-Allow-Headers":
+          "authorization, content-type, accept, mcp-protocol-version, mcp-session-id, last-event-id",
         "Access-Control-Max-Age": "86400",
       },
     });
@@ -911,10 +1063,17 @@ export async function handleMcpRequest(request: Request) {
 
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Request body too large" } }), {
-      status: 413,
-      headers: responseHeaders(),
-    });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "Request body too large" },
+      }),
+      {
+        status: 413,
+        headers: responseHeaders(),
+      },
+    );
   }
 
   let raw = "";
@@ -922,35 +1081,69 @@ export async function handleMcpRequest(request: Request) {
     raw = await request.text();
     if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) throw new Error("too-large");
   } catch (error) {
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: error instanceof Error && error.message === "too-large" ? "Request body too large" : "Unable to read request" } }), {
-      status: error instanceof Error && error.message === "too-large" ? 413 : 400,
-      headers: responseHeaders(),
-    });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32600,
+          message:
+            error instanceof Error && error.message === "too-large"
+              ? "Request body too large"
+              : "Unable to read request",
+        },
+      }),
+      {
+        status: error instanceof Error && error.message === "too-large" ? 413 : 400,
+        headers: responseHeaders(),
+      },
+    );
   }
 
   let payload: JsonRpcRequest | JsonRpcRequest[];
   try {
     payload = JSON.parse(raw) as JsonRpcRequest | JsonRpcRequest[];
   } catch {
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }), {
-      status: 400,
-      headers: responseHeaders(),
-    });
+    return new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }),
+      {
+        status: 400,
+        headers: responseHeaders(),
+      },
+    );
   }
 
   const requestedProtocol = safeText(request.headers.get("mcp-protocol-version"), 30);
-  const protocol = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedProtocol) ? requestedProtocol : DEFAULT_PROTOCOL_VERSION;
-  const headers = { ...responseHeaders(protocol), "Server-Timing": `app;dur=${Date.now() - startedAt}` };
+  const protocol = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedProtocol)
+    ? requestedProtocol
+    : DEFAULT_PROTOCOL_VERSION;
+  const headers = {
+    ...responseHeaders(protocol),
+    "Server-Timing": `app;dur=${Date.now() - startedAt}`,
+  };
 
   if (Array.isArray(payload)) {
     if (!payload.length) {
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } }), {
-        status: 400,
-        headers,
-      });
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "Invalid Request" },
+        }),
+        {
+          status: 400,
+          headers,
+        },
+      );
     }
     const responses = (
-      await Promise.all(payload.map((message) => message && typeof message === "object" && message.id !== undefined ? processMessage(request, message) : Promise.resolve(null)))
+      await Promise.all(
+        payload.map((message) =>
+          message && typeof message === "object" && message.id !== undefined
+            ? processMessage(request, message)
+            : Promise.resolve(null),
+        ),
+      )
     ).filter(Boolean);
     return responses.length
       ? new Response(JSON.stringify(responses), { headers })
@@ -958,7 +1151,14 @@ export async function handleMcpRequest(request: Request) {
   }
 
   if (!payload || typeof payload !== "object") {
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } }), { status: 400, headers });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "Invalid Request" },
+      }),
+      { status: 400, headers },
+    );
   }
   if (payload.id === undefined) return new Response(null, { status: 202, headers });
   return new Response(JSON.stringify(await processMessage(request, payload)), { headers });

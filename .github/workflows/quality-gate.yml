@@ -31,10 +31,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        id: lint
+        shell: bash
+        run: |
+          set +e
+          npm run lint 2>&1 | tee eslint.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Production build and route generation
         id: build
@@ -98,6 +108,7 @@ jobs:
           name: quality-diagnostics
           path: |
             typecheck.log
+            eslint.log
             mcp-tests.log
             production-build.log
             route-check.log
@@ -127,11 +138,13 @@ jobs:
         shell: bash
         run: |
           echo "Build: ${{ steps.build.outputs.exit_code }}"
+          echo "ESLint: ${{ steps.lint.outputs.exit_code }}"
           echo "TypeScript: ${{ steps.typecheck.outputs.exit_code }}"
           echo "Routes: ${{ steps.routes.outputs.exit_code }}"
           echo "MCP tests: ${{ steps.mcp.outputs.exit_code }}"
           echo "Vercel build: ${{ steps.vercel_build.outputs.exit_code }}"
           test "${{ steps.build.outputs.exit_code }}" = "0"
+          test "${{ steps.lint.outputs.exit_code }}" = "0"
           test "${{ steps.typecheck.outputs.exit_code }}" = "0"
           test "${{ steps.routes.outputs.exit_code }}" = "0"
           test "${{ steps.mcp.outputs.exit_code }}" = "0"

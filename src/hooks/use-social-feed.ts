@@ -77,9 +77,21 @@ export function useSocialFeed(filter: SocialFeedFilter, userId: string | null) {
     const channel = supabase
       .channel(`social-feed-${filter}-${userId ?? "anonymous"}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "social_posts" }, invalidate)
-      .on("postgres_changes", { event: "*", schema: "public", table: "social_comments" }, invalidate)
-      .on("postgres_changes", { event: "*", schema: "public", table: "social_post_likes" }, invalidate)
-      .on("postgres_changes", { event: "*", schema: "public", table: "social_post_saves" }, invalidate)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "social_comments" },
+        invalidate,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "social_post_likes" },
+        invalidate,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "social_post_saves" },
+        invalidate,
+      )
       .subscribe();
     return () => {
       if (timer) clearTimeout(timer);
