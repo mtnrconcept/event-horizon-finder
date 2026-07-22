@@ -103,16 +103,16 @@ export function DesktopHeader() {
         <div className="ml-auto flex items-center gap-1">
           <Link
             to="/help"
-            aria-label="Centre d’aide"
-            title="Centre d’aide"
+            aria-label={t("nav.help")}
+            title={t("nav.help")}
             className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/help") || pathname.startsWith("/faq") ? "text-primary" : "text-muted-foreground"}`}
           >
             <CircleHelp className="h-5 w-5" />
           </Link>
           <Link
             to="/settings"
-            aria-label="Paramètres"
-            title="Paramètres"
+            aria-label={t("nav.settings")}
+            title={t("nav.settings")}
             className={`grid h-10 w-10 place-items-center rounded-full transition hover:bg-accent ${pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground"}`}
           >
             <Settings className="h-5 w-5" />
