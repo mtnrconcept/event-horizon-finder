@@ -39,6 +39,8 @@ import { EventFilterPanel } from "@/components/event-filter-panel";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TargetedCampaigns } from "@/components/targeted-campaigns";
+import { PersonalizedEventRail } from "@/components/personalized-event-rail";
+import { recordSearchInterest } from "@/lib/personalized-discovery";
 import { GeographyFilter, type GeographySelection } from "@/components/geography-filter";
 import {
   countAdvancedFilters,
@@ -162,6 +164,12 @@ function Discover() {
   const deferredQuery = useDeferredValue(query.trim());
   const advancedCount = countAdvancedFilters(advancedFilters);
   const viewportHeight = useVisualViewportHeight();
+
+  useEffect(() => {
+    if (deferredQuery.length < 3) return;
+    const timer = window.setTimeout(() => void recordSearchInterest(deferredQuery), 1200);
+    return () => window.clearTimeout(timer);
+  }, [deferredQuery]);
 
   useEffect(() => {
     if (!mobileFiltersOpen) return;
@@ -572,6 +580,8 @@ function Discover() {
       </section>
 
       <TargetedCampaigns placement="discover" />
+
+      {landingMode && <PersonalizedEventRail />}
 
       <section className="mb-7" aria-labelledby="vibe-title">
         <div className="mb-3 flex items-end justify-between gap-3">

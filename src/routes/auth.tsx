@@ -9,6 +9,14 @@ import { useTranslation } from "@/lib/i18n";
 
 type AuthSearch = { redirect?: string };
 type AccountType = "client" | "organizer";
+const EVENT_PREFERENCES = [
+  ["concerts", "Concerts"],
+  ["soirees", "Soirées"],
+  ["festivals", "Festivals"],
+  ["culture", "Culture"],
+  ["sports", "Sports"],
+  ["famille", "Famille"],
+] as const;
 
 // A fixed invalid origin is only used to validate relative redirects. The
 // actual post-authentication destination always uses window.location.origin.
@@ -49,6 +57,9 @@ function Auth() {
   const [birthYear, setBirthYear] = useState("");
   const [homeCityId, setHomeCityId] = useState("");
   const [musicPreferences, setMusicPreferences] = useState<string[]>([]);
+  const [eventPreferences, setEventPreferences] = useState<string[]>([]);
+  const [discoveryMood, setDiscoveryMood] = useState("balanced");
+  const [preferredPrice, setPreferredPrice] = useState("any");
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [adsConsent, setAdsConsent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -106,6 +117,9 @@ function Auth() {
               birth_year: parsedBirthYear,
               home_city_id: homeCityId || null,
               music_preferences: musicPreferences,
+              event_preferences: eventPreferences,
+              discovery_mood: discoveryMood,
+              preferred_price: preferredPrice,
               analytics_consent: analyticsConsent,
               personalized_ads_consent: adsConsent,
             },
@@ -271,6 +285,62 @@ function Auth() {
                     {genreLabel(value, label)}
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {mode === "signup" && accountType === "client" && (
+            <div className="space-y-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+              <div>
+                <p className="text-sm font-semibold">{tr("✨ Ta boussole de sorties")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tr("Quelques réponses suffisent pour entraîner ton fil personnel.")}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {EVENT_PREFERENCES.map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={eventPreferences.includes(value)}
+                      onClick={() =>
+                        setEventPreferences((current) =>
+                          current.includes(value)
+                            ? current.filter((item) => item !== value)
+                            : [...current, value],
+                        )
+                      }
+                      className={`rounded-full border px-3 py-1.5 text-xs ${eventPreferences.includes(value) ? "border-primary bg-primary text-primary-foreground" : ""}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Ton énergie idéale">
+                  <select
+                    value={discoveryMood}
+                    onChange={(event) => setDiscoveryMood(event.target.value)}
+                    className="field-control"
+                  >
+                    <option value="calm">{tr("Ambiance calme")}</option>
+                    <option value="balanced">{tr("Un peu de tout")}</option>
+                    <option value="social">{tr("Très social")}</option>
+                    <option value="surprise">{tr("Surprends-moi")}</option>
+                  </select>
+                </Field>
+                <Field label="Budget habituel">
+                  <select
+                    value={preferredPrice}
+                    onChange={(event) => setPreferredPrice(event.target.value)}
+                    className="field-control"
+                  >
+                    <option value="any">{tr("Tous les prix")}</option>
+                    <option value="free">{tr("Gratuit")}</option>
+                    <option value="budget">{tr("Petit budget")}</option>
+                    <option value="premium">{tr("Expériences premium")}</option>
+                  </select>
+                </Field>
               </div>
             </div>
           )}
