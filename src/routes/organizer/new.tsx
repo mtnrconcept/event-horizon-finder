@@ -37,7 +37,17 @@ function NewEvent() {
   const { tr, t, categoryLabel, genreLabel } = useTranslation();
   const navigate = useNavigate();
   const [orgs, setOrgs] = useState<Array<{ id: string; name: string }>>([]);
-  const [venues, setVenues] = useState<Array<{ id: string; name: string }>>([]);
+  const [venues, setVenues] = useState<
+    Array<{
+      id: string;
+      name: string;
+      address: string | null;
+      postal_code: string | null;
+      city: { name: string } | null;
+    }>
+  >([]);
+  const [venueQuery, setVenueQuery] = useState("");
+  const [venueOpen, setVenueOpen] = useState(false);
   const [categories, setCategories] = useState<
     Array<{ id: string; slug: string; name_fr: string }>
   >([]);
@@ -57,7 +67,12 @@ function NewEvent() {
           .from("organizer_members")
           .select("organizer:organizers(id,name)")
           .eq("user_id", data.user.id),
-        supabase.from("venues").select("id,name").order("name").limit(500),
+        supabase
+          .from("venues")
+          .select("id,name,address,postal_code,city:cities(name)")
+          .eq("is_public", true)
+          .order("name")
+          .limit(500),
         supabase.from("event_categories").select("id,slug,name_fr").order("sort_order"),
         supabase.from("cities").select("id,name,timezone").order("name").limit(500),
       ]);
@@ -65,7 +80,15 @@ function NewEvent() {
         .map((membership) => membership.organizer)
         .filter(Boolean) as Array<{ id: string; name: string }>;
       setOrgs(nextOrganizations);
-      setVenues((venueRows.data ?? []) as Array<{ id: string; name: string }>);
+      setVenues(
+        (venueRows.data ?? []) as unknown as Array<{
+          id: string;
+          name: string;
+          address: string | null;
+          postal_code: string | null;
+          city: { name: string } | null;
+        }>,
+      );
       setCategories(
         (categoryRows.data ?? []) as Array<{ id: string; slug: string; name_fr: string }>,
       );
@@ -88,6 +111,23 @@ function NewEvent() {
         : [...form.genres, genre],
     );
   };
+
+  const normalizedVenueQuery = venueQuery.trim().toLocaleLowerCase();
+  const venueSuggestions = normalizedVenueQuery
+    ? venues
+        .filter((venue) =>
+          [venue.name, venue.address, venue.postal_code, venue.city?.name]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase()
+            .includes(normalizedVenueQuery),
+        )
+        .slice(0, 8)
+    : venues.slice(0, 8);
+  const venueLabel = (venue: (typeof venues)[number]) =>
+    [venue.name, venue.address, [venue.postal_code, venue.city?.name].filter(Boolean).join(" ")]
+      .filter(Boolean)
+      .join(" — ");
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -219,18 +259,64 @@ function NewEvent() {
             </select>
           </FormField>
           <FormField label={tr("Lieu existant")}>
-            <select
-              value={form.venue_id}
-              onChange={(event) => set("venue_id", event.target.value)}
-              className="field-control"
-            >
-              <option value="">{tr("À confirmer")}</option>
-              {venues.map((venue) => (
-                <option key={venue.id} value={venue.id}>
-                  {venue.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <input
+                value={venueQuery}
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={venueOpen}
+                aria-controls="venue-suggestions"
+                placeholder={tr("Commence à saisir un lieu ou établissement…")}
+                onFocus={() => setVenueOpen(true)}
+                onChange={(event) => {
+                  setVenueQuery(event.target.value);
+                  set("venue_id", "");
+                  setVenueOpen(true);
+                }}
+                className="field-control"
+              />
+              {venueOpen && venueSuggestions.length > 0 && (
+                <div
+                  id="venue-suggestions"
+                  role="listbox"
+                  className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border bg-popover p-1 shadow-xl"
+                >
+                  {venueSuggestions.map((venue) => (
+                    <button
+                      key={venue.id}
+                      type="button"
+                      role="option"
+                      aria-selected={form.venue_id === venue.id}
+                      onClick={() => {
+                        set("venue_id", venue.id);
+                        setVenueQuery(venueLabel(venue));
+                        setVenueOpen(false);
+                        if (venue.city?.name) {
+                          const city = cities.find((item) => item.name === venue.city?.name);
+                          if (city) {
+                            set("city_id", city.id);
+                            set("timezone", city.timezone);
+                          }
+                        }
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent"
+                    >
+                      <span className="block font-semibold">{venue.name}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {[venue.address, venue.postal_code, venue.city?.name]
+                          .filter(Boolean)
+                          .join(", ")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {venueQuery && !form.venue_id && venueSuggestions.length === 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tr("Aucun lieu enregistré ne correspond.")}
+                </p>
+              )}
+            </div>
           </FormField>
           <FormField label={t("common.city")}>
             <select

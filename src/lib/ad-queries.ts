@@ -6,7 +6,8 @@ import { getClientSessionId } from "@/lib/client-analytics";
 const adDb = supabase as unknown as SupabaseClient<any>;
 
 export type AdPlacement = "discover" | "social" | "event";
-export type CampaignStatus = "draft" | "active" | "paused" | "completed" | "rejected";
+export type CampaignStatus =
+  "draft" | "pending_payment" | "active" | "paused" | "completed" | "rejected";
 
 export type OrganizerOption = {
   id: string;
@@ -37,6 +38,7 @@ export type AdCampaign = {
   daily_budget: number;
   total_budget: number;
   currency: string;
+  payment_status: "unpaid" | "pending" | "paid" | "failed" | "refunded";
   created_at: string;
   impression_count: number;
   click_count: number;
@@ -169,6 +171,38 @@ export async function createAdCampaign(input: CreateCampaignInput): Promise<stri
     .single();
   if (error) throw error;
   return String(data.id);
+}
+
+export type AiAdDraft = {
+  name: string;
+  objective: string;
+  promotedEventId: string;
+  headline: string;
+  body: string;
+  imageUrl: string;
+  ctaUrl: string;
+  genres: string[];
+  cityIds: string[];
+  rationale: string;
+};
+
+export async function generateAdDraft(organizerId: string): Promise<AiAdDraft> {
+  const { data, error } = await supabase.functions.invoke("generate-ad-draft", {
+    body: { organizerId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data.draft as AiAdDraft;
+}
+
+export async function createAdCheckout(campaignId: string): Promise<string> {
+  const returnUrl = `${window.location.origin}/organizer/ads`;
+  const { data, error } = await supabase.functions.invoke("create-ad-checkout", {
+    body: { campaignId, returnUrl },
+  });
+  if (error) throw error;
+  if (!data?.url) throw new Error(data?.error || "Paiement Stripe indisponible");
+  return String(data.url);
 }
 
 export async function updateAdCampaignStatus(campaignId: string, status: CampaignStatus) {

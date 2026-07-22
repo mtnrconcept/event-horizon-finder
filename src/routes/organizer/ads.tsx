@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   Plus,
+  Sparkles,
   Target,
   Users,
 } from "lucide-react";
@@ -20,9 +21,11 @@ import { fetchCities } from "@/lib/queries";
 import { MUSIC_GENRES } from "@/lib/event-filters";
 import {
   createAdCampaign,
+  createAdCheckout,
   estimateAdAudience,
   fetchAdCampaigns,
   fetchOrganizerAdContext,
+  generateAdDraft,
   updateAdCampaignStatus,
   type AdCampaign,
   type AdPlacement,
@@ -82,6 +85,8 @@ function OrganizerAds() {
   const [showComposer, setShowComposer] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [aiRationale, setAiRationale] = useState("");
   const [estimatedAudience, setEstimatedAudience] = useState<number | null>(null);
 
   const loadCampaigns = useCallback(async (nextOrganizers: OrganizerOption[]) => {
@@ -174,15 +179,41 @@ function OrganizerAds() {
     }
   };
 
+  const generateWithAi = async () => {
+    if (!form.organizerId) return;
+    setGenerating(true);
+    try {
+      const draft = await generateAdDraft(form.organizerId);
+      setForm((current) => ({
+        ...current,
+        name: draft.name.slice(0, 120),
+        objective: draft.objective,
+        promotedContent: `event:${draft.promotedEventId}`,
+        headline: draft.headline.slice(0, 140),
+        body: draft.body.slice(0, 500),
+        imageUrl: draft.imageUrl,
+        ctaUrl: draft.ctaUrl,
+        genres: draft.genres,
+        cityIds: draft.cityIds,
+      }));
+      setAiRationale(draft.rationale);
+      toast.success("Brouillon IA prêt à être relu");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Génération indisponible");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!userId || !form.organizerId || !form.placements.length) return;
     setSaving(true);
     try {
-      await createAdCampaign({
+      const campaignId = await createAdCampaign({
         organizer_id: form.organizerId,
         name: form.name.trim(),
-        status: form.activateNow ? "active" : "draft",
+        status: "draft",
         objective: form.objective,
         promoted_event_id: promotedEntity.eventId,
         promoted_post_id: promotedEntity.postId,
@@ -202,7 +233,12 @@ function OrganizerAds() {
         total_budget: Number(form.totalBudget),
         currency: "CHF",
       });
-      toast.success(form.activateNow ? "Campagne activée" : "Brouillon publicitaire créé");
+      if (form.activateNow) {
+        const checkoutUrl = await createAdCheckout(campaignId);
+        window.location.assign(checkoutUrl);
+        return;
+      }
+      toast.success("Brouillon publicitaire créé");
       const organizerId = form.organizerId;
       setForm({ ...defaultForm(), organizerId });
       setShowComposer(false);
@@ -217,6 +253,10 @@ function OrganizerAds() {
 
   const changeStatus = async (campaign: AdCampaign, status: CampaignStatus) => {
     try {
+      if (status === "active" && campaign.payment_status !== "paid") {
+        window.location.assign(await createAdCheckout(campaign.id));
+        return;
+      }
       await updateAdCampaignStatus(campaign.id, status);
       await loadCampaigns(organizers);
       toast.success(status === "active" ? "Campagne activée" : "Campagne mise en pause");
@@ -296,6 +336,18 @@ function OrganizerAds() {
           <div className="mb-6">
             <p className="text-xs font-semibold uppercase text-primary">{tr("Configuration")}</p>
             <h2 className="text-2xl font-bold">{tr("Créer une campagne ciblée")}</h2>
+            <button
+              type="button"
+              onClick={() => void generateWithAi()}
+              disabled={generating}
+              className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/40 px-4 py-2 text-sm font-semibold text-primary disabled:opacity-50"
+            >
+              <Sparkles className="h-4 w-4" />{" "}
+              {generating ? "Analyse en cours…" : "Préparer avec l’IA"}
+            </button>
+            {aiRationale && (
+              <p className="mt-2 max-w-2xl text-xs text-muted-foreground">{aiRationale}</p>
+            )}
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-4">
@@ -539,7 +591,8 @@ function OrganizerAds() {
 
               <div className="rounded-2xl border p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold">
-                  <CircleDollarSign className="h-4 w-4 text-primary" /> {tr("Budget indicatif")}
+                  <CircleDollarSign className="h-4 w-4 text-primary" />{" "}
+                  {tr("Budget et paiement Stripe")}
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <FormField label={tr("Par jour (CHF)")}>
@@ -567,7 +620,7 @@ function OrganizerAds() {
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   {tr(
-                    "Le paiement et la facturation seront validés séparément avant toute dépense réelle.",
+                    "Le paiement sécurisé Stripe est requis avant l’activation. La campagne reste en attente jusqu’à la confirmation du paiement.",
                   )}
                 </p>
               </div>
@@ -580,7 +633,7 @@ function OrganizerAds() {
                   className="mt-1 h-4 w-4 accent-[var(--color-primary)]"
                 />
                 <span>
-                  <span className="block font-semibold">{tr("Activer dès la date de début")}</span>
+                  <span className="block font-semibold">{tr("Payer avec Stripe et activer")}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {tr("Sinon, la campagne restera en brouillon.")}
                   </span>
@@ -604,7 +657,7 @@ function OrganizerAds() {
               {saving
                 ? "Création…"
                 : form.activateNow
-                  ? "Créer et activer"
+                  ? "Continuer vers Stripe"
                   : "Enregistrer le brouillon"}
             </button>
           </div>
@@ -645,7 +698,9 @@ function OrganizerAds() {
                         campaign.status === "active" ? "paused" : "active",
                       )
                     }
-                    disabled={!["active", "paused", "draft"].includes(campaign.status)}
+                    disabled={
+                      !["active", "paused", "draft", "pending_payment"].includes(campaign.status)
+                    }
                     className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
                   >
                     {campaign.status === "active" ? (
@@ -653,7 +708,11 @@ function OrganizerAds() {
                     ) : (
                       <Play className="h-3.5 w-3.5" />
                     )}
-                    {campaign.status === "active" ? "Pause" : "Activer"}
+                    {campaign.status === "active"
+                      ? "Pause"
+                      : campaign.payment_status === "paid"
+                        ? "Activer"
+                        : "Payer & activer"}
                   </button>
                 </div>
                 <div className="mt-4 grid grid-cols-4 gap-2 border-t pt-4 text-center">
@@ -715,6 +774,7 @@ function SmallMetric({ label, value }: { label: string; value: string }) {
 function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
   const labels: Record<CampaignStatus, string> = {
     draft: "Brouillon",
+    pending_payment: "Paiement en attente",
     active: "Active",
     paused: "En pause",
     completed: "Terminée",
