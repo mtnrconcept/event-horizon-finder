@@ -40,6 +40,9 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
+      - name: Recovered routes and application shell
+        run: npm run check:routes
+
       - name: Existing automated tests
         run: |
           npm run test:map

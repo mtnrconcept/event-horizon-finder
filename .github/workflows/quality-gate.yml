@@ -56,6 +56,16 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Recovered routes and application shell
+        id: routes
+        shell: bash
+        run: |
+          set +e
+          npm run check:routes 2>&1 | tee route-check.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: MCP tests
         id: mcp
         shell: bash
@@ -90,6 +100,7 @@ jobs:
             typecheck.log
             mcp-tests.log
             production-build.log
+            route-check.log
             vercel-build.log
           if-no-files-found: error
           retention-days: 7
@@ -117,9 +128,11 @@ jobs:
         run: |
           echo "Build: ${{ steps.build.outputs.exit_code }}"
           echo "TypeScript: ${{ steps.typecheck.outputs.exit_code }}"
+          echo "Routes: ${{ steps.routes.outputs.exit_code }}"
           echo "MCP tests: ${{ steps.mcp.outputs.exit_code }}"
           echo "Vercel build: ${{ steps.vercel_build.outputs.exit_code }}"
           test "${{ steps.build.outputs.exit_code }}" = "0"
           test "${{ steps.typecheck.outputs.exit_code }}" = "0"
+          test "${{ steps.routes.outputs.exit_code }}" = "0"
           test "${{ steps.mcp.outputs.exit_code }}" = "0"
           test "${{ steps.vercel_build.outputs.exit_code }}" = "0"
