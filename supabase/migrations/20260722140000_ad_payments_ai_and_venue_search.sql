@@ -73,7 +73,7 @@ LANGUAGE sql SECURITY INVOKER SET search_path = '' STABLE AS $$
       OR coalesce(v.address, '') ILIKE '%' || trim(_query) || '%'
       OR coalesce(c.name, '') ILIKE '%' || trim(_query) || '%')
   ORDER BY CASE WHEN v.name ILIKE trim(_query) || '%' THEN 0 ELSE 1 END,
-    similarity(v.name, trim(_query)) DESC, v.name
+    public.similarity(v.name, trim(_query)) DESC, v.name
   LIMIT least(greatest(_limit, 1), 12)
 $$;
 REVOKE ALL ON FUNCTION public.search_venues(text, integer) FROM PUBLIC;
