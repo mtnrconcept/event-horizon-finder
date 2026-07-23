@@ -408,6 +408,13 @@ def _iso_date(value: str) -> str:
         raise argparse.ArgumentTypeError("must use YYYY-MM-DD") from error
 
 
+def _country_code(value: str) -> str:
+    code = value.strip().upper()
+    if not re.fullmatch(r"[A-Z]{2}", code):
+        raise argparse.ArgumentTypeError("must be an ISO 3166-1 alpha-2 code")
+    return code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("plan", "search", "crawl", "status"))
@@ -424,6 +431,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-state", action="store_true", help="Do not read or write resume state")
     parser.add_argument("--target-date", type=_iso_date, help="Planning date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--country-code",
+        action="append",
+        type=_country_code,
+        help="Restrict planning to this country (repeatable; plan action only)",
+    )
     parser.add_argument("--batch-size", type=_batch_size, help="Jobs claimed by each worker call")
     parser.add_argument("--max-batches", type=_positive_int, default=10)
     parser.add_argument("--pause-seconds", type=_pause, default=2.0)
@@ -468,6 +481,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "target_date": target_date,
                 "batch_size": args.batch_size or 25,
             }
+            if args.country_code:
+                payload["country_codes"] = list(dict.fromkeys(args.country_code))
             campaign_id: str | None = None
             calls = 0
             stop_reason = "batch_limit"

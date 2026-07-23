@@ -393,8 +393,20 @@ function searchLocales(target: CityTarget): string[] {
   return [...new Set(locales.length ? locales : ["en"])].slice(0, 4);
 }
 
+function requestedCountryCodes(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  const codes = [
+    ...new Set(values.map((item) => String(item).trim().toUpperCase()).filter(Boolean)),
+  ];
+  if (codes.length > 20 || codes.some((code) => !/^[A-Z]{2}$/.test(code))) {
+    throw new WorkerError("invalid_country_codes", { httpStatus: 400, terminal: true });
+  }
+  return codes;
+}
+
 async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
   const date = discoveryDate(body.date ?? body.target_date);
+  const countryCodes = requestedCountryCodes(body.countryCodes ?? body.country_codes);
   const maintenance = await rpc<unknown>(admin, "prune_global_discovery_history", {
     _retention_days: 45,
     _batch_limit: 2_000,
@@ -406,8 +418,10 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
     1,
     MAX_PLAN_CITY_LIMIT,
   );
+  const campaignScope = countryCodes.length ? `:${countryCodes.join("-")}` : "";
+  const campaignKey = `${period.key}${campaignScope}`;
   const campaignId = await rpc<string>(admin, "ensure_global_scrape_campaign", {
-    _campaign_key: period.key,
+    _campaign_key: campaignKey,
     _period_start: period.start,
     _period_end: period.end,
     _provider: SEARCH_PROVIDER,
@@ -416,6 +430,7 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
       planner_version: 2,
       nightlife_window_days: NIGHTLIFE_WINDOW_DAYS,
       search_result_limit: SEARCH_RESULT_LIMIT,
+      country_codes: countryCodes,
     },
   });
   if (!validUuid(campaignId)) throw new WorkerError("invalid_campaign_response");
@@ -443,7 +458,8 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
       action: "plan",
       campaignId,
       campaign_id: campaignId,
-      campaignKey: period.key,
+      campaignKey,
+      countryCodes,
       targetCount: 0,
       generatedJobCount: 0,
       enqueuedJobCount: 0,
@@ -459,9 +475,10 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
   }
 
   const due = asRows<CityTarget>(
-    await rpc<unknown>(admin, "list_due_global_city_targets", {
+    await rpc<unknown>(admin, "list_due_global_city_targets_v2", {
       _limit: cityLimit,
       _as_of: new Date().toISOString(),
+      _country_codes: countryCodes,
     }),
   );
 
@@ -504,7 +521,8 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
     action: "plan",
     campaignId,
     campaign_id: campaignId,
-    campaignKey: period.key,
+    campaignKey,
+    countryCodes,
     targetCount: due.length,
     generatedJobCount: jobs.length,
     enqueuedJobCount: Number(enqueued ?? 0),
