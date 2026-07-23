@@ -61,6 +61,18 @@ class FakeClient:
 
 
 class GlobalDiscoveryRunnerTests(unittest.TestCase):
+    def test_plan_can_target_poland(self):
+        parser = RUNNER.build_parser()
+        args = parser.parse_args(["plan", "--country-code", "pl", "--country-code", "PL"])
+        self.assertEqual(args.country_code, ["PL", "PL"])
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["plan", "--country-code", "POL"])
+
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+        self.assertIn('body.countryCodes ?? body.country_codes', edge_function)
+        self.assertIn('"list_due_global_city_targets_v2"', edge_function)
+
     def test_scheduled_profile_runs_every_fifteen_minutes_without_raising_hourly_capacity(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('- cron: "2,17,32,47 * * * *"', workflow)
