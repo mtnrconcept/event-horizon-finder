@@ -61,6 +61,53 @@ lire les sources des événements publiés. Le HTML téléchargé n’est pas co
 comme copie éditoriale ; seuls les faits extraits, une empreinte de contenu et
 des métadonnées opérationnelles le sont.
 
+## Cadence et reprise indépendante
+
+GitHub Actions conserve le workflow complet de découverte, de validation et de
+déploiement. Son planificateur est toutefois un service best-effort : un cron
+déclaré toutes les quinze minutes peut être retardé ou regroupé lorsque la
+plateforme est chargée.
+
+La migration
+`20260726013522_global_discovery_supabase_cron_fallback.sql` ajoute donc un
+second déclencheur dans Supabase :
+
+- Supabase Cron lance un tick à `07`, `22`, `37` et `52` minutes de chaque
+  heure ;
+- un verrou transactionnel et un délai minimum de douze minutes empêchent les
+  doubles dispatchs ;
+- chaque tick envoie au maximum huit requêtes Edge asynchrones et bornées :
+  une planification, une recherche et six workers crawl/persistance ;
+- les leases SQL existants restent l’autorité contre les doubles traitements
+  lorsqu’un run GitHub et un tick Supabase se chevauchent ;
+- chaque requête reçoit un jeton aléatoire à usage unique valable dix minutes.
+  Seule son empreinte SHA-256 est stockée et elle est consommée atomiquement
+  par l’Edge Function ; aucune valeur secrète durable n’est ajoutée au dépôt,
+  à la base ou aux logs ;
+- le statut expose les volumes `created` et `updated` sur 90 minutes et produit
+  un avertissement GitHub lorsqu’au moins 100 persistances réussissent sans
+  aucune création.
+
+Contrôle opérationnel :
+
+```sql
+select jobid, jobname, schedule, active
+from cron.job
+where jobname = 'global-discovery-supabase-fallback';
+
+select *
+from public.global_discovery_scheduler_status_v1();
+
+select *
+from public.global_discovery_health_v1();
+```
+
+Les deux RPC de statut sont réservées au rôle serveur. Le rollback contrôlé se
+trouve dans
+`supabase/rollback/20260726013522_global_discovery_supabase_cron_fallback_rollback.sql`.
+Il désactive le job et supprime les objets propres au scheduler, tout en
+conservant `pg_cron` et `pg_net` pour ne pas casser d'autres tâches éventuelles.
+
 ## Sélection des pays et des villes
 
 La limite s’adapte à la population du pays :

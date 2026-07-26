@@ -26,22 +26,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
+          bun-version: 1.3.14
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: bun install --frozen-lockfile
 
       - name: ESLint
         id: lint
         shell: bash
         run: |
           set +e
-          npm run lint 2>&1 | tee eslint.log
+          bun run lint 2>&1 | tee eslint.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -51,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run build 2>&1 | tee production-build.log
+          bun run build 2>&1 | tee production-build.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -61,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run typecheck 2>&1 | tee typecheck.log
+          bun run typecheck 2>&1 | tee typecheck.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -71,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run check:routes 2>&1 | tee route-check.log
+          bun run check:routes 2>&1 | tee route-check.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -81,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run test:mcp 2>&1 | tee mcp-tests.log
+          bun run test:mcp 2>&1 | tee mcp-tests.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -91,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm run build:vercel 2>&1 | tee vercel-build.log
+          bun run build:vercel 2>&1 | tee vercel-build.log
           code=${PIPESTATUS[0]}
           if [ "$code" = "0" ]; then
             test -f .vercel/output/config.json && \

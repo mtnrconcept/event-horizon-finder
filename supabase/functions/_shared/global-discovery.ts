@@ -311,14 +311,16 @@ export function buildLocalizedDiscoveryQueries(
   }
   const monthlyQueries = [...monthlyDates.values()].flatMap((monthlyDate) => {
     const { context, dateKey, monthKey } = queryDateContext(monthlyDate, locale, place);
-    return MONTHLY_QUERY_FAMILIES.map((family): DiscoveryQuery => ({
-      family,
-      query: templates[family](context),
-      locale,
-      dateScope: "month",
-      dateKey,
-      monthKey,
-    }));
+    return MONTHLY_QUERY_FAMILIES.map(
+      (family): DiscoveryQuery => ({
+        family,
+        query: templates[family](context),
+        locale,
+        dateScope: "month",
+        dateKey,
+        monthKey,
+      }),
+    );
   });
 
   return [...dailyQueries, ...monthlyQueries];

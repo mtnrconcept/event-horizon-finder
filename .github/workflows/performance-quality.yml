@@ -27,41 +27,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
+          bun-version: 1.3.14
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: bun install --frozen-lockfile
 
       - name: ESLint
-        run: npm run lint
+        run: bun run lint
 
       - name: TypeScript
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Recovered routes and application shell
-        run: npm run check:routes
+        run: bun run check:routes
 
       - name: Existing automated tests
         run: |
-          npm run test:map
-          npm run test:mcp
-          npm run test:i18n
-          npm run test:translations
-          npm run test:performance
+          bun run test:map
+          bun run test:mcp
+          bun run test:i18n
+          bun run test:translations
+          bun run test:performance
 
       - name: Production build
-        run: npm run build
+        run: bun run build
 
       - name: Bundle budget
-        run: npm run check:bundle
+        run: bun run check:bundle
 
       - name: Vercel production build
         run: |
-          npm run build:vercel
+          bun run build:vercel
           test -f .vercel/output/config.json
           test -f .vercel/output/functions/__server.func/index.mjs

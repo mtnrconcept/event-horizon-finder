@@ -1,7 +1,9 @@
 // Global, queue-backed event discovery without a paid search or extraction API.
 //
 // Security model:
-// - pg_cron sends x-global-scraper-secret, checked in constant time;
+// - GitHub sends x-global-scraper-secret, checked in constant time;
+// - Supabase Cron sends a ten-minute one-time token whose SHA-256 fingerprint
+//   is consumed atomically by a service-role-only RPC;
 // - interactive calls must carry a verified Supabase user JWT whose role is
 //   admin or moderator;
 // - the service-role key never leaves this function.
@@ -209,7 +211,7 @@ function allowedOrigin(req: Request): string | null {
 function optionsResponse(req: Request): Response {
   const headers = new Headers({
     "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info, x-global-scraper-secret",
+      "authorization, apikey, content-type, x-client-info, x-global-discovery-cron-token, x-global-scraper-secret",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
@@ -250,6 +252,17 @@ async function isAuthorized(req: Request, admin: AdminClient): Promise<boolean> 
     timingSafeEqual(configuredSecret, providedSecret)
   ) {
     return true;
+  }
+
+  const schedulerToken = req.headers.get("x-global-discovery-cron-token")?.trim() ?? "";
+  if (schedulerToken.length >= 32) {
+    const schedulerTokenHash = await sha256(schedulerToken);
+    const schedulerAuthorized = await rpc<boolean>(
+      admin,
+      "claim_global_discovery_scheduler_token_v1",
+      { _token_hash: schedulerTokenHash },
+    );
+    if (schedulerAuthorized) return true;
   }
 
   const authorization = req.headers.get("Authorization") ?? "";
@@ -1912,12 +1925,16 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     100,
     250_000,
   );
-  const eventPersistence =
-    asRows<JsonObject>(
-      await rpc<unknown>(admin, "global_event_persistence_campaign_status", {
-        _campaign_id: campaignId,
-      }),
-    )[0] ?? null;
+  const [eventPersistenceRows, discoveryHealthRows, schedulerStatusRows] = await Promise.all([
+    rpc<unknown>(admin, "global_event_persistence_campaign_status", {
+      _campaign_id: campaignId,
+    }),
+    rpc<unknown>(admin, "global_discovery_health_v1", {}),
+    rpc<unknown>(admin, "global_discovery_scheduler_status_v1", {}),
+  ]);
+  const eventPersistence = asRows<JsonObject>(eventPersistenceRows)[0] ?? null;
+  const discoveryHealth = asRows<JsonObject>(discoveryHealthRows)[0] ?? null;
+  const schedulerStatus = asRows<JsonObject>(schedulerStatusRows)[0] ?? null;
   return {
     ok: true,
     action: "status",
@@ -1935,6 +1952,8 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
       maximum_persistence_backlog: maximumPersistenceBacklog,
     },
     event_persistence: eventPersistence,
+    discovery_health: discoveryHealth,
+    fallback_scheduler: schedulerStatus,
   };
 }
 

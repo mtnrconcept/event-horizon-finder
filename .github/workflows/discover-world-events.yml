@@ -8,6 +8,7 @@ on:
       # A workflow change is a safe one-shot bootstrap: the merge that changes
       # runtime scheduling immediately processes one bounded slice instead of
       # waiting for GitHub's best-effort cron service.
+      # Supabase Cron remains the independent 15-minute fallback between runs.
       - ".github/workflows/discover-world-events.yml"
   pull_request:
     paths:

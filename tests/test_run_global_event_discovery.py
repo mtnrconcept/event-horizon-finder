@@ -16,6 +16,18 @@ WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "discover-world
 EDGE_FUNCTION = (
     Path(__file__).parents[1] / "supabase" / "functions" / "global-event-discovery" / "index.ts"
 )
+CRON_MIGRATION = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260726013522_global_discovery_supabase_cron_fallback.sql"
+)
+CRON_ROLLBACK = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "rollback"
+    / "20260726013522_global_discovery_supabase_cron_fallback_rollback.sql"
+)
 SPEC = importlib.util.spec_from_file_location("global_discovery_runner", SCRIPT)
 assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -151,6 +163,34 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             edge_function,
         )
 
+    def test_supabase_cron_fallback_is_secretless_bounded_and_reversible(self):
+        migration = CRON_MIGRATION.read_text(encoding="utf-8")
+        rollback = CRON_ROLLBACK.read_text(encoding="utf-8")
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+
+        self.assertIn("CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog", migration)
+        self.assertIn("CREATE EXTENSION IF NOT EXISTS pg_net", migration)
+        self.assertIn("extensions.gen_random_bytes(32)", migration)
+        self.assertIn("extensions.digest(request_token, 'sha256')", migration)
+        self.assertIn("pg_advisory_xact_lock(", migration)
+        self.assertIn("FOR worker_index IN 1..6 LOOP", migration)
+        self.assertIn("'7,22,37,52 * * * *'", migration)
+        self.assertIn("'global-discovery-supabase-fallback'", migration)
+        self.assertIn("'persistence_limit', 25", migration)
+        self.assertIn("zero_creation_alert", migration)
+        self.assertIn("now() + interval '10 minutes'", migration)
+        self.assertIn("token.claimed_at IS NULL", migration)
+        self.assertNotRegex(migration, r"x-global-discovery-cron-token',\s*'[a-f0-9]{64}'")
+
+        self.assertIn("cron.unschedule(existing_job_id)", rollback)
+        self.assertIn("global_discovery_scheduler_tokens", rollback)
+        self.assertNotIn("DROP EXTENSION", rollback)
+
+        self.assertIn('"x-global-discovery-cron-token"', edge_function)
+        self.assertIn('"claim_global_discovery_scheduler_token_v1"', edge_function)
+        self.assertIn('"global_discovery_health_v1"', edge_function)
+        self.assertIn('"global_discovery_scheduler_status_v1"', edge_function)
+
     def test_normalizes_project_urls_and_local_stack(self):
         expected = (
             "https://xtwxmdbobehovnghfkes.supabase.co/functions/v1/"
@@ -272,6 +312,37 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             (RUNNER.date.today() + RUNNER.timedelta(days=RUNNER.DEFAULT_LOOKAHEAD_DAYS)).isoformat(),
         )
         self.assertEqual(json.loads(stdout.getvalue())["campaign_id"], "campaign-current")
+
+    def test_status_emits_github_warning_for_productive_zero_creation_window(self):
+        response = {
+            "ok": True,
+            "campaign": {"campaign_id": "campaign-current"},
+            "discovery_health": {
+                "persistence_completed_90m": 185,
+                "persistence_created_90m": 0,
+                "persistence_updated_90m": 185,
+                "zero_creation_alert": True,
+            },
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        env = {
+            "SUPABASE_URL": "https://project.supabase.co",
+            "GLOBAL_SCRAPER_SECRET": "s" * 32,
+            "GITHUB_ACTIONS": "true",
+        }
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(RUNNER, "urlopen", return_value=FakeResponse(response)),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = RUNNER.main(["status", "--no-state"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("::warning title=Worldwide discovery created 0 events::", stderr.getvalue())
+        self.assertIn("185 updates, 0 creations", stderr.getvalue())
+        self.assertTrue(json.loads(stdout.getvalue())["ok"])
 
     def test_worker_loop_is_bounded_for_an_unknown_response_shape(self):
         client = FakeClient([{"jobs": [{"id": 1}]}] * 4)
