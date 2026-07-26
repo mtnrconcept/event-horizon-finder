@@ -232,6 +232,26 @@ def require_success_response(response: Any, action: str) -> None:
     raise RunnerError(f"{action}_worker_reported_failure:{count}{suffix}")
 
 
+def emit_github_health_warning(response: Any) -> None:
+    """Annotate a productive zero-creation window without failing the worker."""
+
+    if os.environ.get("GITHUB_ACTIONS", "").strip().casefold() != "true":
+        return
+    if not isinstance(response, Mapping):
+        return
+    health = response.get("discovery_health")
+    if not isinstance(health, Mapping) or health.get("zero_creation_alert") is not True:
+        return
+    completed = int(_nonnegative_number(health.get("persistence_completed_90m")) or 0)
+    updated = int(_nonnegative_number(health.get("persistence_updated_90m")) or 0)
+    print(
+        "::warning title=Worldwide discovery created 0 events::"
+        f"Persistence completed {completed} jobs in 90 minutes "
+        f"({updated} updates, 0 creations). Renew low-yield cities, queries and sources.",
+        file=sys.stderr,
+    )
+
+
 class DiscoveryClient:
     def __init__(
         self,
@@ -532,6 +552,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
             response = client.call("status", payload)
             require_success_response(response, "status")
+            emit_github_health_warning(response)
             current_campaign = extract_campaign_id(response) or campaign_id
             if current_campaign:
                 state.save(current_campaign, action="status")
