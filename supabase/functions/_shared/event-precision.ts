@@ -126,7 +126,8 @@ export type NormalizedEvent = {
 };
 
 export type NormalizationResult =
-  { ok: true; event: NormalizedEvent } | { ok: false; reason: string; candidate: EventCandidate };
+  | { ok: true; event: NormalizedEvent }
+  | { ok: false; reason: string; candidate: EventCandidate };
 
 const TRACKING_PARAMETERS = new Set([
   "fbclid",

@@ -8,7 +8,12 @@ const MAX_JSON_TEXT_LENGTH = 500_000;
 const PRICE_FORMATTERS = new Map<string, Intl.NumberFormat>();
 
 export type MapScrapedValue =
-  string | number | boolean | null | MapScrapedValue[] | { [key: string]: MapScrapedValue };
+  | string
+  | number
+  | boolean
+  | null
+  | MapScrapedValue[]
+  | { [key: string]: MapScrapedValue };
 
 export type MapScrapedDetails = Record<string, MapScrapedValue>;
 
