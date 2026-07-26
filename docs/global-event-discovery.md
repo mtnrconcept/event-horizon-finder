@@ -106,7 +106,7 @@ Les deux RPC de statut sont réservées au rôle serveur. Le rollback contrôlé
 trouve dans
 `supabase/rollback/20260726013522_global_discovery_supabase_cron_fallback_rollback.sql`.
 Il désactive le job et supprime les objets propres au scheduler, tout en
-conservant `pg_net` pour ne pas casser un autre consommateur éventuel.
+conservant `pg_cron` et `pg_net` pour ne pas casser d'autres tâches éventuelles.
 
 ## Sélection des pays et des villes
 

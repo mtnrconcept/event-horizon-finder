@@ -7,6 +7,18 @@
 -- secret is committed, persisted after delivery or exposed through the Data
 -- API.
 
+DO $install_pg_cron$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_extension
+    WHERE extname = 'pg_cron'
+  ) THEN
+    EXECUTE 'CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog';
+  END IF;
+END;
+$install_pg_cron$;
+
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
 CREATE TABLE IF NOT EXISTS private.global_discovery_scheduler_tokens (

@@ -168,6 +168,7 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         rollback = CRON_ROLLBACK.read_text(encoding="utf-8")
         edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
 
+        self.assertIn("CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog", migration)
         self.assertIn("CREATE EXTENSION IF NOT EXISTS pg_net", migration)
         self.assertIn("extensions.gen_random_bytes(32)", migration)
         self.assertIn("extensions.digest(request_token, 'sha256')", migration)

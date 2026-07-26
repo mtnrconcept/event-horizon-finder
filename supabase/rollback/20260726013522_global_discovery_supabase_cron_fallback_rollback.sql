@@ -1,5 +1,5 @@
 -- Controlled rollback for the independent worldwide discovery scheduler.
--- pg_net is deliberately retained because another database job may use it.
+-- pg_cron and pg_net are deliberately retained because other jobs may use them.
 BEGIN;
 
 DO $remove_scheduler_job$
