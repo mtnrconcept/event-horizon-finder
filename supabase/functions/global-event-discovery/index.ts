@@ -41,19 +41,23 @@ const DEFAULT_PLAN_CITY_LIMIT = 25;
 const MAX_PLAN_CITY_LIMIT = 75;
 const DEFAULT_SEARCH_BATCH = 3;
 const MAX_SEARCH_BATCH = 5;
-const DEFAULT_CRAWL_BATCH = 2;
-const MAX_CRAWL_BATCH = 3;
-const DEFAULT_PERSISTENCE_BATCH = 10;
-const MAX_PERSISTENCE_BATCH = 25;
+const DEFAULT_CRAWL_BATCH = 1;
+const MAX_CRAWL_BATCH = 2;
+const DEFAULT_PERSISTENCE_BATCH = 6;
+const MAX_PERSISTENCE_BATCH = 8;
 const SEARCH_TIMEOUT_MS = 10_000;
 const ROBOTS_TIMEOUT_MS = 7_000;
 const PAGE_TIMEOUT_MS = 8_000;
+const DIRECT_PAGE_FETCH_BUDGET = 6;
 const MAX_SEARCH_RESPONSE_BYTES = 1_500_000;
 const MAX_ROBOTS_RESPONSE_BYTES = 512_000;
 const MAX_REQUEST_BODY_BYTES = 32_000;
 const SEARCH_LEASE_SECONDS = 120;
-const CRAWL_LEASE_SECONDS = 600;
-const PERSISTENCE_LEASE_SECONDS = 300;
+const CRAWL_LEASE_SECONDS = 180;
+const PERSISTENCE_LEASE_SECONDS = 180;
+const WORKER_EXECUTION_BUDGET_MS = 105_000;
+const MIN_PERSISTENCE_START_BUDGET_MS = 12_000;
+const MIN_CRAWL_START_BUDGET_MS = 45_000;
 const MAX_PERSISTENCE_ENQUEUE_ITEMS = 50;
 const MAX_PERSISTENCE_ENQUEUE_BYTES = 1_450_000;
 const MAX_PERSISTENCE_EVENT_BYTES = 250_000;
@@ -318,6 +322,14 @@ function isRecord(value: unknown): value is JsonObject {
 function asRows<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
   return value == null ? [] : [value as T];
+}
+
+function remainingWorkerBudgetMs(startedAt: number): number {
+  return Math.max(0, WORKER_EXECUTION_BUDGET_MS - (Date.now() - startedAt));
+}
+
+function workerHasBudget(startedAt: number, minimumRemainingMs: number): boolean {
+  return remainingWorkerBudgetMs(startedAt) >= minimumRemainingMs;
 }
 
 function validUuid(value: unknown): value is string {
@@ -1645,7 +1657,7 @@ async function scrapeCrawlJob(
       timeoutMs: PAGE_TIMEOUT_MS,
       rootMaxBytes: 3 * 1024 * 1024,
       detailMaxBytes: 1_500_000,
-      pageFetchBudget: 10,
+      pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET,
     },
   );
   // The direct scraper records detail-page errors so one broken page does not
@@ -1772,6 +1784,7 @@ async function failCrawlJob(
 }
 
 async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
+  const startedAt = Date.now();
   const crawlLimit = boundedInteger(
     body.limit ?? body.batch_size,
     DEFAULT_CRAWL_BATCH,
@@ -1785,107 +1798,151 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     MAX_PERSISTENCE_BATCH,
   );
   const workerId = crypto.randomUUID();
-
-  // Drain durable writes before doing more network work. This prevents a fast
-  // crawler from continuously outrunning database persistence.
-  const persistenceJobs = asRows<PersistenceJob>(
-    await rpc<unknown>(admin, "claim_global_event_persistence_jobs", {
-      _worker_id: workerId,
-      _limit: persistenceLimit,
-      _lease_seconds: PERSISTENCE_LEASE_SECONDS,
-    }),
-  );
+  let persistenceJobs: PersistenceJob[] = [];
+  let jobs: CrawlJob[] = [];
   const persistenceSummaries: JsonObject[] = [];
-  for (const job of persistenceJobs) {
-    try {
-      persistenceSummaries.push(await persistClaimedEvent(admin, workerId, job));
-    } catch (error) {
-      try {
-        await failPersistenceJob(admin, workerId, job, error);
-      } catch {
-        // The lease will expire and make the persistence job claimable again.
-      }
-      persistenceSummaries.push({
-        jobId: job.persistence_job_id,
-        crawlJobId: job.crawl_job_id,
-        kind: "persistence",
-        ok: false,
-        error: error instanceof WorkerError ? error.code : "persistence_unexpected_error",
-      });
-    }
-  }
-
-  // Validate infrastructure before leasing crawl work. A missing proxy must
-  // fail without burning attempts for otherwise healthy network jobs.
-  safeFetchProxyConfig();
-  const maximumPersistenceBacklog = boundedInteger(
-    Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
-    20_000,
-    100,
-    250_000,
-  );
-  const jobs = asRows<CrawlJob>(
-    await rpc<unknown>(admin, "claim_global_crawl_jobs", {
-      _worker_id: workerId,
-      _limit: crawlLimit,
-      _lease_seconds: CRAWL_LEASE_SECONDS,
-      _max_persistence_backlog: maximumPersistenceBacklog,
-    }),
-  );
   const crawlSummaries: JsonObject[] = [];
-  for (const job of jobs) {
-    try {
-      crawlSummaries.push(await scrapeCrawlJob(admin, workerId, job));
-    } catch (error) {
-      let failure = error;
-      if (error instanceof WorkerError && redirectHandoffDetails(job, error)) {
-        try {
-          crawlSummaries.push(await completeRedirectHandoff(admin, workerId, job, error));
-          continue;
-        } catch (handoffError) {
-          failure = handoffError;
-        }
+  let persistenceDeferred = 0;
+  let crawlDeferred = 0;
+
+  try {
+    const leaseReaper = await rpc<JsonObject>(admin, "reap_global_discovery_expired_leases_v1", {
+      _batch_limit: 1000,
+    });
+
+    // Drain durable writes before doing more network work. Claims stay small,
+    // and the finally block explicitly releases every job that was claimed but
+    // could not be started inside the Edge execution budget.
+    persistenceJobs = asRows<PersistenceJob>(
+      await rpc<unknown>(admin, "claim_global_event_persistence_jobs", {
+        _worker_id: workerId,
+        _limit: persistenceLimit,
+        _lease_seconds: PERSISTENCE_LEASE_SECONDS,
+      }),
+    );
+    for (let index = 0; index < persistenceJobs.length; index += 1) {
+      const job = persistenceJobs[index];
+      if (!workerHasBudget(startedAt, MIN_PERSISTENCE_START_BUDGET_MS)) {
+        persistenceDeferred = persistenceJobs.length - index;
+        break;
       }
       try {
-        await failCrawlJob(admin, workerId, job, failure);
-      } catch {
-        // The lease will expire and make the job claimable again.
+        persistenceSummaries.push(await persistClaimedEvent(admin, workerId, job));
+      } catch (error) {
+        try {
+          await failPersistenceJob(admin, workerId, job, error);
+        } catch {
+          // The final lease release or periodic reaper will recover this job.
+        }
+        persistenceSummaries.push({
+          jobId: job.persistence_job_id,
+          crawlJobId: job.crawl_job_id,
+          kind: "persistence",
+          ok: false,
+          error: error instanceof WorkerError ? error.code : "persistence_unexpected_error",
+        });
       }
-      crawlSummaries.push({
-        jobId: job.job_id,
-        kind: "crawl",
-        ok: false,
-        error: failure instanceof WorkerError ? failure.code : "crawl_unexpected_error",
+    }
+
+    if (workerHasBudget(startedAt, MIN_CRAWL_START_BUDGET_MS)) {
+      // Validate infrastructure before leasing crawl work. A missing proxy
+      // fails without burning attempts for otherwise healthy network jobs.
+      safeFetchProxyConfig();
+      const maximumPersistenceBacklog = boundedInteger(
+        Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+        20_000,
+        100,
+        250_000,
+      );
+      jobs = asRows<CrawlJob>(
+        await rpc<unknown>(admin, "claim_global_crawl_jobs", {
+          _worker_id: workerId,
+          _limit: crawlLimit,
+          _lease_seconds: CRAWL_LEASE_SECONDS,
+          _max_persistence_backlog: maximumPersistenceBacklog,
+        }),
+      );
+    }
+
+    for (let index = 0; index < jobs.length; index += 1) {
+      const job = jobs[index];
+      if (!workerHasBudget(startedAt, MIN_CRAWL_START_BUDGET_MS)) {
+        crawlDeferred = jobs.length - index;
+        break;
+      }
+      try {
+        crawlSummaries.push(await scrapeCrawlJob(admin, workerId, job));
+      } catch (error) {
+        let failure = error;
+        if (error instanceof WorkerError && redirectHandoffDetails(job, error)) {
+          try {
+            crawlSummaries.push(await completeRedirectHandoff(admin, workerId, job, error));
+            continue;
+          } catch (handoffError) {
+            failure = handoffError;
+          }
+        }
+        try {
+          await failCrawlJob(admin, workerId, job, failure);
+        } catch {
+          // The final lease release or periodic reaper will recover this job.
+        }
+        crawlSummaries.push({
+          jobId: job.job_id,
+          kind: "crawl",
+          ok: false,
+          error: failure instanceof WorkerError ? failure.code : "crawl_unexpected_error",
+        });
+      }
+    }
+
+    const summaries = [...persistenceSummaries, ...crawlSummaries];
+    // Per-URL crawl failures (e.g. robots_disallowed, crawl_delay_deferred,
+    // crawl_unexpected_error) are expected operational outcomes. Infrastructure
+    // failures are caught by the outer handler after unfinished leases are
+    // explicitly returned by the finally block.
+    return {
+      ok: true,
+      action: "crawl",
+      claimed: persistenceJobs.length + jobs.length,
+      persistenceClaimed: persistenceJobs.length,
+      crawlClaimed: jobs.length,
+      completed: summaries.filter((summary) => summary.ok === true).length,
+      failed: summaries.filter((summary) => summary.ok === false).length,
+      budget: {
+        limitMs: WORKER_EXECUTION_BUDGET_MS,
+        remainingMs: remainingWorkerBudgetMs(startedAt),
+        persistenceDeferred,
+        crawlDeferred,
+        exhausted: persistenceDeferred > 0 || crawlDeferred > 0,
+      },
+      leaseReaper,
+      persistence: {
+        batchLimit: persistenceLimit,
+        claimed: persistenceJobs.length,
+        completed: persistenceSummaries.filter((summary) => summary.ok === true).length,
+        failed: persistenceSummaries.filter((summary) => summary.ok === false).length,
+      },
+      crawl: {
+        batchLimit: crawlLimit,
+        pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET,
+        claimed: jobs.length,
+        completed: crawlSummaries.filter((summary) => summary.ok === true).length,
+        failed: crawlSummaries.filter((summary) => summary.ok === false).length,
+      },
+      jobs: summaries,
+    };
+  } finally {
+    try {
+      await rpc<JsonObject>(admin, "release_global_discovery_worker_leases_v1", {
+        _worker_id: workerId,
+        _retry_after_seconds: 5,
       });
+    } catch {
+      // If the database itself is temporarily unavailable, the periodic SQL
+      // reaper remains the independent recovery path for these leases.
     }
   }
-  const summaries = [...persistenceSummaries, ...crawlSummaries];
-  // Per-URL crawl failures (e.g. robots_disallowed, crawl_delay_deferred,
-  // crawl_unexpected_error) are expected operational outcomes. Infrastructure
-  // failures (e.g. safe_fetch_proxy_not_configured) throw WorkerError and are
-  // caught by the outer handler, returning an HTTP error response instead of
-  // reaching this return statement.
-  return {
-    ok: true,
-    action: "crawl",
-    claimed: persistenceJobs.length + jobs.length,
-    persistenceClaimed: persistenceJobs.length,
-    crawlClaimed: jobs.length,
-    completed: summaries.filter((summary) => summary.ok === true).length,
-    failed: summaries.filter((summary) => summary.ok === false).length,
-    persistence: {
-      batchLimit: persistenceLimit,
-      claimed: persistenceJobs.length,
-      completed: persistenceSummaries.filter((summary) => summary.ok === true).length,
-      failed: persistenceSummaries.filter((summary) => summary.ok === false).length,
-    },
-    crawl: {
-      claimed: jobs.length,
-      completed: crawlSummaries.filter((summary) => summary.ok === true).length,
-      failed: crawlSummaries.filter((summary) => summary.ok === false).length,
-    },
-    jobs: summaries,
-  };
 }
 
 async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonObject> {

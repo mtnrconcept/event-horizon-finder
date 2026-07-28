@@ -442,7 +442,7 @@ jobs:
             logs+=("$log_file")
             python3 scripts/run_global_event_discovery.py crawl \
               --no-state \
-              --batch-size 2 --max-batches "$CRAWL_BATCHES" --pause-seconds 3 --timeout 360 \
+              --batch-size 1 --max-batches "$CRAWL_BATCHES" --pause-seconds 3 --timeout 120 \
               > "$log_file" &
             pids+=("$!")
           done
