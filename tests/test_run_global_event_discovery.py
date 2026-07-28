@@ -28,6 +28,18 @@ CRON_ROLLBACK = (
     / "rollback"
     / "20260726013522_global_discovery_supabase_cron_fallback_rollback.sql"
 )
+LEASE_REAPER_MIGRATION = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260728124509_global_discovery_lease_reaper.sql"
+)
+LEASE_REAPER_ROLLBACK = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "rollback"
+    / "20260728124509_global_discovery_lease_reaper_rollback.sql"
+)
 SPEC = importlib.util.spec_from_file_location("global_discovery_runner", SCRIPT)
 assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -150,6 +162,11 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn("TARGET_DATE: ${{ github.event_name == 'workflow_dispatch'", workflow)
         self.assertGreaterEqual(workflow.count("TZ: Europe/Zurich"), 3)
         self.assertNotIn('- cron: "17 * * * *"', workflow)
+        self.assertIn(
+            "--batch-size 1 --max-batches \"$CRAWL_BATCHES\" "
+            "--pause-seconds 3 --timeout 120",
+            workflow,
+        )
 
     def test_crawl_batch_does_not_reduce_the_persistence_batch(self):
         edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
@@ -190,6 +207,58 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn('"claim_global_discovery_scheduler_token_v1"', edge_function)
         self.assertIn('"global_discovery_health_v1"', edge_function)
         self.assertIn('"global_discovery_scheduler_status_v1"', edge_function)
+
+    def test_expired_leases_are_reaped_and_worker_claims_are_released(self):
+        migration = LEASE_REAPER_MIGRATION.read_text(encoding="utf-8")
+        rollback = LEASE_REAPER_ROLLBACK.read_text(encoding="utf-8")
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "CREATE OR REPLACE FUNCTION public.reap_global_discovery_expired_leases_v1(",
+            migration,
+        )
+        self.assertIn(
+            "CREATE OR REPLACE FUNCTION public.release_global_discovery_worker_leases_v1(",
+            migration,
+        )
+        self.assertIn("pg_try_advisory_xact_lock(", migration)
+        self.assertGreaterEqual(migration.count("FOR UPDATE OF job SKIP LOCKED"), 3)
+        self.assertGreaterEqual(migration.count("lease_expired_reaped"), 6)
+        self.assertIn("power(", migration)
+        self.assertGreaterEqual(
+            migration.count("attempt_count = greatest(0, job.attempt_count - 1)"),
+            3,
+        )
+        self.assertIn("'batch_size', 1", migration)
+        self.assertIn("'persistence_limit', 6", migration)
+        self.assertIn("120000", migration)
+        self.assertNotIn("'persistence_limit', 25", migration)
+        self.assertIn(
+            "REVOKE ALL ON FUNCTION public.reap_global_discovery_expired_leases_v1(INTEGER)",
+            migration,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION public.release_global_discovery_worker_leases_v1(UUID, INTEGER)",
+            migration,
+        )
+
+        self.assertIn(
+            "DROP FUNCTION IF EXISTS public.release_global_discovery_worker_leases_v1",
+            rollback,
+        )
+        self.assertIn(
+            "DROP FUNCTION IF EXISTS public.reap_global_discovery_expired_leases_v1",
+            rollback,
+        )
+        self.assertIn("'persistence_limit', 25", rollback)
+
+        self.assertIn("const WORKER_EXECUTION_BUDGET_MS = 105_000", edge_function)
+        self.assertIn("const DEFAULT_PERSISTENCE_BATCH = 6", edge_function)
+        self.assertIn("const MAX_PERSISTENCE_BATCH = 8", edge_function)
+        self.assertIn("pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET", edge_function)
+        self.assertIn('"reap_global_discovery_expired_leases_v1"', edge_function)
+        self.assertIn('"release_global_discovery_worker_leases_v1"', edge_function)
+        self.assertIn("} finally {", edge_function)
 
     def test_normalizes_project_urls_and_local_stack(self):
         expected = (

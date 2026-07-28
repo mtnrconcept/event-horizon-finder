@@ -78,6 +78,17 @@ second déclencheur dans Supabase :
   doubles dispatchs ;
 - chaque tick envoie au maximum huit requêtes Edge asynchrones et bornées :
   une planification, une recherche et six workers crawl/persistance ;
+- chaque worker réclame au maximum six persistances et une page, limite la
+  lecture directe à six sous-pages et réserve une marge avant le plafond Edge
+  de 150 secondes ;
+- un budget d’exécution de 105 secondes empêche de commencer un travail qui ne
+  pourrait pas finir ; tous les leases réclamés mais non commencés sont
+  explicitement rendus à la file dans un bloc `finally`, sans consommer leur
+  tentative puisqu’aucun traitement n’a commencé ;
+- un reaper SQL idempotent et verrouillé récupère Search, Crawl et Persistence
+  expirés à chaque tick et au début de chaque worker. Le compteur de tentative
+  a déjà été incrémenté lors du claim ; la reprise conserve donc ce compteur,
+  applique un délai exponentiel borné et clôt les tentatives épuisées ;
 - les leases SQL existants restent l’autorité contre les doubles traitements
   lorsqu’un run GitHub et un tick Supabase se chevauchent ;
 - chaque requête reçoit un jeton aléatoire à usage unique valable dix minutes.
@@ -100,6 +111,8 @@ from public.global_discovery_scheduler_status_v1();
 
 select *
 from public.global_discovery_health_v1();
+
+select public.reap_global_discovery_expired_leases_v1(1000);
 ```
 
 Les deux RPC de statut sont réservées au rôle serveur. Le rollback contrôlé se
@@ -107,6 +120,8 @@ trouve dans
 `supabase/rollback/20260726013522_global_discovery_supabase_cron_fallback_rollback.sql`.
 Il désactive le job et supprime les objets propres au scheduler, tout en
 conservant `pg_cron` et `pg_net` pour ne pas casser d'autres tâches éventuelles.
+Le rollback du reaper et des nouveaux paramètres se trouve dans
+`supabase/rollback/20260728124509_global_discovery_lease_reaper_rollback.sql`.
 
 ## Sélection des pays et des villes
 
