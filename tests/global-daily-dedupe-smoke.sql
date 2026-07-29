@@ -1,5 +1,3 @@
-BEGIN;
-
 DO $daily_guard_smoke$
 DECLARE
   expected_work_key CONSTANT TEXT := repeat('a', 64);
@@ -51,7 +49,11 @@ BEGIN
   ) <> 1 THEN
     RAISE EXCEPTION 'daily work guard must retain exactly one atomic claim';
   END IF;
+
+  DELETE FROM private.global_discovery_daily_work AS work
+  WHERE work.work_date = (now() AT TIME ZONE 'UTC')::DATE
+    AND work.work_kind = 'event_persistence'
+    AND work.work_key = expected_work_key
+    AND work.first_job_id = first_job;
 END;
 $daily_guard_smoke$;
-
-ROLLBACK;
