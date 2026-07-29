@@ -10,6 +10,7 @@ const criticalRoutes = [
   "/faq",
   "/help",
   "/mcp",
+  "/organizer/billing",
   "/privacy",
   "/settings",
   "/social",
