@@ -212,3 +212,29 @@ test("SearXNG normalization returns at most ten distinct domains in result order
   assert.equal(new Set(results.map((result) => result.domain)).size, 10);
   assert.deepEqual(normalizeSearxngResults({}), []);
 });
+
+test("SearXNG normalization can randomly sample a wider distinct-domain pool", () => {
+  const payload = {
+    results: Array.from({ length: 15 }, (_, index) => ({
+      url: `https://site-${index}.example.com/events`,
+      title: `Result ${index}`,
+    })),
+  };
+
+  const results = normalizeSearxngResults(payload, {
+    limit: 5,
+    candidateLimit: 15,
+    random: () => 0,
+  });
+
+  assert.equal(results.length, 5);
+  assert.deepEqual(
+    results.map((result) => result.rank),
+    [1, 2, 3, 4, 5],
+  );
+  assert.deepEqual(
+    results.map((result) => result.sourceRank),
+    [2, 3, 4, 5, 6],
+  );
+  assert.equal(new Set(results.map((result) => result.domain)).size, 5);
+});

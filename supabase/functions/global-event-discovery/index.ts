@@ -695,7 +695,11 @@ async function fetchSearxng(job: SearchJob, baseUrl: string): Promise<Normalized
       retryAfterSeconds: 900,
     });
   }
-  return normalizeSearxngResults(payload, { limit: SEARCH_RESULT_LIMIT });
+  return normalizeSearxngResults(payload, {
+    limit: SEARCH_RESULT_LIMIT,
+    candidateLimit: 50,
+    random: Math.random,
+  });
 }
 
 async function failSearchJob(
@@ -1466,6 +1470,33 @@ async function persistClaimedEvent(
     });
   }
   const event = parseQueuedPersistenceEvent(job.event);
+  const ownsDailyWork = await rpc<boolean>(admin, "claim_global_discovery_daily_work_v1", {
+    _work_kind: "event_persistence",
+    _work_key: job.event_key,
+    _job_id: job.persistence_job_id,
+    _domain: job.domain,
+    _canonical_url: event.source.source_url,
+    _city_id: null,
+    _metadata: {
+      crawl_job_id: job.crawl_job_id,
+      data_source_id: job.data_source_id,
+    },
+  });
+  if (!ownsDailyWork) {
+    const skipped = await rpc<boolean>(admin, "skip_global_event_persistence_duplicate_v1", {
+      _job_id: job.persistence_job_id,
+      _worker_id: workerId,
+    });
+    if (!skipped) throw new WorkerError("persistence_duplicate_skip_lease_lost");
+    return {
+      jobId: job.persistence_job_id,
+      crawlJobId: job.crawl_job_id,
+      kind: "persistence",
+      ok: true,
+      skipped: true,
+      result: "duplicate_work_same_day",
+    };
+  }
   const upserted = await rpc<unknown>(admin, "upsert_ingested_event_v2", {
     _data_source_id: job.data_source_id,
     _payload: event.payload,
@@ -1631,6 +1662,43 @@ async function scrapeCrawlJob(
     exactHostname !== job.domain.toLowerCase().replace(/\.$/, "")
   ) {
     throw new WorkerError("crawl_url_invalid", { httpStatus: 400, terminal: true });
+  }
+
+  const ownsDailyWork = await rpc<boolean>(admin, "claim_global_discovery_daily_work_v1", {
+    _work_kind: "crawl_url",
+    _work_key: await sha256(canonicalUrl),
+    _job_id: job.job_id,
+    _domain: exactHostname,
+    _canonical_url: canonicalUrl,
+    _city_id: job.city_id,
+    _metadata: {
+      campaign_id: job.campaign_id,
+      crawl_kind: job.crawl_kind,
+      crawl_depth: job.crawl_depth,
+    },
+  });
+  if (!ownsDailyWork) {
+    const completed = await rpc<boolean>(admin, "complete_global_crawl_job", {
+      _job_id: job.job_id,
+      _worker_id: workerId,
+      _http_status: null,
+      _content_hash: await sha256(`duplicate-work:${canonicalUrl}`),
+      _event_count: 0,
+      _response_metadata: {
+        final_url: canonicalUrl,
+        skipped: true,
+        skip_reason: "duplicate_work_same_day",
+        event_error_count: 0,
+      },
+    });
+    if (!completed) throw new WorkerError("crawl_duplicate_skip_lease_lost");
+    return {
+      jobId: job.job_id,
+      kind: "crawl",
+      ok: true,
+      skipped: true,
+      result: "duplicate_work_same_day",
+    };
   }
 
   const robots = await freshRobotsDecision(admin, workerId, {
@@ -1982,16 +2050,19 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     100,
     250_000,
   );
-  const [eventPersistenceRows, discoveryHealthRows, schedulerStatusRows] = await Promise.all([
-    rpc<unknown>(admin, "global_event_persistence_campaign_status", {
-      _campaign_id: campaignId,
-    }),
-    rpc<unknown>(admin, "global_discovery_health_v1", {}),
-    rpc<unknown>(admin, "global_discovery_scheduler_status_v1", {}),
-  ]);
+  const [eventPersistenceRows, discoveryHealthRows, schedulerStatusRows, dailyGuardRows] =
+    await Promise.all([
+      rpc<unknown>(admin, "global_event_persistence_campaign_status", {
+        _campaign_id: campaignId,
+      }),
+      rpc<unknown>(admin, "global_discovery_health_v1", {}),
+      rpc<unknown>(admin, "global_discovery_scheduler_status_v1", {}),
+      rpc<unknown>(admin, "global_discovery_daily_guard_status_v1", {}),
+    ]);
   const eventPersistence = asRows<JsonObject>(eventPersistenceRows)[0] ?? null;
   const discoveryHealth = asRows<JsonObject>(discoveryHealthRows)[0] ?? null;
   const schedulerStatus = asRows<JsonObject>(schedulerStatusRows)[0] ?? null;
+  const dailyGuard = asRows<JsonObject>(dailyGuardRows)[0] ?? null;
   return {
     ok: true,
     action: "status",
@@ -2009,6 +2080,7 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
       maximum_persistence_backlog: maximumPersistenceBacklog,
     },
     event_persistence: eventPersistence,
+    daily_deduplication: dailyGuard,
     discovery_health: discoveryHealth,
     fallback_scheduler: schedulerStatus,
   };

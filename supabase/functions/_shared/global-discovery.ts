@@ -62,6 +62,8 @@ export type NormalizedSearchResult = {
 
 export type NormalizeSearxngOptions = {
   limit?: number;
+  candidateLimit?: number;
+  random?: () => number;
 };
 
 /**
@@ -447,11 +449,15 @@ export function normalizeSearxngResults(
     : MAX_SEARCH_RESULTS_PER_QUERY;
   const limit = Math.max(0, Math.min(MAX_SEARCH_RESULTS_PER_QUERY, requestedLimit));
   if (limit === 0) return [];
+  const requestedCandidateLimit = Number.isFinite(options.candidateLimit)
+    ? Math.floor(options.candidateLimit as number)
+    : limit;
+  const candidateLimit = Math.max(limit, Math.min(50, requestedCandidateLimit));
 
-  const normalized: NormalizedSearchResult[] = [];
+  const candidates: NormalizedSearchResult[] = [];
   const seenDomains = new Set<string>();
 
-  for (let index = 0; index < rawResults.length && normalized.length < limit; index += 1) {
+  for (let index = 0; index < rawResults.length && candidates.length < candidateLimit; index += 1) {
     const result = rawResults[index];
     if (!isRecord(result)) continue;
 
@@ -461,8 +467,8 @@ export function normalizeSearxngResults(
     if (!domain || seenDomains.has(domain)) continue;
 
     seenDomains.add(domain);
-    normalized.push({
-      rank: normalized.length + 1,
+    candidates.push({
+      rank: candidates.length + 1,
       sourceRank: index + 1,
       url,
       domain,
@@ -481,7 +487,20 @@ export function normalizeSearxngResults(
     });
   }
 
-  return normalized;
+  if (options.random && candidates.length > 1) {
+    for (let index = candidates.length - 1; index > 0; index -= 1) {
+      const randomValue = options.random();
+      const safeRandom =
+        Number.isFinite(randomValue) && randomValue >= 0 && randomValue < 1 ? randomValue : 0;
+      const swapIndex = Math.floor(safeRandom * (index + 1));
+      [candidates[index], candidates[swapIndex]] = [candidates[swapIndex], candidates[index]];
+    }
+  }
+
+  return candidates.slice(0, limit).map((result, index) => ({
+    ...result,
+    rank: index + 1,
+  }));
 }
 
 function parseDiscoveryDate(input: Date | string): Date {

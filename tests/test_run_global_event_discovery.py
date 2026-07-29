@@ -40,6 +40,21 @@ LEASE_REAPER_ROLLBACK = (
     / "rollback"
     / "20260728124509_global_discovery_lease_reaper_rollback.sql"
 )
+DAILY_DEDUPE_MIGRATION = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260729035348_daily_dedupe_random_worldwide_discovery.sql"
+)
+DAILY_DEDUPE_ROLLBACK = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "rollback"
+    / "20260729035348_daily_dedupe_random_worldwide_discovery_rollback.sql"
+)
+DAILY_DEDUPE_SMOKE = (
+    Path(__file__).parents[1] / "tests" / "global-daily-dedupe-smoke.sql"
+)
 SPEC = importlib.util.spec_from_file_location("global_discovery_runner", SCRIPT)
 assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -259,6 +274,69 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn('"reap_global_discovery_expired_leases_v1"', edge_function)
         self.assertIn('"release_global_discovery_worker_leases_v1"', edge_function)
         self.assertIn("} finally {", edge_function)
+
+    def test_daily_work_is_atomic_private_randomized_and_reversible(self):
+        migration = DAILY_DEDUPE_MIGRATION.read_text(encoding="utf-8")
+        rollback = DAILY_DEDUPE_ROLLBACK.read_text(encoding="utf-8")
+        smoke = DAILY_DEDUPE_SMOKE.read_text(encoding="utf-8")
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS private.global_discovery_daily_work",
+            migration,
+        )
+        self.assertIn(
+            "PRIMARY KEY (work_date, work_kind, work_key)",
+            migration,
+        )
+        self.assertIn(
+            "CREATE OR REPLACE FUNCTION public.claim_global_discovery_daily_work_v1(",
+            migration,
+        )
+        self.assertIn(
+            "CREATE OR REPLACE FUNCTION public.skip_global_event_persistence_duplicate_v1(",
+            migration,
+        )
+        self.assertIn(
+            "REVOKE ALL ON TABLE private.global_discovery_daily_work",
+            migration,
+        )
+        self.assertIn(
+            "FROM PUBLIC, anon, authenticated, service_role",
+            migration,
+        )
+        self.assertIn("PARTITION BY persistence.event_key", migration)
+        self.assertIn("error_code = 'deduplicated_backlog'", migration)
+        self.assertIn("PARTITION BY country.id", migration)
+        self.assertIn("ORDER BY target.priority DESC, random()", migration)
+        self.assertIn("LANGUAGE plpgsql\nVOLATILE", migration)
+        self.assertIn(
+            '"claim_global_discovery_daily_work_v1"',
+            edge_function,
+        )
+        self.assertIn(
+            '"skip_global_event_persistence_duplicate_v1"',
+            edge_function,
+        )
+        self.assertIn('"duplicate_work_same_day"', edge_function)
+        self.assertIn("candidateLimit: 50", edge_function)
+        self.assertIn("random: Math.random", edge_function)
+
+        self.assertIn("first daily work claim must succeed", smoke)
+        self.assertIn("the owning job must be allowed to retry", smoke)
+        self.assertIn("a second job must not claim identical work", smoke)
+        self.assertIn("--file tests/global-daily-dedupe-smoke.sql", workflow)
+
+        self.assertIn("status = 'queued'", rollback)
+        self.assertIn(
+            "error_code IN ('deduplicated_backlog', 'duplicate_work_same_day')",
+            rollback,
+        )
+        self.assertIn(
+            "DROP TABLE IF EXISTS private.global_discovery_daily_work",
+            rollback,
+        )
 
     def test_normalizes_project_urls_and_local_stack(self):
         expected = (
