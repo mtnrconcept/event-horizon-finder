@@ -1,6 +1,7 @@
 do $smoke$
 declare
   function_oid oid;
+  function_definition text;
   payload json;
 begin
   function_oid := to_regprocedure(
@@ -13,6 +14,14 @@ begin
 
   if not has_function_privilege('anon', function_oid, 'EXECUTE') then
     raise exception 'anon cannot execute discover_map_pins_in_bounds_v1';
+  end if;
+
+  function_definition := pg_get_functiondef(function_oid);
+
+  if position('limit 6000' in function_definition) = 0
+    or position('limit 4000' in function_definition) = 0
+  then
+    raise exception 'legacy map pin work is not bounded before aggregation';
   end if;
 
   payload := public.discover_map_pins_in_bounds_v1(
