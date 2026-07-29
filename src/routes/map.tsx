@@ -27,7 +27,7 @@ import {
   type DiscoveredEvent,
   type QuickRange,
 } from "@/lib/queries";
-import type { CompactMapPin } from "@/lib/map-pins";
+import type { CompactMapPinBatch } from "@/lib/map-pins";
 import {
   chunkOccurrenceIds,
   mapPreviewExcerpt,
@@ -89,6 +89,7 @@ import {
   EVENT_SOURCE_MAX_ZOOM,
   clusterExpansionTargetZoom,
   eventClusterCircleRadiusExpression,
+  eventClusterCountExpression,
   eventClusterTextSizeExpression,
   loadAllClusterLeaves,
   shouldOpenClusterSelection,
@@ -135,7 +136,7 @@ export const Route = createFileRoute("/map")({
 
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 160;
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;
 const MAP_ALL_UPCOMING_END = new Date("2100-01-01T00:00:00.000Z");
 
 const RASTER_FALLBACK_STYLE: StyleSpecification = {
@@ -173,6 +174,13 @@ const MAP_HOVER_DELAY_MS = 120;
 const DETAIL_LIST_BATCH_SIZE = 24;
 const MAP_EVENT_DETAIL_CACHE_LIMIT = 24;
 const MAP_EVENT_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const EMPTY_MAP_PIN_BATCH: CompactMapPinBatch = {
+  pins: [],
+  totalCount: 0,
+  freeCount: 0,
+  clustered: false,
+  truncated: false,
+};
 
 type MapEventDetailCacheEntry = {
   detail: MapOccurrenceDetail;
@@ -251,7 +259,8 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       clusterRadius: EVENT_CLUSTER_RADIUS,
       maxzoom: EVENT_SOURCE_MAX_ZOOM,
       clusterProperties: {
-        free_count: ["+", ["case", ["==", ["get", "is_free"], 1], 1, 0]],
+        event_count: ["+", ["get", "event_count"]],
+        free_count: ["+", ["get", "free_count"]],
       },
     });
   }
@@ -263,7 +272,7 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       id: MAP_EVENT_POINT_LAYER_ID,
       type: "circle",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["!", ["has", "point_count"]],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
       paint: {
         "circle-color": ["get", "category_color"],
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 10, 12, 14, 16, 19],
@@ -279,7 +288,7 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       id: MAP_EVENT_LABEL_LAYER_ID,
       type: "symbol",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["!", ["has", "point_count"]],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "kind"], "event"]],
       layout: {
         "icon-image": ["get", "category_icon_image"],
         "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.62, 12, 0.78, 16, 1.02],
@@ -297,7 +306,7 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       id: MAP_CLUSTER_HALO_LAYER_ID,
       type: "circle",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["has", "point_count"],
+      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
       paint: {
         "circle-color": "#a855f7",
         "circle-radius": ["+", eventClusterCircleRadiusExpression(), 9],
@@ -312,11 +321,11 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       id: MAP_CLUSTER_LAYER_ID,
       type: "circle",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["has", "point_count"],
+      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
       paint: {
         "circle-color": [
           "step",
-          ["get", "point_count"],
+          eventClusterCountExpression(),
           "#7c3aed",
           50,
           "#9333ea",
@@ -341,9 +350,9 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       id: MAP_CLUSTER_COUNT_LAYER_ID,
       type: "symbol",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["has", "point_count"],
+      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
       layout: {
-        "text-field": ["to-string", ["get", "point_count"]],
+        "text-field": ["to-string", eventClusterCountExpression()],
         "text-font": ["Noto Sans Regular"],
         "text-size": eventClusterTextSizeExpression(),
         "text-allow-overlap": true,
@@ -1618,7 +1627,7 @@ function createMapHoverFallback(): HTMLDivElement {
 
 function mapClusterPointCount(value: unknown): number {
   const pointCount = Number(value);
-  return Number.isFinite(pointCount) ? Math.max(2, Math.floor(pointCount)) : 2;
+  return Number.isFinite(pointCount) ? Math.max(1, Math.floor(pointCount)) : 1;
 }
 
 function createLoadingHoverContent(label: string): HTMLDivElement {
@@ -1726,13 +1735,15 @@ function MapPage() {
     accuracy: number;
   } | null>(null);
   const [viewportBounds, setViewportBounds] = useState<MapViewportBounds | null>(null);
+  const [viewportZoom, setViewportZoom] = useState(INITIAL_GEOLOCATION_ZOOM);
   const [range, setRange] = useState<QuickRange>("year");
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim());
   const [advancedFilters, setAdvancedFilters] = useState({ ...DEFAULT_ADVANCED_FILTERS });
   const [events, setEvents] = useState<DiscoveredEvent[]>([]);
-  const [compactPins, setCompactPins] = useState<CompactMapPin[]>([]);
+  const [compactPinBatch, setCompactPinBatch] = useState<CompactMapPinBatch>(EMPTY_MAP_PIN_BATCH);
+  const compactPins = compactPinBatch.pins;
   const [listRequested, setListRequested] = useState(false);
   const [mobileListLoading, setMobileListLoading] = useState(false);
   const [mobileListLoadingMore, setMobileListLoadingMore] = useState(false);
@@ -2227,7 +2238,11 @@ function MapPage() {
       });
       if (!nextBounds) return;
       const center = map.getCenter();
-      lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
+      const nextZoom = Math.min(22, Math.max(0, Number(map.getZoom().toFixed(2))));
+      lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: nextZoom };
+      setViewportZoom((current) =>
+        Math.floor(current) === Math.floor(nextZoom) ? current : nextZoom,
+      );
       setViewportBounds((current) =>
         current && mapViewportBoundsKey(current) === mapViewportBoundsKey(nextBounds)
           ? current
@@ -2260,17 +2275,19 @@ function MapPage() {
     () =>
       JSON.stringify({
         range,
+        zoom: Math.floor(viewportZoom),
         categorySlugs: selectedCategorySlugs,
         query: deferredQuery,
         advanced: advancedDiscoveryFilters,
       }),
-    [advancedDiscoveryFilters, deferredQuery, range, selectedCategorySlugs],
+    [advancedDiscoveryFilters, deferredQuery, range, selectedCategorySlugs, viewportZoom],
   );
   const mapDiscoveryParams = useMemo(
     () =>
       viewportBounds
         ? {
             bounds: viewportBounds,
+            zoom: viewportZoom,
             categorySlugs: selectedCategorySlugs,
             query: deferredQuery,
             from,
@@ -2278,15 +2295,23 @@ function MapPage() {
             ...advancedDiscoveryFilters,
           }
         : null,
-    [advancedDiscoveryFilters, deferredQuery, from, selectedCategorySlugs, to, viewportBounds],
+    [
+      advancedDiscoveryFilters,
+      deferredQuery,
+      from,
+      selectedCategorySlugs,
+      to,
+      viewportBounds,
+      viewportZoom,
+    ],
   );
 
   const mapStats = useMemo(
     () => ({
-      total_count: compactPins.length,
-      free_count: compactPins.reduce((count, pin) => count + pin[4], 0),
+      total_count: compactPinBatch.totalCount,
+      free_count: compactPinBatch.freeCount,
     }),
-    [compactPins],
+    [compactPinBatch.freeCount, compactPinBatch.totalCount],
   );
   const totalEventCount = mapStats.total_count;
   const loadedPointCount = compactPins.length;
@@ -2296,13 +2321,14 @@ function MapPage() {
     if (!mapDiscoveryParams) return;
     const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);
     if (cachedPins !== null) {
-      setCompactPins(cachedPins);
+      setCompactPinBatch(cachedPins);
       setLoading(false);
       setError(null);
       return;
     }
 
     let current = true;
+    const controller = new AbortController();
     const requestVersion = ++requestVersionRef.current;
     setLoading(true);
     setError(null);
@@ -2310,13 +2336,17 @@ function MapPage() {
     void loadSessionMapPins({
       cacheKey: mapPinCacheKey,
       viewport: mapDiscoveryParams.bounds,
-      fetchPins: (bounds) => discoverMapPinsInBounds({ ...mapDiscoveryParams, bounds }),
+      zoom: mapDiscoveryParams.zoom,
+      signal: controller.signal,
+      fetchPins: (bounds, signal) =>
+        discoverMapPinsInBounds({ ...mapDiscoveryParams, bounds }, signal),
     })
       .then((nextPins) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
-        setCompactPins(nextPins);
+        setCompactPinBatch(nextPins);
       })
       .catch(() => {
+        if (controller.signal.aborted) return;
         if (!current || requestVersion !== requestVersionRef.current) return;
         setError("Impossible d’actualiser les événements de la zone visible. Réessaie.");
       })
@@ -2325,6 +2355,7 @@ function MapPage() {
       });
     return () => {
       current = false;
+      controller.abort();
     };
   }, [mapDiscoveryParams, mapPinCacheKey, reloadKey]);
 
@@ -2512,13 +2543,22 @@ function MapPage() {
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
       const clusterId = Number(feature.properties?.cluster_id);
-      if (!Number.isFinite(clusterId)) return;
-      const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
-      if (!source) return;
       const [longitude, latitude] = feature.geometry.coordinates;
-      const pointCount = mapClusterPointCount(feature.properties?.point_count);
+      const pointCount = mapClusterPointCount(feature.properties?.event_count);
 
       closeEventSelection();
+      if (!Number.isFinite(clusterId)) {
+        closeClusterSelection();
+        map.easeTo({
+          center: [Number(longitude), Number(latitude)],
+          zoom: Math.min(22, map.getZoom() + 2),
+          duration: 450,
+        });
+        return;
+      }
+
+      const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
+      if (!source) return;
       if (map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM) {
         void loadClusterSelection(source, clusterId, pointCount);
         return;
@@ -2579,44 +2619,47 @@ function MapPage() {
     const handleClusterMouseEnter = (event: MapLayerMouseEvent) => {
       map.getCanvas().style.cursor = "pointer";
       if (isMobileRef.current) return;
-      const feature = event.features?.find((candidate) => candidate.properties?.cluster_id != null);
+      const feature = event.features?.[0];
       if (!feature || feature.geometry.type !== "Point") return;
       const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
       const clusterId = Number(feature.properties?.cluster_id);
-      const pointCount = mapClusterPointCount(feature.properties?.point_count);
+      const pointCount = mapClusterPointCount(feature.properties?.event_count);
+      const sourcePointCount = mapClusterPointCount(feature.properties?.point_count);
       const [longitude, latitude] = feature.geometry.coordinates;
-      if (
-        !source ||
-        !Number.isFinite(clusterId) ||
-        !Number.isFinite(longitude) ||
-        !Number.isFinite(latitude)
-      ) {
+      if (!source || !Number.isFinite(longitude) || !Number.isFinite(latitude)) {
         return;
       }
 
       scheduleHoverPreview([Number(longitude), Number(latitude)], async () => {
+        const labels = {
+          multipleVenues: tr("Plusieurs lieux"),
+          groupedEvents: tr("Événements regroupés"),
+          eventCount: tr("{count} sorties", { count: formatNumber(pointCount) }),
+        };
+        if (!Number.isFinite(clusterId)) {
+          return {
+            content: createClusterHoverContent([], false, labels),
+          };
+        }
+
         const terminalCluster = map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM;
-        const sampleSize = Math.min(pointCount, CLUSTER_HOVER_SAMPLE_SIZE);
+        const sampleSize = Math.min(sourcePointCount, CLUSTER_HOVER_SAMPLE_SIZE);
         const leaves = terminalCluster
-          ? await loadAllClusterLeaves(pointCount, (limit, offset) =>
+          ? await loadAllClusterLeaves(sourcePointCount, (limit, offset) =>
               source.getClusterLeaves(clusterId, limit, offset),
             )
           : await source.getClusterLeaves(clusterId, sampleSize, 0);
         const occurrenceIds = leaves.flatMap((leaf) => {
+          if (leaf.properties?.kind !== "event") return [];
           const occurrenceId = leaf.properties?.entity_id;
           return typeof occurrenceId === "string" ? [occurrenceId] : [];
         });
         const previews = await resolveOccurrencePreviews(occurrenceIds);
         const uniqueOccurrenceCount = new Set(occurrenceIds).size;
         const completeVenueCoverage =
-          leaves.length >= pointCount &&
+          leaves.length >= sourcePointCount &&
           previews.length === uniqueOccurrenceCount &&
           previews.every((preview) => Boolean(preview.venue_name ?? preview.city_name));
-        const labels = {
-          multipleVenues: tr("Plusieurs lieux"),
-          groupedEvents: tr("Événements regroupés"),
-          eventCount: tr("{count} sorties", { count: formatNumber(pointCount) }),
-        };
         return {
           content: createClusterHoverContent(previews, completeVenueCoverage, labels),
           refreshedContent: localizePreviews(previews).then((localizedPreviews) =>
@@ -2746,7 +2789,7 @@ function MapPage() {
     });
   };
 
-  const approximateCount = compactPins.reduce((count, pin) => count + pin[5], 0);
+  const approximateCount = compactPins.reduce((count, pin) => count + pin[6], 0);
   const mobileActiveFilterCount =
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
