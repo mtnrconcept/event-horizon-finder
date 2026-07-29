@@ -206,6 +206,11 @@ jobs:
           supabase db query --local
           --file tests/global-performance-stabilization-smoke.sql
 
+      - name: Exercise the bounded legacy map compatibility RPC
+        run: >-
+          supabase db query --local
+          --file tests/map-legacy-rpc-smoke.sql
+
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
         run: supabase stop --no-backup
