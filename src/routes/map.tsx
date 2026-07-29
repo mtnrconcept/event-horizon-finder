@@ -54,6 +54,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trackClientEvent } from "@/lib/client-analytics";
+import { BRAND_ARRIVAL_COMPLETE_EVENT } from "@/lib/brand-arrival-events";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
@@ -73,6 +74,11 @@ import {
   loadSessionMapPins,
   readSessionMapPins,
 } from "@/lib/map-pin-session-cache";
+import {
+  isRenderableMapSurfaceSize,
+  mapSurfaceSizesMatch,
+  readMapSurfaceSize,
+} from "@/lib/map-surface";
 import {
   mapViewportBoundsKey,
   normalizeMapViewportBounds,
@@ -383,8 +389,8 @@ function MapSurface({
     ? `https://www.openstreetmap.org/#map=12/${fallbackCenter.latitude}/${fallbackCenter.longitude}`
     : "https://www.openstreetmap.org";
   return (
-    <div className="relative h-full w-full">
-      <div ref={containerRef} className={mapUnavailable ? "hidden" : "h-full w-full"} />
+    <div className="map-surface relative h-full w-full">
+      <div ref={containerRef} className={mapUnavailable ? "hidden" : "map-surface__viewport"} />
       {mapUnavailable && (
         <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_70%_20%,oklch(0.68_0.22_295_/_0.18),transparent_32%),linear-gradient(135deg,var(--color-background),var(--color-muted))] p-6">
           <div className="max-w-md text-center md:ml-[30rem]">
@@ -1715,6 +1721,7 @@ function createClusterHoverContent(
 function MapPage() {
   const { t, tr, categoryLabel, formatNumber, locale } = useTranslation();
   const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
+  const [mapLayoutRevision, setMapLayoutRevision] = useState(0);
   const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
     setMapContainer(node);
   }, []);
@@ -2102,6 +2109,19 @@ function MapPage() {
       return;
     }
 
+    if (!isRenderableMapSurfaceSize(readMapSurfaceSize(activeMapContainer))) {
+      let layoutFrame = 0;
+      const waitForLayout = () => {
+        if (isRenderableMapSurfaceSize(readMapSurfaceSize(activeMapContainer))) {
+          setMapLayoutRevision((revision) => revision + 1);
+          return;
+        }
+        layoutFrame = window.requestAnimationFrame(waitForLayout);
+      };
+      layoutFrame = window.requestAnimationFrame(waitForLayout);
+      return () => window.cancelAnimationFrame(layoutFrame);
+    }
+
     // MapLibre must follow the exact DOM node reported by the callback ref.
     // Hydration and responsive layout changes replace that node entirely.
     activeMapContainer.dataset.mapLayout = activeMapContainer.closest(".mobile-discovery-shell")
@@ -2175,14 +2195,37 @@ function MapPage() {
       window.cancelAnimationFrame(firstResizeFrame);
       window.cancelAnimationFrame(secondResizeFrame);
       firstResizeFrame = window.requestAnimationFrame(() => {
-        secondResizeFrame = window.requestAnimationFrame(() => map.resize());
+        secondResizeFrame = window.requestAnimationFrame(() => {
+          const containerSize = readMapSurfaceSize(activeMapContainer);
+          if (!isRenderableMapSurfaceSize(containerSize)) return;
+
+          map.resize();
+          map.triggerRepaint();
+
+          const canvas = map.getCanvas();
+          const canvasSize = readMapSurfaceSize(canvas);
+          if (!mapSurfaceSizesMatch(containerSize, canvasSize)) {
+            canvas.style.width = `${containerSize.width}px`;
+            canvas.style.height = `${containerSize.height}px`;
+            map.resize();
+            map.triggerRepaint();
+          }
+        });
       });
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeMap);
     resizeObserver?.observe(activeMapContainer);
+    if (activeMapContainer.parentElement) {
+      resizeObserver?.observe(activeMapContainer.parentElement);
+    }
     window.visualViewport?.addEventListener("resize", resizeMap);
+    window.addEventListener("resize", resizeMap);
     window.addEventListener("orientationchange", resizeMap);
+    window.addEventListener(BRAND_ARRIVAL_COMPLETE_EVENT, resizeMap);
+    const settlingResizeTimers = [120, 360, 1_000, 2_600].map((delay) =>
+      window.setTimeout(resizeMap, delay),
+    );
     resizeMap();
 
     return () => {
@@ -2192,9 +2235,12 @@ function MapPage() {
       window.clearTimeout(revealTimer);
       window.cancelAnimationFrame(firstResizeFrame);
       window.cancelAnimationFrame(secondResizeFrame);
+      settlingResizeTimers.forEach((timer) => window.clearTimeout(timer));
       resizeObserver?.disconnect();
       window.visualViewport?.removeEventListener("resize", resizeMap);
+      window.removeEventListener("resize", resizeMap);
       window.removeEventListener("orientationchange", resizeMap);
+      window.removeEventListener(BRAND_ARRIVAL_COMPLETE_EVENT, resizeMap);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       map.remove();
@@ -2205,7 +2251,7 @@ function MapPage() {
         setReadyStyle((current) => (current?.map === map ? null : current));
       }
     };
-  }, [geolocationStatus, mapContainer]);
+  }, [geolocationStatus, mapContainer, mapLayoutRevision]);
 
   useEffect(() => {
     const map = mapInstance;
