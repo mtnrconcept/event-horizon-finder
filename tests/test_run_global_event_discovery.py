@@ -131,7 +131,7 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
 
     def test_scheduled_profile_runs_every_fifteen_minutes_without_raising_hourly_capacity(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('- cron: "2,17,32,47 * * * *"', workflow)
+        self.assertIn('- cron: "6,21,36,51 * * * *"', workflow)
         push_block = workflow.split("  push:", 1)[1].split("  pull_request:", 1)[0]
         self.assertIn('".github/workflows/discover-world-events.yml"', push_block)
         self.assertNotIn('"scripts/', push_block)
@@ -211,6 +211,8 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             "body.persistenceLimit ?? body.persistence_limit ?? body.limit ?? body.batch_size",
             edge_function,
         )
+        self.assertIn('"upsert_ingested_event_serial_v1"', edge_function)
+        self.assertNotIn('"upsert_ingested_event_v2"', edge_function)
 
     def test_supabase_cron_fallback_is_secretless_bounded_and_reversible(self):
         migration = CRON_MIGRATION.read_text(encoding="utf-8")
@@ -285,7 +287,7 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn("'persistence_limit', 25", rollback)
 
         self.assertIn("const WORKER_EXECUTION_BUDGET_MS = 105_000", edge_function)
-        self.assertIn("const DEFAULT_PERSISTENCE_BATCH = 6", edge_function)
+        self.assertIn("const DEFAULT_PERSISTENCE_BATCH = 8", edge_function)
         self.assertIn("const MAX_PERSISTENCE_BATCH = 8", edge_function)
         self.assertIn("_limit: 1", edge_function)
         self.assertIn(

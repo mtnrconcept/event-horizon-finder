@@ -79,7 +79,7 @@ on:
     # worker executes --max-batches Edge calls. Off-quarter minutes reduce
     # congestion on GitHub-hosted runners; database backpressure and leases
     # remain the authoritative safety limits.
-    - cron: "2,17,32,47 * * * *"
+    - cron: "6,21,36,51 * * * *"
 
 permissions:
   contents: read
@@ -200,6 +200,11 @@ jobs:
         run: >-
           supabase db query --local
           --file tests/global-persistence-circuit-breaker-smoke.sql
+
+      - name: Exercise the performance stabilization guards
+        run: >-
+          supabase db query --local
+          --file tests/global-performance-stabilization-smoke.sql
 
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
