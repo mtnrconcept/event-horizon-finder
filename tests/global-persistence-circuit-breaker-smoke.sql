@@ -3,6 +3,7 @@ DECLARE
   test_domain CONSTANT TEXT := 'persistence-circuit-smoke.example.com';
   circuit_state TEXT;
   timeout_count INTEGER;
+  circuit_open_until TIMESTAMPTZ;
 BEGIN
   DELETE FROM private.global_persistence_domain_circuit_breakers
   WHERE domain = test_domain;
