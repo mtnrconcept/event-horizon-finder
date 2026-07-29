@@ -4,6 +4,7 @@ import {
   BarChart3,
   BadgeCheck,
   CalendarDays,
+  CreditCard,
   Eye,
   Megaphone,
   MousePointerClick,
@@ -165,6 +166,12 @@ function OrganizerHome() {
             className="inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold hover:bg-accent"
           >
             <Megaphone className="h-4 w-4" /> {tr("Lancer une campagne")}
+          </Link>
+          <Link
+            to="/organizer/billing"
+            className="inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold hover:bg-accent"
+          >
+            <CreditCard className="h-4 w-4" /> {tr("Abonnements")}
           </Link>
         </div>
       </section>

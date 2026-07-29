@@ -28,3 +28,9 @@ verify_jwt = true
 
 [functions.generate-ad-draft]
 verify_jwt = true
+
+[functions.create-organizer-subscription-checkout]
+verify_jwt = true
+
+[functions.create-billing-portal]
+verify_jwt = true
