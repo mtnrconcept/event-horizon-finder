@@ -1,0 +1,6 @@
+-- Migration-history parity marker.
+--
+-- Production recorded this version when the already-versioned
+-- 20260728124509_global_discovery_lease_reaper.sql migration was applied
+-- directly. The complete, replayable DDL remains in that earlier migration;
+-- this tracked marker keeps local and remote history aligned.

@@ -1,0 +1,6 @@
+-- Migration-history parity marker.
+--
+-- Production recorded this version when the already-versioned
+-- 20260726013522_global_discovery_supabase_cron_fallback.sql migration was
+-- applied directly. The complete, replayable DDL remains in that earlier
+-- migration; this tracked marker keeps local and remote history aligned.

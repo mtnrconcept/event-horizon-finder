@@ -54,6 +54,12 @@ de temps Edge ne fait donc pas recommencer le cycle.
    peut référencer plusieurs pages dans `public.event_sources`, avec leur URL,
    image, réservation et attribution propres. Une correspondance ambiguë
    n’est pas fusionnée agressivement.
+9. Un registre privé atomique réserve chaque URL canonique exacte et chaque
+   empreinte exacte d’événement pour un seul job par jour UTC. Le job
+   propriétaire peut reprendre après une erreur, mais un autre job identique
+   est clôturé avant toute lecture réseau ou tout upsert. Les pages différentes
+   d’un même domaine restent autorisées : le garde-fou élimine le même travail,
+   sans confondre deux agendas locaux légitimes.
 
 Les files, leases, extraits de recherche, décisions robots et identités de
 dédoublonnage restent dans le schéma `private`. Les visiteurs peuvent seulement
@@ -113,6 +119,9 @@ select *
 from public.global_discovery_health_v1();
 
 select public.reap_global_discovery_expired_leases_v1(1000);
+
+select *
+from public.global_discovery_daily_guard_status_v1();
 ```
 
 Les deux RPC de statut sont réservées au rôle serveur. Le rollback contrôlé se
@@ -124,6 +133,18 @@ Le rollback du reaper et des nouveaux paramètres se trouve dans
 `supabase/rollback/20260728124509_global_discovery_lease_reaper_rollback.sql`.
 
 ## Sélection des pays et des villes
+
+La planification mondiale est aléatoire sans remise et équilibrée par pays.
+Le premier tour choisit une ville due au hasard dans chaque pays, le deuxième
+tour une seconde ville par pays, etc. Chaque ville choisie voit ensuite son
+échéance avancée selon sa cadence habituelle, ce qui l’exclut automatiquement
+des appels suivants. Un filtre de pays explicite conserve ce comportement à
+l’intérieur des seuls pays demandés.
+
+Pour chaque requête, SearXNG fournit un bassin allant jusqu’à 50 domaines
+distincts et le worker en tire au hasard au maximum 10. Le rang d’origine reste
+conservé dans les métadonnées pour l’audit. Le registre journalier bloque
+ensuite une URL canonique déjà réservée, même si une autre requête la retrouve.
 
 La limite s’adapte à la population du pays :
 
