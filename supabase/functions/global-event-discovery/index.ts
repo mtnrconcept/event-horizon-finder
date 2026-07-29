@@ -1866,7 +1866,7 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     MAX_PERSISTENCE_BATCH,
   );
   const workerId = crypto.randomUUID();
-  let persistenceJobs: PersistenceJob[] = [];
+  const persistenceJobs: PersistenceJob[] = [];
   let jobs: CrawlJob[] = [];
   const persistenceSummaries: JsonObject[] = [];
   const crawlSummaries: JsonObject[] = [];
@@ -1878,22 +1878,25 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
       _batch_limit: 1000,
     });
 
-    // Drain durable writes before doing more network work. Claims stay small,
-    // and the finally block explicitly releases every job that was claimed but
-    // could not be started inside the Edge execution budget.
-    persistenceJobs = asRows<PersistenceJob>(
-      await rpc<unknown>(admin, "claim_global_event_persistence_jobs", {
-        _worker_id: workerId,
-        _limit: persistenceLimit,
-        _lease_seconds: PERSISTENCE_LEASE_SECONDS,
-      }),
-    );
-    for (let index = 0; index < persistenceJobs.length; index += 1) {
-      const job = persistenceJobs[index];
+    // Keep the two database admission slots productive without pre-leasing a
+    // large batch. The claim RPC also allows only one active job per domain,
+    // so independent sources can progress without fighting the same identity
+    // lock or letting a hot source monopolize both slots.
+    while (persistenceJobs.length < persistenceLimit) {
       if (!workerHasBudget(startedAt, MIN_PERSISTENCE_START_BUDGET_MS)) {
-        persistenceDeferred = persistenceJobs.length - index;
+        persistenceDeferred = persistenceLimit - persistenceJobs.length;
         break;
       }
+      const claimed = asRows<PersistenceJob>(
+        await rpc<unknown>(admin, "claim_global_event_persistence_jobs", {
+          _worker_id: workerId,
+          _limit: 1,
+          _lease_seconds: PERSISTENCE_LEASE_SECONDS,
+        }),
+      );
+      const job = claimed[0];
+      if (!job) break;
+      persistenceJobs.push(job);
       try {
         persistenceSummaries.push(await persistClaimedEvent(admin, workerId, job));
       } catch (error) {
@@ -2050,19 +2053,26 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     100,
     250_000,
   );
-  const [eventPersistenceRows, discoveryHealthRows, schedulerStatusRows, dailyGuardRows] =
-    await Promise.all([
-      rpc<unknown>(admin, "global_event_persistence_campaign_status", {
-        _campaign_id: campaignId,
-      }),
-      rpc<unknown>(admin, "global_discovery_health_v1", {}),
-      rpc<unknown>(admin, "global_discovery_scheduler_status_v1", {}),
-      rpc<unknown>(admin, "global_discovery_daily_guard_status_v1", {}),
-    ]);
+  const [
+    eventPersistenceRows,
+    discoveryHealthRows,
+    schedulerStatusRows,
+    dailyGuardRows,
+    persistenceCircuitRows,
+  ] = await Promise.all([
+    rpc<unknown>(admin, "global_event_persistence_campaign_status", {
+      _campaign_id: campaignId,
+    }),
+    rpc<unknown>(admin, "global_discovery_health_v1", {}),
+    rpc<unknown>(admin, "global_discovery_scheduler_status_v1", {}),
+    rpc<unknown>(admin, "global_discovery_daily_guard_status_v1", {}),
+    rpc<unknown>(admin, "global_persistence_circuit_breaker_status_v1", {}),
+  ]);
   const eventPersistence = asRows<JsonObject>(eventPersistenceRows)[0] ?? null;
   const discoveryHealth = asRows<JsonObject>(discoveryHealthRows)[0] ?? null;
   const schedulerStatus = asRows<JsonObject>(schedulerStatusRows)[0] ?? null;
   const dailyGuard = asRows<JsonObject>(dailyGuardRows)[0] ?? null;
+  const persistenceCircuits = asRows<JsonObject>(persistenceCircuitRows);
   return {
     ok: true,
     action: "status",
@@ -2080,6 +2090,7 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
       maximum_persistence_backlog: maximumPersistenceBacklog,
     },
     event_persistence: eventPersistence,
+    persistence_circuit_breakers: persistenceCircuits,
     daily_deduplication: dailyGuard,
     discovery_health: discoveryHealth,
     fallback_scheduler: schedulerStatus,

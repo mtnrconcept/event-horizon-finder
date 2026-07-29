@@ -84,9 +84,18 @@ second déclencheur dans Supabase :
   doubles dispatchs ;
 - chaque tick envoie au maximum huit requêtes Edge asynchrones et bornées :
   une planification, une recherche et six workers crawl/persistance ;
-- chaque worker réclame au maximum six persistances et une page, limite la
-  lecture directe à six sous-pages et réserve une marge avant le plafond Edge
-  de 150 secondes ;
+- chaque worker réclame les persistances une par une, jusqu’à six par défaut
+  (huit au maximum), puis une page. Il ne pré-réserve donc jamais un gros lot,
+  limite la lecture directe à six sous-pages et réserve une marge avant le
+  plafond Edge de 150 secondes ;
+- l’admission SQL limite Persistence à deux upserts simultanés sur l’ensemble
+  des workers et à un seul travail actif par domaine. Trois timeouts PostgreSQL
+  `57014` consécutifs en quinze minutes
+  ouvrent automatiquement un circuit par domaine pendant deux heures : le
+  crawl de ce domaine et ses persistances sont différés sans supprimer les
+  jobs. Une sonde réussie après le délai referme le circuit, tandis qu’un
+  nouvel échec le rouvre. Les retries de timeout sont exponentiels et deviennent
+  terminaux après quatre tentatives, tout en restant réenfilables explicitement ;
 - un budget d’exécution de 105 secondes empêche de commencer un travail qui ne
   pourrait pas finir ; tous les leases réclamés mais non commencés sont
   explicitement rendus à la file dans un bloc `finally`, sans consommer leur
@@ -122,6 +131,9 @@ select public.reap_global_discovery_expired_leases_v1(1000);
 
 select *
 from public.global_discovery_daily_guard_status_v1();
+
+select *
+from public.global_persistence_circuit_breaker_status_v1();
 ```
 
 Les deux RPC de statut sont réservées au rôle serveur. Le rollback contrôlé se
@@ -131,6 +143,13 @@ Il désactive le job et supprime les objets propres au scheduler, tout en
 conservant `pg_cron` et `pg_net` pour ne pas casser d'autres tâches éventuelles.
 Le rollback du reaper et des nouveaux paramètres se trouve dans
 `supabase/rollback/20260728124509_global_discovery_lease_reaper_rollback.sql`.
+Le circuit breaker est introduit par
+`20260729072607_persistence_circuit_breaker.sql` ; sa table et sa RPC de statut
+restent privées au rôle serveur. Son rollback récupérable se trouve dans
+`supabase/rollback/20260729072607_persistence_circuit_breaker_rollback.sql` :
+il réenfile les jobs arrêtés sous le plafond historique, ferme les circuits
+et restaure les trois RPC Persistence précédentes. L’historique privé reste
+conservé pour audit au lieu d’être supprimé.
 
 ## Sélection des pays et des villes
 

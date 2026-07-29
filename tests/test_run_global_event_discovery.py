@@ -55,6 +55,23 @@ DAILY_DEDUPE_ROLLBACK = (
 DAILY_DEDUPE_SMOKE = (
     Path(__file__).parents[1] / "tests" / "global-daily-dedupe-smoke.sql"
 )
+PERSISTENCE_CIRCUIT_MIGRATION = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "migrations"
+    / "20260729072607_persistence_circuit_breaker.sql"
+)
+PERSISTENCE_CIRCUIT_ROLLBACK = (
+    Path(__file__).parents[1]
+    / "supabase"
+    / "rollback"
+    / "20260729072607_persistence_circuit_breaker_rollback.sql"
+)
+PERSISTENCE_CIRCUIT_SMOKE = (
+    Path(__file__).parents[1]
+    / "tests"
+    / "global-persistence-circuit-breaker-smoke.sql"
+)
 SPEC = importlib.util.spec_from_file_location("global_discovery_runner", SCRIPT)
 assert SPEC and SPEC.loader
 RUNNER = importlib.util.module_from_spec(SPEC)
@@ -270,6 +287,11 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn("const WORKER_EXECUTION_BUDGET_MS = 105_000", edge_function)
         self.assertIn("const DEFAULT_PERSISTENCE_BATCH = 6", edge_function)
         self.assertIn("const MAX_PERSISTENCE_BATCH = 8", edge_function)
+        self.assertIn("_limit: 1", edge_function)
+        self.assertIn(
+            "while (persistenceJobs.length < persistenceLimit)",
+            edge_function,
+        )
         self.assertIn("pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET", edge_function)
         self.assertIn('"reap_global_discovery_expired_leases_v1"', edge_function)
         self.assertIn('"release_global_discovery_worker_leases_v1"', edge_function)
@@ -335,6 +357,52 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         )
         self.assertIn(
             "DROP TABLE IF EXISTS private.global_discovery_daily_work",
+            rollback,
+        )
+
+    def test_persistence_timeouts_open_a_private_bounded_circuit(self):
+        migration = PERSISTENCE_CIRCUIT_MIGRATION.read_text(encoding="utf-8")
+        rollback = PERSISTENCE_CIRCUIT_ROLLBACK.read_text(encoding="utf-8")
+        smoke = PERSISTENCE_CIRCUIT_SMOKE.read_text(encoding="utf-8")
+        edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS private.global_persistence_domain_circuit_breakers",
+            migration,
+        )
+        self.assertIn("available_slots := greatest(0, 2 - active_leases)", migration)
+        self.assertIn("LIMIT claim_limit", migration)
+        self.assertIn("LIMIT 500", migration)
+        self.assertIn("active_crawl.domain", migration)
+        self.assertIn("next_timeout_count >= 3", migration)
+        self.assertIn("breaker.open_until <= now()", migration)
+        self.assertIn("now() + interval '2 hours'", migration)
+        self.assertIn("persistence.attempt_count >= 4", migration)
+        self.assertIn("THEN 'persistence_timeout_exhausted'", migration)
+        self.assertIn("'whatson.cityofsydney.nsw.gov.au'", migration)
+        self.assertIn("'agenda.lesoir.be'", migration)
+        self.assertIn("state.next_allowed_at", migration)
+        self.assertIn(
+            "REVOKE ALL ON TABLE private.global_persistence_domain_circuit_breakers",
+            migration,
+        )
+        self.assertIn(
+            '"global_persistence_circuit_breaker_status_v1"',
+            edge_function,
+        )
+        self.assertIn("persistence_circuit_breakers:", edge_function)
+        self.assertIn("three consecutive timeouts must open the circuit", smoke)
+        self.assertIn("a failed cooldown probe must reopen the circuit", smoke)
+        self.assertIn("a successful cooldown probe must close the circuit", smoke)
+        self.assertIn(
+            "--file tests/global-persistence-circuit-breaker-smoke.sql",
+            workflow,
+        )
+        self.assertIn("state = 'closed'", rollback)
+        self.assertIn("persistence_circuit_rollback_requeued", rollback)
+        self.assertIn(
+            "CREATE OR REPLACE FUNCTION public.claim_global_event_persistence_jobs",
             rollback,
         )
 

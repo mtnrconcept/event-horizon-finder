@@ -196,6 +196,11 @@ jobs:
           supabase db query --local
           --file tests/global-daily-dedupe-smoke.sql
 
+      - name: Exercise the persistence circuit breaker
+        run: >-
+          supabase db query --local
+          --file tests/global-persistence-circuit-breaker-smoke.sql
+
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
         run: supabase stop --no-backup
