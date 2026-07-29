@@ -4,7 +4,7 @@ import type { CompactMapPin } from "@/lib/map-pins";
 import type { DiscoveredEvent } from "@/lib/queries";
 
 export type MapPointProperties = {
-  kind: "event";
+  kind: "event" | "server_cluster";
   entity_id: string;
   label: string;
   category_slug: string;
@@ -13,6 +13,8 @@ export type MapPointProperties = {
   is_free: 0 | 1;
   approximate: 0 | 1;
   slug: string;
+  event_count: number;
+  free_count: number;
 };
 
 export type MapPointCollection = FeatureCollection<Point, MapPointProperties>;
@@ -76,6 +78,8 @@ export function buildMapPointCollection({
           is_free: event.is_free ? 1 : 0,
           approximate: event.location_precision === "city" ? 1 : 0,
           slug: event.slug,
+          event_count: 1,
+          free_count: event.is_free ? 1 : 0,
         },
       });
     }
@@ -94,16 +98,27 @@ export function buildCompactMapPointCollection({
   if (!showEvents) return { type: "FeatureCollection", features: [] };
 
   const features: Array<Feature<Point, MapPointProperties>> = [];
-  for (const [entityId, longitude, latitude, rawCategorySlug, isFree, approximate, slug] of pins) {
+  for (const [
+    kind,
+    entityId,
+    longitude,
+    latitude,
+    rawCategorySlug,
+    isFree,
+    approximate,
+    slug,
+    eventCount,
+    freeCount,
+  ] of pins) {
     if (!validLongitude(longitude) || !validLatitude(latitude)) continue;
     const categorySlug = normalizeEventCategorySlug(rawCategorySlug);
     const categoryVisual = eventCategoryVisual(categorySlug);
     features.push({
       type: "Feature",
-      id: `event:${entityId}`,
+      id: `${kind}:${entityId}`,
       geometry: { type: "Point", coordinates: [longitude, latitude] },
       properties: {
-        kind: "event",
+        kind: kind === "cluster" ? "server_cluster" : "event",
         entity_id: entityId,
         label: "",
         category_slug: categorySlug,
@@ -112,6 +127,8 @@ export function buildCompactMapPointCollection({
         is_free: isFree,
         approximate,
         slug,
+        event_count: eventCount,
+        free_count: freeCount,
       },
     });
   }
