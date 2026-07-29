@@ -8,7 +8,11 @@ export function PwaRuntime() {
 
     const register = async () => {
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        const registration = await navigator.serviceWorker.register("/sw.js", {
+          scope: "/",
+          updateViaCache: "none",
+        });
+        await registration.update();
 
         const announceUpdate = (worker: ServiceWorker) => {
           worker.addEventListener("statechange", () => {

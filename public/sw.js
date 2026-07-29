@@ -1,10 +1,8 @@
-/* Global Party service worker — public shell only, no authenticated data caching. */
-const VERSION = "global-party-v3-2026-07-22";
+/* Global Party service worker — static assets only, never a stale application shell. */
+const VERSION = "global-party-v4-2026-07-29";
 const STATIC_CACHE = `${VERSION}-static`;
-const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";
 const STATIC_ASSETS = [
-  "/",
   OFFLINE_URL,
   "/manifest.webmanifest",
   "/favicon.ico",
@@ -12,7 +10,12 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_ASSETS)));
+  event.waitUntil(
+    caches
+      .open(STATIC_CACHE)
+      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -22,9 +25,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter(
-              (key) => key.startsWith("global-party-") && ![STATIC_CACHE, PAGE_CACHE].includes(key),
-            )
+            .filter((key) => key.startsWith("global-party-") && key !== STATIC_CACHE)
             .map((key) => caches.delete(key)),
         ),
       )
@@ -51,32 +52,17 @@ function isSensitivePath(pathname) {
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-function isCacheablePublicPage(pathname) {
-  return (
-    pathname === "/" ||
-    pathname === "/map" ||
-    pathname.startsWith("/event/") ||
-    pathname === "/help" ||
-    pathname === "/faq"
-  );
-}
-
-async function networkFirst(request, cacheName, timeoutMs = 4_500) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function networkOnlyNavigation(request) {
   try {
-    const response = await fetch(request, { signal: controller.signal });
-    if (response.ok) {
-      const cache = await caches.open(cacheName);
-      await cache.put(request, response.clone());
-    }
-    return response;
+    return await fetch(request);
   } catch {
-    const cached = await caches.match(request);
-    if (cached) return cached;
-    return caches.match(OFFLINE_URL);
-  } finally {
-    clearTimeout(timer);
+    return (
+      (await caches.match(OFFLINE_URL)) ??
+      new Response("Application indisponible hors ligne.", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    );
   }
 }
 
@@ -101,8 +87,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin || isSensitivePath(url.pathname)) return;
 
   if (request.mode === "navigate") {
-    if (!isCacheablePublicPage(url.pathname)) return;
-    event.respondWith(networkFirst(request, PAGE_CACHE));
+    event.respondWith(networkOnlyNavigation(request));
     return;
   }
 
