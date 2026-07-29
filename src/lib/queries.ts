@@ -25,7 +25,14 @@ import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-vi
 const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
 export type QuickRange =
-  "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
+  | "now"
+  | "tonight"
+  | "today"
+  | "tomorrow"
+  | "weekend"
+  | "week"
+  | "month"
+  | "year";
 
 /**
  * "Ce soir" = nuit événementielle 18h → 6h le lendemain (heure locale de l'utilisateur).
