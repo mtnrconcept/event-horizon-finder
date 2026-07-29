@@ -21,6 +21,10 @@ import {
 } from "@/lib/map-occurrence-previews";
 import { loadAllPages } from "@/lib/load-all-pages";
 import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-viewport";
+import { parseHomeCollections, type HomeCollections } from "@/lib/home-collections";
+
+export { parseHomeCollections };
+export type { HomeCollections };
 
 const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
@@ -289,6 +293,26 @@ export async function discoverEvents(p: DiscoverParams): Promise<DiscoveredEvent
   const { data, error } = await supabase.rpc("discover_events", args as any);
   if (error) throw error;
   return (data ?? []) as DiscoveredEvent[];
+}
+
+export async function fetchHomeCollections(
+  p: Pick<DiscoverParams, "from" | "to" | "countryId" | "regionId" | "cityId">,
+): Promise<HomeCollections> {
+  const args = {
+    _from: (p.from ?? new Date()).toISOString(),
+    _to: (p.to ?? new Date(Date.now() + 365 * 24 * 3600 * 1000)).toISOString(),
+    _country_id: p.countryId ?? null,
+    _region_id: p.regionId ?? null,
+    _city_id: p.cityId ?? null,
+    _collection_limit: 8,
+    _candidate_limit: 512,
+  };
+  // Generated types intentionally lag behind additive migrations during a
+  // rolling deployment, so the cast remains isolated at the RPC boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("discover_home_collections_v1", args);
+  if (error) throw error;
+  return parseHomeCollections(data);
 }
 
 export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEvent[]> {

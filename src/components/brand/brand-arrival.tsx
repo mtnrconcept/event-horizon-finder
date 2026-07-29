@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Volume2, VolumeX, X } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
-import { markBrandArrivalComplete } from "@/lib/brand-arrival-events";
+import { hasBrandArrivalCompleted, markBrandArrivalComplete } from "@/lib/brand-arrival-events";
 import "./brand-arrival.css";
 
 const INTRO_PLAYBACK_TIMEOUT_MS = 25_000;
@@ -53,7 +53,7 @@ export function BrandArrival() {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const saveData = (window.navigator as NavigatorWithConnection).connection?.saveData === true;
 
-    if (reducedMotion || saveData) {
+    if (hasBrandArrivalCompleted() || reducedMotion || saveData) {
       const completionTimeout = window.setTimeout(completeArrival, 0);
       return () => window.clearTimeout(completionTimeout);
     }
@@ -66,29 +66,11 @@ export function BrandArrival() {
   useEffect(() => {
     if (!visible) return;
 
-    const previousBodyOverflow = document.body.style.overflow;
     const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    document.body.style.overflow = "hidden";
-    startButtonRef.current?.focus({ preventScroll: true });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         dismiss();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      const firstControl = hasStarted ? soundButtonRef.current : startButtonRef.current;
-      const lastControl = skipButtonRef.current;
-      if (!firstControl || !lastControl) return;
-
-      if (event.shiftKey && document.activeElement === firstControl) {
-        event.preventDefault();
-        lastControl.focus();
-      } else if (!event.shiftKey && document.activeElement === lastControl) {
-        event.preventDefault();
-        firstControl.focus();
       }
     };
     const handleMotionPreference = (event: MediaQueryListEvent) => {
@@ -100,7 +82,6 @@ export function BrandArrival() {
 
     return () => {
       window.clearTimeout(watchdogTimeoutRef.current);
-      document.body.style.overflow = previousBodyOverflow;
       window.removeEventListener("keydown", handleKeyDown);
       motionPreference.removeEventListener("change", handleMotionPreference);
     };
@@ -134,8 +115,7 @@ export function BrandArrival() {
   return (
     <section
       className={`brand-arrival${isLeaving ? " brand-arrival--leaving" : ""}`}
-      role="dialog"
-      aria-modal="true"
+      role="region"
       aria-label={t("intro.label")}
     >
       <div className="brand-arrival__stage">
@@ -144,7 +124,7 @@ export function BrandArrival() {
           className="brand-arrival__video"
           muted={isMuted}
           playsInline
-          preload="auto"
+          preload="none"
           poster="/brand/global-party-intro-poster.jpg"
           disablePictureInPicture
           controlsList="nodownload noplaybackrate noremoteplayback"

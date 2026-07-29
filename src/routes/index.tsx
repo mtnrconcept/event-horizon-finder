@@ -25,12 +25,14 @@ import {
   discoverEvents,
   fetchCategories,
   fetchGeographies,
+  fetchHomeCollections,
   searchGeographyCities,
   computeRange,
   type CityOption,
   type CountryOption,
   type DiscoveryStats,
   type DiscoveredEvent,
+  type HomeCollections,
   type QuickRange,
   type RegionOption,
 } from "@/lib/queries";
@@ -121,13 +123,6 @@ const VIBES = [
   },
 ] as const;
 
-type LandingCollections = {
-  top: DiscoveredEvent[];
-  free: DiscoveredEvent[];
-  nightlife: DiscoveredEvent[];
-  festivals: DiscoveredEvent[];
-};
-
 function Discover() {
   const { t, tr, categoryLabel, formatNumber } = useTranslation();
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -151,7 +146,7 @@ function Discover() {
   const [events, setEvents] = useState<DiscoveredEvent[] | null>(null);
   const [discoveryStats, setDiscoveryStats] = useState<DiscoveryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [landingCollections, setLandingCollections] = useState<LandingCollections | null>(null);
+  const [landingCollections, setLandingCollections] = useState<HomeCollections | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageMayHaveMore, setPageMayHaveMore] = useState(false);
@@ -336,38 +331,13 @@ function Discover() {
     const geographyParams = { countryId, regionId, cityId };
     setLandingCollections(null);
 
-    // Load editorial rails in sequence. Four simultaneous worldwide scans,
-    // on top of the main catalogue request, can exhaust PostgREST's short
-    // statement budget on a cold cache even though every query is fast alone.
     const loadCollections = async () => {
-      const top = await discoverEvents({
+      const collections = await fetchHomeCollections({
         ...geographyParams,
         ...landingRange,
-        verifiedOnly: true,
-        limit: 8,
       });
       if (!current) return;
-      const free = await discoverEvents({
-        ...geographyParams,
-        ...landingRange,
-        freeOnly: true,
-        limit: 8,
-      });
-      if (!current) return;
-      const nightlife = await discoverEvents({
-        ...geographyParams,
-        ...landingRange,
-        categorySlugs: ["soirees"],
-        limit: 8,
-      });
-      if (!current) return;
-      const festivals = await discoverEvents({
-        ...geographyParams,
-        ...landingRange,
-        categorySlugs: ["festivals"],
-        limit: 8,
-      });
-      if (current) setLandingCollections({ top, free, nightlife, festivals });
+      setLandingCollections(collections);
     };
 
     void loadCollections().catch(() => {

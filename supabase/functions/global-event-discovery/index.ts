@@ -43,8 +43,9 @@ const DEFAULT_SEARCH_BATCH = 3;
 const MAX_SEARCH_BATCH = 5;
 const DEFAULT_CRAWL_BATCH = 1;
 const MAX_CRAWL_BATCH = 2;
-const DEFAULT_PERSISTENCE_BATCH = 6;
+const DEFAULT_PERSISTENCE_BATCH = 8;
 const MAX_PERSISTENCE_BATCH = 8;
+const DEFAULT_MAX_PERSISTENCE_BACKLOG = 2_500;
 const SEARCH_TIMEOUT_MS = 10_000;
 const ROBOTS_TIMEOUT_MS = 7_000;
 const PAGE_TIMEOUT_MS = 8_000;
@@ -472,12 +473,26 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
     100,
     250_000,
   );
+  const maximumPersistenceBacklog = Math.min(
+    DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    boundedInteger(
+      Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+      100,
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    ),
+  );
   const globalBacklog = asRows<JsonObject>(
     await rpc<unknown>(admin, "global_discovery_backlog", {}),
   )[0];
   const searchBacklog = Math.max(0, Number(globalBacklog?.search_backlog ?? 0));
   const crawlBacklog = Math.max(0, Number(globalBacklog?.crawl_backlog ?? 0));
-  if (searchBacklog >= maximumSearchBacklog || crawlBacklog >= maximumCrawlBacklog) {
+  const persistenceBacklog = Math.max(0, Number(globalBacklog?.persistence_backlog ?? 0));
+  if (
+    searchBacklog >= maximumSearchBacklog ||
+    crawlBacklog >= maximumCrawlBacklog ||
+    persistenceBacklog >= maximumPersistenceBacklog
+  ) {
     return {
       ok: true,
       action: "plan",
@@ -493,8 +508,10 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
       backpressure: true,
       searchBacklog,
       crawlBacklog,
+      persistenceBacklog,
       maximumSearchBacklog,
       maximumCrawlBacklog,
+      maximumPersistenceBacklog,
       maintenance,
     };
   }
@@ -745,6 +762,32 @@ async function handleSearch(admin: AdminClient, body: JsonObject): Promise<JsonO
     100,
     250_000,
   );
+  const maximumPersistenceBacklog = Math.min(
+    DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    boundedInteger(
+      Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+      100,
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    ),
+  );
+  const globalBacklog =
+    asRows<JsonObject>(await rpc<unknown>(admin, "global_discovery_backlog", {}))[0] ?? {};
+  const persistenceBacklog = Math.max(0, Number(globalBacklog.persistence_backlog ?? 0));
+  if (persistenceBacklog >= maximumPersistenceBacklog) {
+    return {
+      ok: true,
+      action: "search",
+      claimed: 0,
+      completed: 0,
+      failed: 0,
+      jobs: [],
+      backpressure: true,
+      backpressureReason: "persistence_backlog",
+      persistenceBacklog,
+      maximumPersistenceBacklog,
+    };
+  }
   const jobs = asRows<SearchJob>(
     await rpc<unknown>(admin, "claim_global_search_jobs", {
       _worker_id: workerId,
@@ -1497,7 +1540,7 @@ async function persistClaimedEvent(
       result: "duplicate_work_same_day",
     };
   }
-  const upserted = await rpc<unknown>(admin, "upsert_ingested_event_v2", {
+  const upserted = await rpc<unknown>(admin, "upsert_ingested_event_serial_v1", {
     _data_source_id: job.data_source_id,
     _payload: event.payload,
   });
@@ -1919,11 +1962,14 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
       // Validate infrastructure before leasing crawl work. A missing proxy
       // fails without burning attempts for otherwise healthy network jobs.
       safeFetchProxyConfig();
-      const maximumPersistenceBacklog = boundedInteger(
-        Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
-        20_000,
-        100,
-        250_000,
+      const maximumPersistenceBacklog = Math.min(
+        DEFAULT_MAX_PERSISTENCE_BACKLOG,
+        boundedInteger(
+          Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+          DEFAULT_MAX_PERSISTENCE_BACKLOG,
+          100,
+          DEFAULT_MAX_PERSISTENCE_BACKLOG,
+        ),
       );
       jobs = asRows<CrawlJob>(
         await rpc<unknown>(admin, "claim_global_crawl_jobs", {
@@ -2047,11 +2093,14 @@ async function handleStatus(admin: AdminClient, body: JsonObject): Promise<JsonO
     100,
     250_000,
   );
-  const maximumPersistenceBacklog = boundedInteger(
-    Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
-    20_000,
-    100,
-    250_000,
+  const maximumPersistenceBacklog = Math.min(
+    DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    boundedInteger(
+      Deno.env.get("GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS"),
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+      100,
+      DEFAULT_MAX_PERSISTENCE_BACKLOG,
+    ),
   );
   const [
     eventPersistenceRows,
@@ -2378,6 +2427,11 @@ Deno.serve(async (req: Request) => {
     }
     const body = await readJsonBody(req);
     const action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "";
+    if (["plan", "search", "crawl"].includes(action) && !validUuid(body.scheduler_dispatch_id)) {
+      await rpc<boolean>(admin, "record_global_discovery_external_activity_v1", {
+        _action: action,
+      });
+    }
     let result: JsonObject;
     switch (action) {
       case "plan":

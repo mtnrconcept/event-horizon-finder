@@ -17,6 +17,7 @@ import { BrandArrival } from "@/components/brand/brand-arrival";
 import { OnlineStatus } from "@/components/online-status";
 import { PerformanceMonitor } from "@/components/performance-monitor";
 import { PwaRuntime } from "@/components/pwa-runtime";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LanguageProvider, useTranslation } from "@/lib/i18n";
 
 import appCss from "../styles.css?url";
@@ -101,12 +102,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         as: "image",
         type: "image/png",
       },
-      {
-        rel: "preload",
-        href: "/brand/global-party-intro-poster.jpg",
-        as: "image",
-        type: "image/jpeg",
-      },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "icon", href: "/brand/global-party-logo.png", type: "image/png" },
       { rel: "manifest", href: "/manifest.webmanifest", crossOrigin: "use-credentials" },
@@ -142,7 +137,8 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <PwaRuntime />
       <PerformanceMonitor />
-      <BrandArrival />
+      <SpeedInsights />
+      {pathname === "/" && <BrandArrival />}
       <ClientJourneyTracker />
       <DesktopHeader />
       <main className={isMapRoute ? "pb-0 md:pb-8" : "pb-24 md:pb-8"}>
