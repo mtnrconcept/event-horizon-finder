@@ -72,11 +72,10 @@ jobs:
         with:
           node-version: 22
 
-     
-      - name: Install Bun 
-        uses: oven-sh/setup-bun@v2 
-        with: 
-          bun-version: "1.x"
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
 
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
@@ -85,7 +84,14 @@ jobs:
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build the validated revision for Vercel
+        env:
+          NITRO_PRESET: vercel
         run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Verify Vercel SSR build output
+        run: |
+          test -f .vercel/output/config.json
+          test -f .vercel/output/functions/__server.func/index.mjs
 
       - name: Deploy the prebuilt application to production
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
