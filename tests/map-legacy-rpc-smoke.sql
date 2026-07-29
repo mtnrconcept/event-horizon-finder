@@ -34,16 +34,16 @@ begin
   from pg_proc as function
   where function.oid = function_oid;
 
-  if position('limit 6000' in function_definition) = 0
-    or position('limit 1000' in function_definition) = 0
-    or position('limit 4000' in function_definition) = 0
+  if position('discover_map_pins_in_bounds_v2' in function_definition) = 0
+    or position('_zoom => legacy_zoom' in function_definition) = 0
+    or position('longitude_span >= 90' in function_definition) = 0
+    or position('marker.ordinality <= 4000' in function_definition) = 0
   then
-    raise exception 'legacy map pin work is not bounded before aggregation';
+    raise exception 'legacy map pin projection is not delegated and bounded';
   end if;
 
   if not function_is_security_definer
     or not ('row_security=off' = any(function_settings))
-    or position('venue.is_public = true' in function_definition) = 0
   then
     raise exception 'legacy map pin public projection is not hardened';
   end if;
