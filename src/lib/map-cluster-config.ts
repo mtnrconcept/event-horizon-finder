@@ -46,7 +46,7 @@ export function eventClusterTextSize(count: number): number {
 export function eventClusterCircleRadiusExpression(): ExpressionSpecification {
   return [
     "step",
-    ["get", "point_count"],
+    ["get", "event_count"],
     CLUSTER_RADIUS_STOPS[0][1],
     ...CLUSTER_RADIUS_STOPS.slice(1).flat(),
   ] as ExpressionSpecification;
@@ -55,10 +55,14 @@ export function eventClusterCircleRadiusExpression(): ExpressionSpecification {
 export function eventClusterTextSizeExpression(): ExpressionSpecification {
   return [
     "step",
-    ["get", "point_count"],
+    ["get", "event_count"],
     CLUSTER_TEXT_STOPS[0][1],
     ...CLUSTER_TEXT_STOPS.slice(1).flat(),
   ] as ExpressionSpecification;
+}
+
+export function eventClusterCountExpression(): ExpressionSpecification {
+  return ["get", "event_count"] as ExpressionSpecification;
 }
 
 export function clusterExpansionTargetZoom(currentZoom: number, expansionZoom: number): number {

@@ -1,6 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
-import { parseCompactMapPins, type CompactMapPin } from "@/lib/map-pins";
+import {
+  parseCompactMapPinBatch,
+  parseCompactMapPins,
+  type CompactMapPin,
+  type CompactMapPinBatch,
+} from "@/lib/map-pins";
 import {
   attachMapOccurrenceDetailCollections,
   assertMapOccurrenceId,
@@ -129,6 +134,7 @@ export interface DiscoverMapViewportParams extends Omit<
   "lat" | "lon" | "radiusKm" | "countryId" | "regionId" | "cityId"
 > {
   bounds: MapViewportBounds;
+  zoom: number;
 }
 
 export interface DiscoveredEvent {
@@ -253,6 +259,7 @@ function discoveryArgs(p: DiscoverParams, defaultLimit: number): Record<string, 
 function viewportDiscoveryArgs(
   p: DiscoverMapViewportParams,
   pagination: { limit: number; offset: number } | null,
+  includeZoom = false,
 ): Record<string, unknown> {
   const bounds = normalizeMapViewportBounds(p.bounds);
   if (!bounds) throw new RangeError("Invalid map viewport bounds");
@@ -271,6 +278,7 @@ function viewportDiscoveryArgs(
     _south: bounds.south,
     _east: bounds.east,
     _north: bounds.north,
+    ...(includeZoom ? { _zoom: Math.min(22, Math.max(0, p.zoom)) } : {}),
     ...(pagination ? { _limit: pagination.limit, _offset: pagination.offset } : {}),
   };
 }
@@ -291,15 +299,67 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
   return (data ?? []) as DiscoveredEvent[];
 }
 
-/** Returns every filtered pin inside the current map viewport in one compact response. */
+const MAP_PIN_NETWORK_RETRY_DELAYS_MS = [300, 600] as const;
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function isTransientMapNetworkError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = typeof candidate.code === "string" ? candidate.code : "";
+  const message = [candidate.message, candidate.details]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+
+  return (
+    code === "" &&
+    /failed to fetch|fetch failed|networkerror|network request|name_not_resolved|load failed/i.test(
+      message,
+    )
+  );
+}
+
+function waitForMapRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (isAborted(signal)) return Promise.reject(signal?.reason);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, delayMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+}
+
+/** Returns zoom-aware aggregate markers or individual pins for the current viewport. */
 export async function discoverMapPinsInBounds(
   p: DiscoverMapViewportParams,
-): Promise<CompactMapPin[]> {
-  const args = viewportDiscoveryArgs(p, null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("discover_map_pins_in_bounds_v1", args);
-  if (error) throw error;
-  return parseCompactMapPins(data);
+  signal?: AbortSignal,
+): Promise<CompactMapPinBatch> {
+  const args = viewportDiscoveryArgs(p, null, true);
+
+  for (let attempt = 0; ; attempt += 1) {
+    if (isAborted(signal)) throw signal?.reason;
+    // Keep the cast at the additive RPC rollout boundary until generated
+    // database types include v2.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const request = (supabase as any).rpc("discover_map_pins_in_bounds_v2", args).retry(false);
+    const { data, error } = await (signal ? request.abortSignal(signal) : request);
+    if (!error) return parseCompactMapPinBatch(data);
+    if (
+      attempt >= MAP_PIN_NETWORK_RETRY_DELAYS_MS.length ||
+      !isTransientMapNetworkError(error) ||
+      isAborted(signal)
+    ) {
+      throw error;
+    }
+    await waitForMapRetry(MAP_PIN_NETWORK_RETRY_DELAYS_MS[attempt], signal);
+  }
 }
 
 /** Loads one stable page of rich list rows for the current visible map zone. */

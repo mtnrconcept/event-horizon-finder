@@ -107,6 +107,8 @@ test("builds a lightweight event-only GeoJSON feature with its category visual",
       is_free: 0,
       approximate: 0,
       slug: "open-air-geneva",
+      event_count: 1,
+      free_count: 0,
     },
   });
 });
@@ -133,8 +135,28 @@ test("builds every compact world pin returned by the uncapped RPC", () => {
       is_free: 1,
       approximate: 1,
       slug: "night-in-new-york",
+      event_count: 1,
+      free_count: 1,
     },
   });
+});
+
+test("preserves server aggregate weights for low-zoom clusters", () => {
+  const pins = parseCompactMapPins({
+    version: 2,
+    clustered: true,
+    truncated: false,
+    total_count: 42,
+    free_count: 12,
+    pins: [["cluster", "z3:12:28", 6.14, 46.2, "concert", 1, 0, "", 42, 12]],
+  });
+  const points = buildCompactMapPointCollection({ pins, showEvents: true });
+
+  assert.equal(points.features.length, 1);
+  assert.equal(points.features[0]?.id, "cluster:z3:12:28");
+  assert.equal(points.features[0]?.properties.kind, "server_cluster");
+  assert.equal(points.features[0]?.properties.event_count, 42);
+  assert.equal(points.features[0]?.properties.free_count, 12);
 });
 
 test("never presents the first 1,000 detailed rows as a complete worldwide map", () => {
