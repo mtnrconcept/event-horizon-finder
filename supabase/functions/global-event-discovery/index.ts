@@ -26,6 +26,7 @@ import {
   searchResultDomain,
   type NormalizedSearchResult,
 } from "../_shared/global-discovery.ts";
+import { errorMessage, terminalPersistenceErrorCode } from "../_shared/persistence-error.ts";
 import {
   createRobotsCacheMetadata,
   evaluateRobotsPolicy,
@@ -341,7 +342,7 @@ function validUuid(value: unknown): value is string {
 }
 
 function safeMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : "unknown_error";
+  const raw = errorMessage(error);
   return raw
     .replace(/[\r\n\t]+/g, " ")
     .replace(/([?&](?:key|token|secret|apikey|authorization)=)[^&\s]+/gi, "$1[redacted]")
@@ -351,8 +352,17 @@ function safeMessage(error: unknown): string {
 async function rpc<T>(admin: AdminClient, name: string, args: JsonObject): Promise<T> {
   const { data, error } = await admin.rpc(name, args);
   if (error) {
+    const message = safeMessage(error);
+    const terminalCode = terminalPersistenceErrorCode(name, error.code, message);
+    if (terminalCode) {
+      throw new WorkerError(terminalCode, {
+        message,
+        httpStatus: 422,
+        terminal: true,
+      });
+    }
     throw new WorkerError(`rpc_${name}_failed`, {
-      message: `${error.code ?? "database_error"}: ${safeMessage(error)}`,
+      message: `${error.code ?? "database_error"}: ${message}`,
       retryAfterSeconds: 300,
     });
   }
