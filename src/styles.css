@@ -158,6 +158,31 @@
     inset 0 1px 0 color-mix(in oklch, var(--color-foreground) 8%, transparent);
 }
 
+/* MapLibre can mount while the intro or a responsive route transition is
+   settling. Pin every rendering layer to the final surface so a stale
+   intrinsic canvas size cannot remain centered inside an empty map. */
+.map-surface {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.map-surface__viewport {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+}
+
+.map-surface__viewport > .maplibregl-canvas-container,
+.map-surface__viewport .maplibregl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .map-user-location-marker {
   position: relative;
   width: 1.25rem;
