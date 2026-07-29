@@ -10,6 +10,49 @@ import {
   selectAdaptiveCityLimit,
   selectLargestCities,
 } from "./global-discovery.ts";
+import { errorMessage, terminalPersistenceErrorCode } from "./persistence-error.ts";
+
+test("PostgREST error objects retain their safe database message", () => {
+  assert.equal(
+    errorMessage({ code: "P0001", message: "invalid_start_date" }),
+    "invalid_start_date",
+  );
+  assert.equal(errorMessage(new Error("request_failed")), "request_failed");
+  assert.equal(errorMessage("plain_failure"), "plain_failure");
+  assert.equal(errorMessage({ code: "57014" }), "unknown_error");
+});
+
+test("invalid start dates are terminal only for persistence upserts", () => {
+  assert.equal(
+    terminalPersistenceErrorCode("upsert_ingested_event_serial_v1", "P0001", "invalid_start_date"),
+    "persistence_invalid_start_date",
+  );
+  assert.equal(
+    terminalPersistenceErrorCode(
+      "upsert_ingested_event_v2",
+      "P0001",
+      "invalid_start_date: payload rejected",
+    ),
+    "persistence_invalid_start_date",
+  );
+  assert.equal(
+    terminalPersistenceErrorCode(
+      "upsert_ingested_event_serial_v1",
+      "57014",
+      "canceling statement due to statement timeout",
+    ),
+    null,
+  );
+  assert.equal(terminalPersistenceErrorCode("other_rpc", "P0001", "invalid_start_date"), null);
+  assert.equal(
+    terminalPersistenceErrorCode(
+      "upsert_ingested_event_serial_v1",
+      "P0001",
+      "another_validation_error",
+    ),
+    null,
+  );
+});
 
 test("national population tiers select 1/3/8/15/25/40/50 cities", () => {
   assert.deepEqual(
