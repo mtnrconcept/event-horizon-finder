@@ -1,5 +1,3 @@
-begin;
-
 do $smoke$
 declare
   function_oid oid;
@@ -41,20 +39,20 @@ begin
   ) then
     raise exception 'legacy map pin response contains a non-legacy row';
   end if;
-end;
-$smoke$;
 
-set local role anon;
+  perform set_config('role', 'anon', true);
 
-select json_typeof(
-  public.discover_map_pins_in_bounds_v1(
+  payload := public.discover_map_pins_in_bounds_v1(
     -180,
     -90,
     180,
     90,
     now(),
     now() + interval '1 day'
-  )
-) as anon_payload_type;
+  );
 
-rollback;
+  if json_typeof(payload) <> 'array' then
+    raise exception 'anon legacy map pin response must be an array';
+  end if;
+end;
+$smoke$;
