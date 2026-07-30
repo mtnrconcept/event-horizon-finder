@@ -264,11 +264,9 @@ async function isAuthorized(req: Request, admin: AdminClient): Promise<boolean> 
   if (schedulerToken.length >= 32) {
     const schedulerTokenHash = await sha256(schedulerToken);
     const claimSchedulerToken = () =>
-      rpc<boolean>(
-        admin,
-        "claim_global_discovery_scheduler_token_v1",
-        { _token_hash: schedulerTokenHash },
-      );
+      rpc<boolean>(admin, "claim_global_discovery_scheduler_token_v1", {
+        _token_hash: schedulerTokenHash,
+      });
     let schedulerAuthorized: boolean;
     try {
       schedulerAuthorized = await claimSchedulerToken();
