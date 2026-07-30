@@ -263,11 +263,23 @@ async function isAuthorized(req: Request, admin: AdminClient): Promise<boolean> 
   const schedulerToken = req.headers.get("x-global-discovery-cron-token")?.trim() ?? "";
   if (schedulerToken.length >= 32) {
     const schedulerTokenHash = await sha256(schedulerToken);
-    const schedulerAuthorized = await rpc<boolean>(
-      admin,
-      "claim_global_discovery_scheduler_token_v1",
-      { _token_hash: schedulerTokenHash },
-    );
+    const claimSchedulerToken = () =>
+      rpc<boolean>(admin, "claim_global_discovery_scheduler_token_v1", {
+        _token_hash: schedulerTokenHash,
+      });
+    let schedulerAuthorized: boolean;
+    try {
+      schedulerAuthorized = await claimSchedulerToken();
+    } catch (error) {
+      if (
+        !(error instanceof WorkerError) ||
+        error.code !== "rpc_claim_global_discovery_scheduler_token_v1_failed"
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      schedulerAuthorized = await claimSchedulerToken();
+    }
     if (schedulerAuthorized) return true;
   }
 
