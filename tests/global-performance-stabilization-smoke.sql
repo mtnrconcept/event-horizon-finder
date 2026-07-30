@@ -6,6 +6,7 @@ DECLARE
   fallback_schedule TEXT;
   events_command TEXT;
   occurrences_command TEXT;
+  crawl_claim_definition TEXT;
 BEGIN
   SELECT public.discover_home_collections_v1(
     _from => now(),
@@ -58,6 +59,35 @@ BEGIN
     'EXECUTE'
   ) THEN
     RAISE EXCEPTION 'serialized ingestion wrapper has unsafe privileges';
+  END IF;
+
+  SELECT pg_get_functiondef(
+    'public.claim_global_crawl_jobs(uuid,integer,integer,integer)'::regprocedure
+  )
+  INTO crawl_claim_definition;
+
+  IF crawl_claim_definition NOT LIKE '%persistence.available_at <= now()%'
+    OR crawl_claim_definition NOT LIKE '%persistence.lease_expires_at > now()%'
+  THEN
+    RAISE EXCEPTION
+      'crawl backpressure must exclude deferred Persistence jobs: %',
+      crawl_claim_definition;
+  END IF;
+
+  IF has_function_privilege(
+    'anon',
+    'public.claim_global_crawl_jobs(uuid,integer,integer,integer)',
+    'EXECUTE'
+  ) OR has_function_privilege(
+    'authenticated',
+    'public.claim_global_crawl_jobs(uuid,integer,integer,integer)',
+    'EXECUTE'
+  ) OR NOT has_function_privilege(
+    'service_role',
+    'public.claim_global_crawl_jobs(uuid,integer,integer,integer)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'bounded Crawl claim RPC has unsafe privileges';
   END IF;
 
   SELECT schedule INTO fallback_schedule
