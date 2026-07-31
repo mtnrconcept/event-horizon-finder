@@ -6,6 +6,7 @@ import {
   FerrisWheel,
   Flame,
   Gift,
+  Landmark,
   Map as MapIcon,
   MapPin,
   LoaderCircle,
@@ -17,13 +18,15 @@ import {
   Sparkles,
   Star,
   Ticket,
+  TreePine,
   TrendingUp,
+  UsersRound,
+  Utensils,
   X,
 } from "lucide-react";
 import {
   discoverEventStats,
   discoverEvents,
-  fetchCategories,
   fetchGeographyCatalog,
   fetchHomeCollections,
   searchGeographyCities,
@@ -54,6 +57,12 @@ import { BrandLogo } from "@/components/brand/brand-logo";
 import { LiveEventCounter } from "@/components/live-event-counter";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
+import {
+  pruneSearchSelections,
+  resolveSearchTaxonomyFilters,
+  SEARCH_CATEGORIES,
+  searchCategoryLabel,
+} from "@/lib/event-search-taxonomy";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -69,7 +78,6 @@ export const Route = createFileRoute("/")({
   component: Discover,
 });
 
-type Category = { slug: string; name_fr: string; icon: string | null };
 type SortMode = "soon" | "distance" | "popular";
 const EVENT_PAGE_SIZE = 48;
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
@@ -87,32 +95,53 @@ const QUICK: { key: QuickRange; label: UiTranslationPhrase; helper: UiTranslatio
 
 const VIBES = [
   {
-    id: "tonight",
-    label: "Ce soir",
-    helper: "Les plans de dernière minute",
-    icon: Flame,
-    range: "tonight" as QuickRange,
+    id: "family",
+    label: "En famille",
+    helper: "Parcs, cinéma et découvertes",
+    icon: UsersRound,
+    categories: ["family"],
+  },
+  {
+    id: "culture",
+    label: "Culture",
+    helper: "Musées, art et patrimoine",
+    icon: Landmark,
+    categories: ["culture"],
+  },
+  {
+    id: "outdoors",
+    label: "Plein air",
+    helper: "Sport, nature et randonnées",
+    icon: TreePine,
+    categories: ["sports-outdoors"],
+  },
+  {
+    id: "music",
+    label: "Musique",
+    helper: "Concerts et tous les styles",
+    icon: Music2,
+    categories: ["music"],
+  },
+  {
+    id: "food",
+    label: "Gastronomie",
+    helper: "Marchés, dégustations et ateliers",
+    icon: Utensils,
+    categories: ["food-drink"],
+  },
+  {
+    id: "community",
+    label: "Festivals & vie locale",
+    helper: "Les rendez-vous qui rassemblent",
+    icon: FerrisWheel,
+    categories: ["community"],
   },
   {
     id: "nightlife",
-    label: "Nightlife",
+    label: "Vie nocturne",
     helper: "Clubs, DJ sets et rooftops",
     icon: PartyPopper,
-    categories: ["soirees"],
-  },
-  {
-    id: "live",
-    label: "Live music",
-    helper: "Concerts et scènes locales",
-    icon: Music2,
-    categories: ["concerts"],
-  },
-  {
-    id: "festivals",
-    label: "Festivals",
-    helper: "Les grands rendez-vous",
-    icon: FerrisWheel,
-    categories: ["festivals"],
+    categories: ["nightlife"],
   },
   {
     id: "free",
@@ -124,12 +153,11 @@ const VIBES = [
 ] as const;
 
 function Discover() {
-  const { t, tr, categoryLabel, formatNumber } = useTranslation();
+  const { t, tr, formatNumber, locale } = useTranslation();
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
   const [cityLoading, setCityLoading] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [geographyReady, setGeographyReady] = useState(false);
   const [geography, setGeography] = useState<GeographySelection>({
     countryId: null,
@@ -231,13 +259,12 @@ function Discover() {
     // behind the complete country/region catalogue and category metadata.
     void defaultCitiesPromise.then(startDefaultDiscovery).catch(() => undefined);
 
-    Promise.all([fetchGeographyCatalog(), fetchCategories(), defaultCitiesPromise])
-      .then(([data, categoryRows, cityRows]) => {
+    Promise.all([fetchGeographyCatalog(), defaultCitiesPromise])
+      .then(([data, cityRows]) => {
         if (!current) return;
         setCountries(data.countries);
         setRegions(data.regions);
         setCities(cityRows);
-        setCategories(categoryRows as Category[]);
         startDefaultDiscovery(cityRows);
       })
       .catch(() => {
@@ -264,8 +291,20 @@ function Discover() {
     [countries, countryId],
   );
   const activeCategoryNames = useMemo(
-    () => categories.filter((c) => cats.has(c.slug)).map((c) => categoryLabel(c.slug, c.name_fr)),
-    [categories, categoryLabel, cats],
+    () =>
+      SEARCH_CATEGORIES.filter((category) => cats.has(category.slug)).map((category) =>
+        searchCategoryLabel(locale, category),
+      ),
+    [cats, locale],
+  );
+
+  const taxonomyFilters = useMemo(
+    () =>
+      resolveSearchTaxonomyFilters(cats, {
+        genres: advancedFilters.genres,
+        subcategories: advancedFilters.subcategories,
+      }),
+    [advancedFilters.genres, advancedFilters.subcategories, cats],
   );
 
   const discoveryParams = useMemo(
@@ -276,13 +315,23 @@ function Discover() {
       countryId,
       regionId,
       cityId,
-      categorySlugs: cats.size ? [...cats] : null,
+      categorySlugs: taxonomyFilters.eventCategorySlugs,
       query: deferredQuery,
       from,
       to,
-      ...toDiscoveryFilters(advancedFilters),
+      ...toDiscoveryFilters(advancedFilters, taxonomyFilters.filterValues ?? []),
     }),
-    [advancedFilters, cats, cityId, coords, countryId, deferredQuery, from, regionId, to],
+    [
+      advancedFilters,
+      cityId,
+      coords,
+      countryId,
+      deferredQuery,
+      from,
+      regionId,
+      taxonomyFilters,
+      to,
+    ],
   );
 
   useEffect(() => {
@@ -435,13 +484,17 @@ function Discover() {
       next.add(slug);
     }
     setCats(next);
+    setAdvancedFilters((current) => ({
+      ...current,
+      ...pruneSearchSelections(next, current),
+    }));
   };
 
   const resetFilters = () => {
     const geneva = cities.find((city) => city.slug === "geneve");
     setCats(new Set());
     setQuery("");
-    setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
+    setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [], subcategories: [] });
     setGeography(
       geneva
         ? {
@@ -460,10 +513,11 @@ function Discover() {
     setQuery("");
     setCoords(null);
     setCats(new Set("categories" in vibe ? [...vibe.categories] : []));
-    setRange("range" in vibe ? vibe.range : "year");
+    setRange("year");
     setAdvancedFilters({
       ...DEFAULT_ADVANCED_FILTERS,
       genres: [],
+      subcategories: [],
       priceMode: "freeOnly" in vibe && vibe.freeOnly ? "free" : "all",
     });
     setSort("soon");
@@ -729,7 +783,7 @@ function Discover() {
             <section>
               <h3 className="mb-2 text-sm font-black">{t("home.categories")}</h3>
               <div className="flex flex-wrap gap-2">
-                {categories.map((category) => (
+                {SEARCH_CATEGORIES.map((category) => (
                   <button
                     key={category.slug}
                     type="button"
@@ -747,7 +801,7 @@ function Discover() {
                     }
                   >
                     {category.icon ? `${category.icon} ` : ""}
-                    {categoryLabel(category.slug, category.name_fr)}
+                    {searchCategoryLabel(locale, category)}
                   </button>
                 ))}
               </div>
@@ -756,7 +810,12 @@ function Discover() {
             <section>
               <h3 className="mb-2 text-sm font-black">{t("home.advanced")}</h3>
               <div className="rounded-2xl border p-3">
-                <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+                <EventFilterPanel
+                  value={advancedFilters}
+                  onChange={setAdvancedFilters}
+                  selectedCategorySlugs={[...cats]}
+                  compact
+                />
               </div>
             </section>
           </div>
@@ -898,9 +957,11 @@ function Discover() {
       </div>
 
       <div className="no-scrollbar mb-5 hidden gap-2 overflow-x-auto pb-1 md:flex">
-        {categories.map((c) => (
+        {SEARCH_CATEGORIES.map((c) => (
           <button
             key={c.slug}
+            type="button"
+            aria-pressed={cats.has(c.slug)}
             onClick={() => toggleCat(c.slug)}
             className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition-colors hover:bg-accent"
             style={
@@ -914,12 +975,15 @@ function Discover() {
             }
           >
             {c.icon ? `${c.icon} ` : ""}
-            {categoryLabel(c.slug, c.name_fr)}
+            {searchCategoryLabel(locale, c)}
           </button>
         ))}
       </div>
 
-      <details className="glass mb-5 hidden rounded-3xl border md:block" open={advancedCount > 0}>
+      <details
+        className="glass mb-5 hidden rounded-3xl border md:block"
+        open={advancedCount > 0 || cats.size > 0}
+      >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
           <span className="inline-flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-primary" /> {t("home.advanced")}
@@ -929,7 +993,12 @@ function Discover() {
           </Badge>
         </summary>
         <div className="border-t p-3">
-          <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+          <EventFilterPanel
+            value={advancedFilters}
+            onChange={setAdvancedFilters}
+            selectedCategorySlugs={[...cats]}
+            compact
+          />
         </div>
       </details>
 

@@ -211,6 +211,11 @@ jobs:
           supabase db query --local
           --file tests/map-legacy-rpc-smoke.sql
 
+      - name: Exercise the event search taxonomy facets
+        run: >-
+          supabase db query --local
+          --file tests/event-search-facets-smoke.sql
+
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
         run: supabase stop --no-backup

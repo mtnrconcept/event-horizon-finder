@@ -21,7 +21,6 @@ import {
   computeRange,
   discoverMapEventsInBounds,
   discoverMapPinsInBounds,
-  fetchCategories,
   fetchMapOccurrenceDetail,
   fetchMapOccurrencePreviews,
   type DiscoveredEvent,
@@ -58,6 +57,12 @@ import { BRAND_ARRIVAL_COMPLETE_EVENT } from "@/lib/brand-arrival-events";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTranslation } from "@/lib/i18n";
 import type { UiTranslationPhrase } from "@/lib/ui-translations";
+import {
+  pruneSearchSelections,
+  resolveSearchTaxonomyFilters,
+  SEARCH_CATEGORIES,
+  searchCategoryLabel,
+} from "@/lib/event-search-taxonomy";
 import {
   applyTranslationToMapDetail,
   applyTranslationToMapPreview,
@@ -168,7 +173,6 @@ const RASTER_FALLBACK_STYLE: StyleSpecification = {
   ],
 };
 
-type Category = { slug: string; name_fr: string; icon: string | null };
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 const MAP_EVENT_SOURCE_ID = "eventa-map-events";
 const MAP_CLUSTER_HALO_LAYER_ID = "eventa-map-cluster-halo";
@@ -1747,7 +1751,7 @@ function createClusterHoverContent(
 }
 
 function MapPage() {
-  const { t, tr, categoryLabel, formatNumber, locale } = useTranslation();
+  const { t, tr, formatNumber, locale } = useTranslation();
   const [mapContainer, setMapContainer] = useState<HTMLDivElement | null>(null);
   const [mapLayoutRevision, setMapLayoutRevision] = useState(0);
   const containerRef = useCallback<RefCallback<HTMLDivElement>>((node) => {
@@ -1761,7 +1765,6 @@ function MapPage() {
   const lastMapCameraRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isMobileRef = useRef(isMobile);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>("requesting");
   const [locationRequestKey, setLocationRequestKey] = useState(0);
   const [userLocation, setUserLocation] = useState<{
@@ -2119,20 +2122,6 @@ function MapPage() {
   }, [locationRequestKey]);
 
   useEffect(() => {
-    let current = true;
-    void fetchCategories()
-      .then((categoryRows) => {
-        if (current) setCategories(categoryRows as Category[]);
-      })
-      .catch(() => {
-        if (current) setError("Les catégories n'ont pas pu être chargées.");
-      });
-    return () => {
-      current = false;
-    };
-  }, []);
-
-  useEffect(() => {
     const activeMapContainer = mapContainer;
     const initialLocation = userLocationRef.current;
     if (
@@ -2347,11 +2336,19 @@ function MapPage() {
     };
   }, [mapInstance, mapReady]);
 
-  const advancedDiscoveryFilters = useMemo(
-    () => toDiscoveryFilters(advancedFilters),
-    [advancedFilters],
+  const taxonomyFilters = useMemo(
+    () =>
+      resolveSearchTaxonomyFilters(cats, {
+        genres: advancedFilters.genres,
+        subcategories: advancedFilters.subcategories,
+      }),
+    [advancedFilters.genres, advancedFilters.subcategories, cats],
   );
-  const selectedCategorySlugs = useMemo(() => (cats.size ? [...cats].sort() : null), [cats]);
+  const advancedDiscoveryFilters = useMemo(
+    () => toDiscoveryFilters(advancedFilters, taxonomyFilters.filterValues ?? []),
+    [advancedFilters, taxonomyFilters.filterValues],
+  );
+  const selectedCategorySlugs = taxonomyFilters.eventCategorySlugs;
   const mapPinCacheKey = useMemo(
     () =>
       JSON.stringify({
@@ -2840,19 +2837,21 @@ function MapPage() {
   ]);
 
   const toggleCategory = (slug: string) => {
-    setCats((current) => {
-      const next = new Set(current);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
-      return next;
-    });
+    const next = new Set(cats);
+    if (next.has(slug)) next.delete(slug);
+    else next.add(slug);
+    setCats(next);
+    setAdvancedFilters((current) => ({
+      ...current,
+      ...pruneSearchSelections(next, current),
+    }));
   };
 
   const resetFilters = () => {
     setRange("year");
     setCats(new Set());
     setQuery("");
-    setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [] });
+    setAdvancedFilters({ ...DEFAULT_ADVANCED_FILTERS, genres: [], subcategories: [] });
     setShowEvents(true);
   };
 
@@ -3080,8 +3079,7 @@ function MapPage() {
             <section>
               <h3 className="mb-2 text-sm font-black">{t("home.categories")}</h3>
               <div className="flex flex-wrap gap-2">
-                {categories.map((category) => {
-                  const visual = eventCategoryVisual(category.slug);
+                {SEARCH_CATEGORIES.map((category) => {
                   const active = cats.has(category.slug);
                   return (
                     <button
@@ -3091,12 +3089,12 @@ function MapPage() {
                       onClick={() => toggleCategory(category.slug)}
                       className="min-h-11 rounded-full border px-3 text-xs font-semibold transition-colors"
                       style={{
-                        borderColor: visual.color,
-                        color: active ? eventCategoryTextColor(category.slug) : visual.color,
-                        background: active ? visual.color : `${visual.color}18`,
+                        borderColor: category.color,
+                        color: active ? "#ffffff" : category.color,
+                        background: active ? category.color : `${category.color}18`,
                       }}
                     >
-                      {visual.icon} {categoryLabel(category.slug, category.name_fr)}
+                      {category.icon} {searchCategoryLabel(locale, category)}
                     </button>
                   );
                 })}
@@ -3106,7 +3104,12 @@ function MapPage() {
             <section>
               <h3 className="mb-2 text-sm font-black">{t("home.advanced")}</h3>
               <div className="rounded-2xl border p-3">
-                <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+                <EventFilterPanel
+                  value={advancedFilters}
+                  onChange={setAdvancedFilters}
+                  selectedCategorySlugs={[...cats]}
+                  compact
+                />
               </div>
             </section>
 
@@ -3234,8 +3237,7 @@ function MapPage() {
         </div>
 
         <div className="no-scrollbar my-3 flex gap-1.5 overflow-x-auto pb-1">
-          {categories.map((category) => {
-            const visual = eventCategoryVisual(category.slug);
+          {SEARCH_CATEGORIES.map((category) => {
             const active = cats.has(category.slug);
             return (
               <button
@@ -3245,18 +3247,21 @@ function MapPage() {
                 onClick={() => toggleCategory(category.slug)}
                 className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
                 style={{
-                  borderColor: visual.color,
-                  color: active ? eventCategoryTextColor(category.slug) : visual.color,
-                  background: active ? visual.color : `${visual.color}18`,
+                  borderColor: category.color,
+                  color: active ? "#ffffff" : category.color,
+                  background: active ? category.color : `${category.color}18`,
                 }}
               >
-                {visual.icon} {categoryLabel(category.slug, category.name_fr)}
+                {category.icon} {searchCategoryLabel(locale, category)}
               </button>
             );
           })}
         </div>
 
-        <details className="rounded-2xl border bg-surface/75" open={advancedCount > 0}>
+        <details
+          className="rounded-2xl border bg-surface/75"
+          open={advancedCount > 0 || cats.size > 0}
+        >
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold">
             <span className="inline-flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4 text-primary" /> {t("home.advanced")}
@@ -3266,7 +3271,12 @@ function MapPage() {
             </Badge>
           </summary>
           <div className="border-t p-3">
-            <EventFilterPanel value={advancedFilters} onChange={setAdvancedFilters} compact />
+            <EventFilterPanel
+              value={advancedFilters}
+              onChange={setAdvancedFilters}
+              selectedCategorySlugs={[...cats]}
+              compact
+            />
           </div>
         </details>
 
