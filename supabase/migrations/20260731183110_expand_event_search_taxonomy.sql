@@ -62,7 +62,7 @@ begin
       ('family', 'famille|familial|family|children|kids|enfant|bambin|bambini|niñ|dzieci|kinder'),
       ('family-cinema', 'cinema|movie|family film|film famille|kinderkino|cine familiar|film per famiglie'),
       ('amusement-parks', 'amusement park|theme park|parc d attraction|fete foraine|funfair|lunapark|parque de atracciones'),
-      ('parks-leisure', 'parc|park|jardin|garden|aire de loisirs|recreation area'),
+      ('parks-leisure', '(^|[^a-z])(parc|park|jardin|garden)([^a-z]|$)|aire de loisirs|recreation area'),
       ('family-events', 'famille|familial|family|children|kids|enfant|bambin|bambini|niñ|dzieci|kinder'),
       ('water-play', 'jeux d.?eau|water play|splash|aquapark|water park|piscine|pool|bad wodny'),
       ('zoo-aquarium', 'zoo|aquarium|aquario|tierpark|zoolog'),
@@ -108,13 +108,13 @@ begin
       ('markets', 'marche|market|mercato|markt|targ|feria gastronom'),
       ('gastronomy', 'gastronom|culinaire|culinary|cuisine|restaurant|chef'),
       ('tastings', 'degustation|tasting|verkostung|cata de|assaggio'),
-      ('wine', 'vin|wine|wein|vino|oenolog|winery|vignoble'),
+      ('wine', '(^|[^a-z])(vin|wine|wein|vino)([^a-z]|$)|oenolog|winery|vignoble'),
       ('beer', 'biere|beer|bier|cerveza|birra|brewery|brasserie'),
       ('brunch', 'brunch'),
       ('cooking-workshops', 'atelier cuisine|cooking class|cours de cuisine|laboratorio di cucina'),
       ('street-food', 'street food|food truck'),
       ('food-festivals', 'food festival|festival gourmand|fete gastronom|sagra'),
-      ('coffee-tea', 'coffee|cafe|the|tea|barista|roastery'),
+      ('coffee-tea', '(^|[^a-z])(coffee|cafe|tea)([^a-z]|$)|salon de the|degustation de the|ceremonie du the|barista|roastery'),
 
       -- Learning, leisure and wellness
       ('workshops', 'atelier|workshop|masterclass|laboratorio|warsztat'),
@@ -137,7 +137,7 @@ begin
       ('karaoke', 'karaoke'),
       ('wellness', 'bien.etre|wellness|relaxation|self.care|benessere|bienestar'),
       ('meditation', 'meditation|mindfulness|pleine conscience'),
-      ('spa', 'spa|sauna|hammam|thermal'),
+      ('spa', '(^|[^a-z])spa([^a-z]|$)|sauna|hammam|thermal'),
       ('mental-health', 'mental health|sante mentale|psycholog|burn.out|stress'),
       ('holistic', 'holistic|holistique|reiki|naturopath|sonotherapie'),
       ('dance-fitness', 'zumba|dance fitness|fitness dance'),
@@ -163,7 +163,7 @@ begin
       ('themed-parties', 'themed party|soiree a theme|costume party|fancy dress'),
       ('boat-parties', 'boat party|soiree bateau|party cruise'),
       ('late-night', 'late night|afterparty|after party|jusqu.a l.aube'),
-      ('pets', 'pet|chien|dog|chat|cat show|animal de compagnie'),
+      ('pets', '(^|[^a-z])(pet|chien|dog|chat)([^a-z]|$)|cat show|animal de compagnie'),
       ('open-days', 'portes ouvertes|open day|open house'),
       ('public-services', 'information day|journee information|service public')
   )

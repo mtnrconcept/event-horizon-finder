@@ -72,6 +72,19 @@ begin
     raise exception 'search_facets_music_inference_failed:%', v_facets;
   end if;
 
+  select public.infer_event_search_facets(
+    'The theatre competition',
+    'Espace public avec parking',
+    'Présentation générale sans animaux ni détente',
+    'theatre',
+    '{}'::text[],
+    null
+  )
+  into v_facets;
+  if v_facets && array['coffee-tea', 'spa', 'pets', 'parks-leisure']::text[] then
+    raise exception 'search_facets_short_word_false_positive:%', v_facets;
+  end if;
+
   select string_agg(procedure.proname, ', ' order by procedure.proname)
   into v_missing
   from pg_catalog.pg_proc as procedure
