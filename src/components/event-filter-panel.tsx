@@ -1,24 +1,30 @@
 import { BadgeCheck, MapPinCheck, TicketCheck, Accessibility } from "lucide-react";
+import { type AdvancedEventFilters, type CapacityMode, type PriceMode } from "@/lib/event-filters";
 import {
-  MUSIC_GENRES,
-  type AdvancedEventFilters,
-  type CapacityMode,
-  type PriceMode,
-} from "@/lib/event-filters";
+  SEARCH_CATEGORIES,
+  searchCategoryLabel,
+  searchSubcategoryLabel,
+} from "@/lib/event-search-taxonomy";
 import { useTranslation } from "@/lib/i18n";
 
 export function EventFilterPanel({
   value,
   onChange,
+  selectedCategorySlugs = [],
   compact = false,
 }: {
   value: AdvancedEventFilters;
   onChange: (next: AdvancedEventFilters) => void;
+  selectedCategorySlugs?: readonly string[];
   compact?: boolean;
 }) {
-  const { t, genreLabel } = useTranslation();
+  const { t, locale } = useTranslation();
   const update = <K extends keyof AdvancedEventFilters>(key: K, next: AdvancedEventFilters[K]) =>
     onChange({ ...value, [key]: next });
+  const selectedCategorySet = new Set(selectedCategorySlugs);
+  const selectedCategories = SEARCH_CATEGORIES.filter((category) =>
+    selectedCategorySet.has(category.slug),
+  );
 
   const toggleGenre = (genre: string) => {
     update(
@@ -29,8 +35,69 @@ export function EventFilterPanel({
     );
   };
 
+  const toggleSubcategory = (subcategory: string) => {
+    update(
+      "subcategories",
+      value.subcategories.includes(subcategory)
+        ? value.subcategories.filter((item) => item !== subcategory)
+        : [...value.subcategories, subcategory],
+    );
+  };
+
   return (
     <div className={compact ? "space-y-3" : "space-y-4 rounded-3xl border bg-surface/40 p-4"}>
+      <fieldset>
+        <legend className="mb-2 text-xs font-semibold">{t("filters.subcategories")}</legend>
+        {selectedCategories.length ? (
+          <div className="space-y-3">
+            {selectedCategories.map((category) => (
+              <div key={category.slug} className="rounded-2xl border bg-background/45 p-3">
+                <p className="mb-2 text-xs font-black" style={{ color: category.color }}>
+                  {category.icon} {searchCategoryLabel(locale, category)}
+                </p>
+                <div className="no-scrollbar flex max-h-36 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  {category.subcategories.map((subcategory) => {
+                    const active =
+                      subcategory.kind === "genre"
+                        ? value.genres.includes(subcategory.slug)
+                        : value.subcategories.includes(subcategory.slug);
+                    return (
+                      <button
+                        key={subcategory.slug}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          subcategory.kind === "genre"
+                            ? toggleGenre(subcategory.slug)
+                            : toggleSubcategory(subcategory.slug)
+                        }
+                        className="min-h-9 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+                        style={
+                          active
+                            ? {
+                                borderColor: category.color,
+                                color: category.color,
+                                background: `${category.color}18`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <span aria-hidden="true">{subcategory.icon} </span>
+                        {searchSubcategoryLabel(locale, subcategory)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-dashed px-3 py-4 text-xs text-muted-foreground">
+            {t("filters.chooseCategory")}
+          </p>
+        )}
+      </fieldset>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1.5 text-xs font-semibold">
           {t("filters.price")}
@@ -63,35 +130,6 @@ export function EventFilterPanel({
           </select>
         </label>
       </div>
-
-      <fieldset>
-        <legend className="mb-2 text-xs font-semibold">{t("filters.music")}</legend>
-        <div className="no-scrollbar flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
-          {MUSIC_GENRES.map(([slug, label]) => {
-            const active = value.genres.includes(slug);
-            return (
-              <button
-                key={slug}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleGenre(slug)}
-                className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
-                style={
-                  active
-                    ? {
-                        borderColor: "var(--color-primary)",
-                        color: "var(--color-primary)",
-                        background: "var(--color-accent)",
-                      }
-                    : undefined
-                }
-              >
-                {genreLabel(slug, label)}
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
 
       <div className="grid grid-cols-2 gap-2">
         <FilterToggle

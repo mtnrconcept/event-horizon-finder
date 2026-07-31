@@ -189,6 +189,7 @@ const genreLabels: Record<string, LocalizedLabel> = {
   disco: { fr: "Disco", en: "Disco", pl: "Disco", it: "Disco", ru: "Диско", es: "Disco" },
   funk: { fr: "Funk", en: "Funk", pl: "Funk", it: "Funk", ru: "Фанк", es: "Funk" },
   soul: { fr: "Soul", en: "Soul", pl: "Soul", it: "Soul", ru: "Соул", es: "Soul" },
+  blues: { fr: "Blues", en: "Blues", pl: "Blues", it: "Blues", ru: "Блюз", es: "Blues" },
   jazz: { fr: "Jazz", en: "Jazz", pl: "Jazz", it: "Jazz", ru: "Джаз", es: "Jazz" },
   rock: { fr: "Rock", en: "Rock", pl: "Rock", it: "Rock", ru: "Рок", es: "Rock" },
   metal: { fr: "Metal", en: "Metal", pl: "Metal", it: "Metal", ru: "Метал", es: "Metal" },
@@ -212,6 +213,14 @@ const genreLabels: Record<string, LocalizedLabel> = {
     it: "Musica dal mondo",
     ru: "Мировая музыка",
     es: "Músicas del mundo",
+  },
+  "folk-country": {
+    fr: "Folk / country",
+    en: "Folk / country",
+    pl: "Folk / country",
+    it: "Folk / country",
+    ru: "Фолк / кантри",
+    es: "Folk / country",
   },
   ambient: {
     fr: "Ambient",

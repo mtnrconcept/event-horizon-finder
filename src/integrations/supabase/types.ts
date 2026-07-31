@@ -802,6 +802,7 @@ export type Database = {
           publication_status: string;
           published_at: string | null;
           quality_score: number;
+          search_facets: string[];
           search_tsv: unknown;
           short_description: string | null;
           slug: string;
@@ -833,6 +834,7 @@ export type Database = {
           publication_status?: string;
           published_at?: string | null;
           quality_score?: number;
+          search_facets?: string[];
           search_tsv?: unknown;
           short_description?: string | null;
           slug: string;
@@ -864,6 +866,7 @@ export type Database = {
           publication_status?: string;
           published_at?: string | null;
           quality_score?: number;
+          search_facets?: string[];
           search_tsv?: unknown;
           short_description?: string | null;
           slug?: string;
@@ -2388,6 +2391,17 @@ export type Database = {
         Args: {
           _description?: string;
           _short_description?: string;
+          _title: string;
+        };
+        Returns: string[];
+      };
+      infer_event_search_facets: {
+        Args: {
+          _age_restriction?: string;
+          _category_slug: string;
+          _description: string;
+          _genres: string[];
+          _short_description: string;
           _title: string;
         };
         Returns: string[];

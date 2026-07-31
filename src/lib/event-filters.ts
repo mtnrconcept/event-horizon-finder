@@ -14,6 +14,7 @@ export const MUSIC_GENRES = [
   ["disco", "Disco"],
   ["funk", "Funk"],
   ["soul", "Soul"],
+  ["blues", "Blues"],
   ["jazz", "Jazz"],
   ["rock", "Rock"],
   ["metal", "Metal"],
@@ -24,6 +25,7 @@ export const MUSIC_GENRES = [
   ["classical", "Classique"],
   ["opera", "Opéra"],
   ["world", "Musiques du monde"],
+  ["folk-country", "Folk / country"],
   ["ambient", "Ambient"],
   ["experimental", "Expérimental"],
   ["gospel", "Gospel"],
@@ -38,6 +40,7 @@ export interface AdvancedEventFilters {
   priceMode: PriceMode;
   capacityMode: CapacityMode;
   genres: string[];
+  subcategories: string[];
   ticketsOnly: boolean;
   verifiedOnly: boolean;
   accessibleOnly: boolean;
@@ -48,13 +51,14 @@ export const DEFAULT_ADVANCED_FILTERS: AdvancedEventFilters = {
   priceMode: "all",
   capacityMode: "all",
   genres: [],
+  subcategories: [],
   ticketsOnly: false,
   verifiedOnly: false,
   accessibleOnly: false,
   venueOnly: false,
 };
 
-export function toDiscoveryFilters(filters: AdvancedEventFilters) {
+export function toDiscoveryFilters(filters: AdvancedEventFilters, filterValues?: string[]) {
   const price = {
     freeOnly: filters.priceMode === "free",
     pricedOnly: filters.priceMode !== "all" && filters.priceMode !== "free",
@@ -84,7 +88,9 @@ export function toDiscoveryFilters(filters: AdvancedEventFilters) {
   return {
     ...price,
     ...capacity,
-    genres: filters.genres.length ? filters.genres : null,
+    genres: (filterValues ?? [...filters.genres, ...filters.subcategories]).length
+      ? [...new Set(filterValues ?? [...filters.genres, ...filters.subcategories])]
+      : null,
     ticketsOnly: filters.ticketsOnly,
     verifiedOnly: filters.verifiedOnly,
     accessibleOnly: filters.accessibleOnly,
@@ -97,6 +103,7 @@ export function countAdvancedFilters(filters: AdvancedEventFilters) {
     Number(filters.priceMode !== "all") +
     Number(filters.capacityMode !== "all") +
     filters.genres.length +
+    filters.subcategories.length +
     Number(filters.ticketsOnly) +
     Number(filters.verifiedOnly) +
     Number(filters.accessibleOnly) +

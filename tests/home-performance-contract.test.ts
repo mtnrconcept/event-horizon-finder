@@ -31,11 +31,12 @@ test("home page uses one composite collection request instead of four sequential
   assert.doesNotMatch(effect, /discoverEvents/);
 });
 
-test("home discovery starts from the default city without waiting for filter catalogues", () => {
+test("home discovery starts from the default city without waiting for geography catalogues", () => {
   const route = readFileSync(new URL("../src/routes/index.tsx", import.meta.url), "utf8");
 
   assert.match(route, /defaultCitiesPromise\.then\(startDefaultDiscovery\)/);
-  assert.match(route, /Promise\.all\(\[fetchGeographyCatalog\(\), fetchCategories\(\)/);
+  assert.match(route, /Promise\.all\(\[fetchGeographyCatalog\(\), defaultCitiesPromise\]\)/);
+  assert.doesNotMatch(route, /fetchCategories/);
 });
 
 test("brand arrival is session-scoped, route-scoped and never preloads its video", () => {
