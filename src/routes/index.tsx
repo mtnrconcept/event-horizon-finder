@@ -24,7 +24,7 @@ import {
   discoverEventStats,
   discoverEvents,
   fetchCategories,
-  fetchGeographies,
+  fetchGeographyCatalog,
   fetchHomeCollections,
   searchGeographyCities,
   computeRange,
@@ -210,29 +210,42 @@ function Discover() {
 
   useEffect(() => {
     let current = true;
-    Promise.all([fetchGeographies(), fetchCategories()])
-      .then(([data, categoryRows]) => {
+    let discoveryStarted = false;
+    const defaultCitiesPromise = searchGeographyCities({ query: "Geneve", limit: 20 });
+    const startDefaultDiscovery = (cityRows: CityOption[]) => {
+      if (!current || discoveryStarted) return;
+      const geneva = cityRows.find((city) => city.slug === "geneve");
+      if (geneva) {
+        setGeography({
+          countryId: geneva.country_id,
+          regionId: geneva.region_id,
+          cityId: geneva.id,
+        });
+      }
+      setCities(cityRows);
+      discoveryStarted = true;
+      setGeographyReady(true);
+    };
+
+    // The first event request only needs the default city. Do not hold it
+    // behind the complete country/region catalogue and category metadata.
+    void defaultCitiesPromise.then(startDefaultDiscovery).catch(() => undefined);
+
+    Promise.all([fetchGeographyCatalog(), fetchCategories(), defaultCitiesPromise])
+      .then(([data, categoryRows, cityRows]) => {
         if (!current) return;
         setCountries(data.countries);
         setRegions(data.regions);
-        setCities(data.cities);
+        setCities(cityRows);
         setCategories(categoryRows as Category[]);
-        const geneva = data.cities.find((city) => city.slug === "geneve");
-        if (geneva) {
-          setGeography({
-            countryId: geneva.country_id,
-            regionId: geneva.region_id,
-            cityId: geneva.id,
-          });
-        }
-        setGeographyReady(true);
+        startDefaultDiscovery(cityRows);
       })
       .catch(() => {
         if (current) {
           setError("Les filtres géographiques n'ont pas pu être chargés.");
           // Keep worldwide discovery available when the geography catalogue
           // is temporarily unavailable.
-          setGeographyReady(true);
+          if (!discoveryStarted) setGeographyReady(true);
         }
       });
     return () => {
@@ -1007,8 +1020,8 @@ function Discover() {
       ) : sortedEvents.length ? (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {sortedEvents.map((e) => (
-              <EventCard key={e.occurrence_id} ev={e} />
+            {sortedEvents.map((e, index) => (
+              <EventCard key={e.occurrence_id} ev={e} imagePriority={index < 4} />
             ))}
           </div>
           {hasMore && (
