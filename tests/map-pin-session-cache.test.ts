@@ -8,6 +8,7 @@ import {
   filterMapPinsToViewport,
   getSessionMapPinCacheStats,
   loadSessionMapPins,
+  MAP_SERVER_CLUSTER_MAX_ZOOM,
   mapViewportContainsBounds,
 } from "../src/lib/map-pin-session-cache.ts";
 
@@ -59,13 +60,13 @@ test("serves nearby movements from the same session cache", async () => {
   const first = await loadSessionMapPins({
     cacheKey: "default",
     viewport: geneva,
-    zoom: 12,
+    zoom: 15,
     fetchPins,
   });
   const nearby = await loadSessionMapPins({
     cacheKey: "default",
     viewport: { west: 6.02, south: 46.12, east: 6.24, north: 46.28 },
-    zoom: 12,
+    zoom: 15,
     fetchPins,
   });
 
@@ -97,13 +98,13 @@ test("deduplicates concurrent requests covered by the same buffered region", asy
   const first = loadSessionMapPins({
     cacheKey: "shared",
     viewport: geneva,
-    zoom: 12,
+    zoom: 15,
     fetchPins,
   });
   const second = loadSessionMapPins({
     cacheKey: "shared",
     viewport: { west: 6.03, south: 46.13, east: 6.22, north: 46.27 },
-    zoom: 12,
+    zoom: 15,
     fetchPins,
   });
   release?.();
@@ -121,8 +122,8 @@ test("keeps filter caches isolated for the duration of the session", async () =>
     return batch;
   };
 
-  await loadSessionMapPins({ cacheKey: "concerts", viewport: geneva, zoom: 12, fetchPins });
-  await loadSessionMapPins({ cacheKey: "festivals", viewport: geneva, zoom: 12, fetchPins });
+  await loadSessionMapPins({ cacheKey: "concerts", viewport: geneva, zoom: 15, fetchPins });
+  await loadSessionMapPins({ cacheKey: "festivals", viewport: geneva, zoom: 15, fetchPins });
 
   assert.equal(calls, 2);
   assert.equal(getSessionMapPinCacheStats().filterBuckets, 2);
@@ -143,6 +144,7 @@ test("does not spatially pad low-zoom aggregate requests", async () => {
   });
 
   assert.deepEqual(requestedBounds, geneva);
+  assert.equal(MAP_SERVER_CLUSTER_MAX_ZOOM, 14);
 });
 
 test("does not reuse low-zoom aggregates for a different viewport", async () => {
@@ -175,7 +177,7 @@ test("aborts stale map requests and removes them from the in-flight registry", a
   const pending = loadSessionMapPins({
     cacheKey: "aborted",
     viewport: geneva,
-    zoom: 12,
+    zoom: 15,
     signal: controller.signal,
     fetchPins: async (_bounds, signal) =>
       new Promise<CompactMapPinBatch>((_resolve, reject) => {

@@ -5,11 +5,11 @@ import test from "node:test";
 import {
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_RADIUS,
-  clusterLeafPageRequests,
+  CLUSTER_SELECTION_PAGE_SIZE,
+  clusterLeafPageRequest,
   clusterExpansionTargetZoom,
   eventClusterCircleRadius,
   eventClusterTextSize,
-  loadAllClusterLeaves,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
 } from "../src/lib/map-cluster-config.ts";
@@ -568,29 +568,13 @@ test("opens a terminal cluster instead of requesting an ineffective extra zoom",
   assert.equal(shouldOpenClusterSelection(12, 14), false);
 });
 
-test("requests every terminal cluster leaf without the former 25-event cap", () => {
-  assert.deepEqual(clusterLeafPageRequests(640), [
-    { limit: 250, offset: 0 },
-    { limit: 250, offset: 250 },
-    { limit: 140, offset: 500 },
-  ]);
-});
-
-test("loads and preserves every paginated terminal cluster leaf", async () => {
-  const requestedPages: Array<{ limit: number; offset: number }> = [];
-  const leaves = await loadAllClusterLeaves(640, async (limit, offset) => {
-    requestedPages.push({ limit, offset });
-    return Array.from({ length: limit }, (_, index) => offset + index);
-  });
-
-  assert.deepEqual(requestedPages, [
-    { limit: 250, offset: 0 },
-    { limit: 250, offset: 250 },
-    { limit: 140, offset: 500 },
-  ]);
-  assert.equal(leaves.length, 640);
-  assert.equal(leaves[0], 0);
-  assert.equal(leaves.at(-1), 639);
+test("requests terminal cluster leaves in small on-demand pages", () => {
+  assert.equal(CLUSTER_SELECTION_PAGE_SIZE, 24);
+  assert.deepEqual(clusterLeafPageRequest(640, 0), { limit: 24, offset: 0 });
+  assert.deepEqual(clusterLeafPageRequest(640, 24), { limit: 24, offset: 24 });
+  assert.deepEqual(clusterLeafPageRequest(640, 636), { limit: 4, offset: 636 });
+  assert.equal(clusterLeafPageRequest(640, 640), null);
+  assert.equal(clusterLeafPageRequest(0, 0), null);
 });
 
 test("validates, deduplicates and batches occurrence preview ids", () => {

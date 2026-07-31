@@ -28,3 +28,15 @@ test("map location starts coarse and refines without blocking first paint", () =
   assert.equal(MAP_INITIAL_GEOLOCATION_OPTIONS.timeout, 4_000);
   assert.equal(MAP_REFINEMENT_GEOLOCATION_OPTIONS.enableHighAccuracy, true);
 });
+
+test("map pins stay compact and event content is loaded only on demand", () => {
+  const queries = readFileSync(new URL("../src/lib/queries.ts", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/routes/map.tsx", import.meta.url), "utf8");
+
+  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v3"/);
+  assert.match(queries, /rpc\("get_map_occurrence_detail_v1"/);
+  assert.match(route, /clusterLeafPageRequest/);
+  assert.doesNotMatch(route, /loadAllClusterLeaves/);
+  assert.doesNotMatch(route, /resolveEventHoverPreview/);
+  assert.doesNotMatch(route, /includeDescription:\s*true/);
+});
