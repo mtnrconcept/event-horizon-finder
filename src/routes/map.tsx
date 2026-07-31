@@ -80,6 +80,7 @@ import {
   MAP_SERVER_CLUSTER_MAX_ZOOM,
   readSessionMapPins,
 } from "@/lib/map-pin-session-cache";
+import { isTransientMapRequestError } from "@/lib/map-network-retry";
 import {
   isRenderableMapSurfaceSize,
   mapSurfaceSizesMatch,
@@ -113,6 +114,7 @@ import {
   eventClusterTextSizeExpression,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
+  shouldRequestTerminalClusterReload,
   serverClusterExpansionTargetZoom,
 } from "@/lib/map-cluster-config";
 import {
@@ -1346,8 +1348,9 @@ function SelectedMapEventDialog({
                             style={{ contentVisibility: "auto", containIntrinsicSize: "0 72px" }}
                           >
                             {performer.image_url && (
-                              <img
-                                src={performer.image_url}
+                              <EventArtworkImage
+                                eventId={`performer:${performer.id}`}
+                                sourceUrl={performer.image_url}
                                 alt=""
                                 loading="lazy"
                                 referrerPolicy="no-referrer"
@@ -1397,8 +1400,9 @@ function SelectedMapEventDialog({
                           >
                             {media.media_type.toLowerCase().startsWith("image") ? (
                               <a href={media.url} target="_blank" rel="noopener noreferrer">
-                                <img
-                                  src={media.url}
+                                <EventArtworkImage
+                                  eventId={`${artworkEventId}:media:${media.id}`}
+                                  sourceUrl={media.url}
                                   alt={`${title} — ${media.attribution ?? index + 1}`}
                                   loading="lazy"
                                   referrerPolicy="no-referrer"
@@ -1760,6 +1764,9 @@ function MapPage() {
   } | null>(null);
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  const pinLoadingRef = useRef(true);
+  const terminalClusterReloadPendingRef = useRef(false);
+  const retryMapPinsWhenOnlineRef = useRef(false);
   const mobileListRequestVersionRef = useRef(0);
   const eventSelectionRequestRef = useRef(0);
   const eventSelectionRetryRef = useRef<(() => void) | null>(null);
@@ -2331,11 +2338,33 @@ function MapPage() {
   const loadedPointCount = compactPins.length;
   const statsLoading = loading;
 
+  const requestMapPinReload = useCallback(() => {
+    if (
+      !shouldRequestTerminalClusterReload(
+        pinLoadingRef.current,
+        terminalClusterReloadPendingRef.current,
+      )
+    ) {
+      return false;
+    }
+    terminalClusterReloadPendingRef.current = true;
+    retryMapPinsWhenOnlineRef.current = false;
+    pinLoadingRef.current = true;
+    clearSessionMapPinCache(mapPinCacheKey);
+    setLoading(true);
+    setError(null);
+    setReloadKey((key) => key + 1);
+    return true;
+  }, [mapPinCacheKey]);
+
   useEffect(() => {
     if (!mapDiscoveryParams) return;
     const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);
     if (cachedPins !== null) {
       setCompactPinBatch(cachedPins);
+      pinLoadingRef.current = false;
+      terminalClusterReloadPendingRef.current = false;
+      retryMapPinsWhenOnlineRef.current = false;
       setLoading(false);
       setError(null);
       return;
@@ -2344,6 +2373,7 @@ function MapPage() {
     let current = true;
     const controller = new AbortController();
     const requestVersion = ++requestVersionRef.current;
+    pinLoadingRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -2358,14 +2388,21 @@ function MapPage() {
       .then((nextPins) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
         setCompactPinBatch(nextPins);
+        terminalClusterReloadPendingRef.current = false;
+        retryMapPinsWhenOnlineRef.current = false;
       })
-      .catch(() => {
+      .catch((requestError: unknown) => {
         if (controller.signal.aborted) return;
         if (!current || requestVersion !== requestVersionRef.current) return;
+        terminalClusterReloadPendingRef.current = false;
+        retryMapPinsWhenOnlineRef.current = isTransientMapRequestError(requestError);
         setError("Impossible d’actualiser les événements de la zone visible. Réessaie.");
       })
       .finally(() => {
-        if (current && requestVersion === requestVersionRef.current) setLoading(false);
+        if (current && requestVersion === requestVersionRef.current) {
+          pinLoadingRef.current = false;
+          setLoading(false);
+        }
       });
     return () => {
       current = false;
@@ -2374,28 +2411,40 @@ function MapPage() {
   }, [mapDiscoveryParams, mapPinCacheKey, reloadKey]);
 
   useEffect(() => {
+    const retryWhenOnline = () => {
+      if (!retryMapPinsWhenOnlineRef.current) return;
+      void requestMapPinReload();
+    };
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [requestMapPinReload]);
+
+  useEffect(() => {
     if (!mapDiscoveryParams || !listRequested) return;
 
     let current = true;
+    const controller = new AbortController();
     const requestVersion = ++mobileListRequestVersionRef.current;
     setMobileListLoading(true);
     setMobileListLoadingMore(false);
-    setMobileListHasMore(false);
     setMobileListError(null);
-    setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
-    setEvents([]);
 
-    void discoverMapEventsInBounds({
-      ...mapDiscoveryParams,
-      limit: MAP_EVENT_PAGE_SIZE,
-      offset: 0,
-    })
+    void discoverMapEventsInBounds(
+      {
+        ...mapDiscoveryParams,
+        limit: MAP_EVENT_PAGE_SIZE,
+        offset: 0,
+      },
+      controller.signal,
+    )
       .then((nextEvents) => {
         if (!current || requestVersion !== mobileListRequestVersionRef.current) return;
         setEvents(nextEvents);
         setMobileListHasMore(nextEvents.length === MAP_EVENT_PAGE_SIZE);
+        setVisibleMobileEventCount(MOBILE_LIST_BATCH_SIZE);
       })
       .catch(() => {
+        if (controller.signal.aborted) return;
         if (!current || requestVersion !== mobileListRequestVersionRef.current) return;
         setMobileListError("Impossible de charger la liste. Réessaie dans un instant.");
       })
@@ -2407,6 +2456,7 @@ function MapPage() {
 
     return () => {
       current = false;
+      controller.abort();
     };
   }, [listRequested, mapDiscoveryParams, mobileListReloadKey]);
 
@@ -2415,7 +2465,9 @@ function MapPage() {
       setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
       return;
     }
-    if (!mapDiscoveryParams || !mobileListHasMore || mobileListLoadingMore) return;
+    if (!mapDiscoveryParams || !mobileListHasMore || mobileListLoading || mobileListLoadingMore) {
+      return;
+    }
 
     const requestVersion = mobileListRequestVersionRef.current;
     setMobileListLoadingMore(true);
@@ -2603,9 +2655,7 @@ function MapPage() {
         closeClusterSelection();
         const currentZoom = map.getZoom();
         if (currentZoom >= MAP_SERVER_CLUSTER_MAX_ZOOM) {
-          clearSessionMapPinCache(mapPinCacheKey);
-          setLoading(true);
-          setReloadKey((key) => key + 1);
+          void requestMapPinReload();
           return;
         }
         map.easeTo({
@@ -2760,6 +2810,7 @@ function MapPage() {
     mapReady,
     openEventSelection,
     readyStyle,
+    requestMapPinReload,
     resolveOccurrencePreviews,
     tr,
   ]);
@@ -2784,8 +2835,7 @@ function MapPage() {
   };
 
   const retryMapPins = () => {
-    clearSessionMapPinCache(mapPinCacheKey);
-    setReloadKey((key) => key + 1);
+    void requestMapPinReload();
   };
 
   const recenterOnUser = () => {
@@ -2919,11 +2969,7 @@ function MapPage() {
                 <button
                   type="button"
                   className="min-h-11 shrink-0 font-black underline"
-                  onClick={() =>
-                    events.length > 0
-                      ? loadMoreMobileList()
-                      : setMobileListReloadKey((key) => key + 1)
-                  }
+                  onClick={() => setMobileListReloadKey((key) => key + 1)}
                 >
                   {t("common.retry")}
                 </button>
@@ -2961,7 +3007,7 @@ function MapPage() {
               <button
                 type="button"
                 onClick={loadMoreMobileList}
-                disabled={mobileListLoadingMore}
+                disabled={mobileListLoading || mobileListLoadingMore}
                 className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 text-sm font-black text-primary disabled:opacity-60"
               >
                 {mobileListLoadingMore && <LoaderCircle className="h-4 w-4 animate-spin" />}

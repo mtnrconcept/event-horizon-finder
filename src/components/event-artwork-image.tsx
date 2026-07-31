@@ -1,5 +1,10 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
-import { getEventArtworkUrl, getGeneratedEventArtworkUrl } from "@/lib/event-artwork";
+import {
+  getLocalEventArtworkUrl,
+  getSafeEventArtworkSourceUrl,
+  hasFailedEventArtworkUrl,
+  rememberFailedEventArtworkUrl,
+} from "@/lib/event-artwork";
 
 type EventArtworkImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onError"> & {
   eventId: string;
@@ -8,8 +13,9 @@ type EventArtworkImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | 
 };
 
 /**
- * Keeps a real event image when one exists, then falls back to Global Party's
- * data-driven poster if the source image is absent or no longer available.
+ * Keeps a real event image when one exists, then falls back without another
+ * network request. Failed origins are remembered globally so a broken image
+ * referenced by many cards is not downloaded over and over.
  */
 export function EventArtworkImage({
   eventId,
@@ -17,12 +23,12 @@ export function EventArtworkImage({
   fallback = null,
   ...imageProps
 }: EventArtworkImageProps) {
-  const generatedUrl = getGeneratedEventArtworkUrl(eventId);
-  const preferredUrl = getEventArtworkUrl(eventId, sourceUrl);
+  const preferredUrl = getSafeEventArtworkSourceUrl(sourceUrl);
+  const localUrl = fallback === null ? getLocalEventArtworkUrl(eventId) : null;
   const [failure, setFailure] = useState<{ eventId: string; urls: string[] } | null>(null);
   const failedUrls = failure?.eventId === eventId ? failure.urls : [];
-  const currentUrl = [preferredUrl, generatedUrl].find((candidate): candidate is string =>
-    Boolean(candidate && !failedUrls.includes(candidate)),
+  const currentUrl = [preferredUrl, localUrl].find((candidate): candidate is string =>
+    Boolean(candidate && !failedUrls.includes(candidate) && !hasFailedEventArtworkUrl(candidate)),
   );
 
   if (!currentUrl) return <>{fallback}</>;
@@ -32,6 +38,7 @@ export function EventArtworkImage({
       {...imageProps}
       src={currentUrl}
       onError={() => {
+        rememberFailedEventArtworkUrl(currentUrl);
         setFailure((current) => ({
           eventId,
           urls:

@@ -216,6 +216,11 @@ jobs:
           supabase db query --local
           --file tests/map-on-demand-loading-smoke.sql
 
+      - name: Exercise the v4 fast map pin projection
+        run: >-
+          supabase db query --local
+          --file tests/map-pins-v4-smoke.sql
+
       - name: Exercise the event search taxonomy facets
         run: >-
           supabase db query --local
