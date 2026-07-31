@@ -98,6 +98,7 @@ import {
   eventClusterCountExpression,
   eventClusterTextSizeExpression,
   loadAllClusterLeaves,
+  shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
 } from "@/lib/map-cluster-config";
 import {
@@ -172,6 +173,14 @@ const MAP_CLUSTER_LAYER_ID = "eventa-map-clusters";
 const MAP_CLUSTER_COUNT_LAYER_ID = "eventa-map-cluster-count";
 const MAP_EVENT_POINT_LAYER_ID = "eventa-map-event-points";
 const MAP_EVENT_LABEL_LAYER_ID = "eventa-map-event-labels";
+const MAP_EVENT_LAYER_IDS = [
+  MAP_EVENT_LABEL_LAYER_ID,
+  MAP_EVENT_POINT_LAYER_ID,
+  MAP_CLUSTER_COUNT_LAYER_ID,
+  MAP_CLUSTER_LAYER_ID,
+  MAP_CLUSTER_HALO_LAYER_ID,
+] as const;
+const MAP_EVENT_SOURCE_CLIENT_CLUSTERING = new WeakMap<maplibregl.Map, boolean>();
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
 const CLUSTER_PREVIEW_CONCURRENCY = 4;
@@ -251,16 +260,31 @@ function hideBasemapPoiLayers(map: maplibregl.Map) {
   }
 }
 
-function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection) {
+function syncClusterLayers(
+  map: maplibregl.Map,
+  eventPoints: MapPointCollection,
+  serverClustered: boolean,
+) {
   hideBasemapPoiLayers(map);
-  const existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
+  const clientClustered = shouldClusterMapPointsInClient(serverClustered);
+  const previousClientClustered = MAP_EVENT_SOURCE_CLIENT_CLUSTERING.get(map);
+  let existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
+
+  if (existingEventSource && previousClientClustered !== clientClustered) {
+    for (const layerId of MAP_EVENT_LAYER_IDS) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+    }
+    map.removeSource(MAP_EVENT_SOURCE_ID);
+    existingEventSource = undefined;
+  }
+
   if (existingEventSource) {
     existingEventSource.setData(eventPoints);
   } else {
     map.addSource(MAP_EVENT_SOURCE_ID, {
       type: "geojson",
       data: eventPoints,
-      cluster: true,
+      cluster: clientClustered,
       clusterMaxZoom: EVENT_CLUSTER_MAX_ZOOM,
       clusterRadius: EVENT_CLUSTER_RADIUS,
       maxzoom: EVENT_SOURCE_MAX_ZOOM,
@@ -270,6 +294,7 @@ function syncClusterLayers(map: maplibregl.Map, eventPoints: MapPointCollection)
       },
     });
   }
+  MAP_EVENT_SOURCE_CLIENT_CLUSTERING.set(map, clientClustered);
 
   registerEventCategoryImages(map);
 
@@ -2479,8 +2504,8 @@ function MapPage() {
   useEffect(() => {
     const map = mapInstance;
     if (!map || !mapReady || readyStyle?.map !== map) return;
-    syncClusterLayers(map, eventMapPoints);
-  }, [eventMapPoints, mapInstance, mapReady, readyStyle]);
+    syncClusterLayers(map, eventMapPoints, compactPinBatch.clustered);
+  }, [compactPinBatch.clustered, eventMapPoints, mapInstance, mapReady, readyStyle]);
 
   useEffect(() => {
     const map = mapInstance;
@@ -2793,6 +2818,7 @@ function MapPage() {
     formatNumber,
     localizePreview,
     localizePreviews,
+    compactPinBatch.clustered,
     mapInstance,
     mapReady,
     openEventSelection,

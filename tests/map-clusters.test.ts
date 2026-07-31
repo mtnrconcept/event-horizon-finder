@@ -10,6 +10,7 @@ import {
   eventClusterCircleRadius,
   eventClusterTextSize,
   loadAllClusterLeaves,
+  shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
 } from "../src/lib/map-cluster-config.ts";
 import {
@@ -157,6 +158,11 @@ test("preserves server aggregate weights for low-zoom clusters", () => {
   assert.equal(points.features[0]?.properties.kind, "server_cluster");
   assert.equal(points.features[0]?.properties.event_count, 42);
   assert.equal(points.features[0]?.properties.free_count, 12);
+});
+
+test("never clusters low-zoom server aggregates a second time in the browser", () => {
+  assert.equal(shouldClusterMapPointsInClient(true), false);
+  assert.equal(shouldClusterMapPointsInClient(false), true);
 });
 
 test("never presents the first 1,000 detailed rows as a complete worldwide map", () => {

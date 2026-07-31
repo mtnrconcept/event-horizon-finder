@@ -6,6 +6,10 @@ export const EVENT_SOURCE_MAX_ZOOM = 22;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = 20.75;
 export const EVENT_CLUSTER_LEAF_BATCH_SIZE = 250;
 
+export function shouldClusterMapPointsInClient(serverClustered: boolean): boolean {
+  return !serverClustered;
+}
+
 const CLUSTER_RADIUS_STOPS = [
   [1, 27],
   [10, 32],
