@@ -45,6 +45,7 @@ import {
   toDiscoveryFilters,
 } from "@/lib/event-filters";
 import { EventCard, EventCardSkeleton } from "@/components/event-card";
+import { EventArtworkImage } from "@/components/event-artwork-image";
 import { EventFilterPanel } from "@/components/event-filter-panel";
 import { MobileDiscoveryLayout } from "@/components/discovery/MobileDiscoveryLayout";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +77,7 @@ import {
 import {
   clearSessionMapPinCache,
   loadSessionMapPins,
+  MAP_SERVER_CLUSTER_MAX_ZOOM,
   readSessionMapPins,
 } from "@/lib/map-pin-session-cache";
 import {
@@ -111,6 +113,7 @@ import {
   eventClusterTextSizeExpression,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
+  serverClusterExpansionTargetZoom,
 } from "@/lib/map-cluster-config";
 import {
   mapEventPinOccurrenceId,
@@ -694,6 +697,7 @@ function SelectedMapEventDialog({
     safeMapPreviewImageUrl(detail?.cover_image_url ?? event?.cover_image_url ?? null) ??
     detail?.media.find((item) => item.media_type.toLowerCase().startsWith("image"))?.url ??
     null;
+  const artworkEventId = detail?.event_id ?? event?.event_id ?? "";
   const description = detailPlainText(detail?.description ?? event?.description);
   const shortDescription = mapPreviewExcerpt(
     detail?.short_description ?? event?.short_description,
@@ -808,16 +812,14 @@ function SelectedMapEventDialog({
               <div className="absolute inset-0 grid place-items-center text-4xl text-primary-foreground">
                 ✦
               </div>
-              {imageUrl && (
-                <img
-                  key={imageUrl}
-                  src={imageUrl}
+              {imageUrl && artworkEventId && (
+                <EventArtworkImage
+                  key={artworkEventId}
+                  eventId={artworkEventId}
+                  sourceUrl={imageUrl}
                   alt=""
                   loading="eager"
                   referrerPolicy="no-referrer"
-                  onError={(imageEvent) => {
-                    imageEvent.currentTarget.hidden = true;
-                  }}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               )}
@@ -2599,9 +2601,16 @@ function MapPage() {
       closeEventSelection();
       if (!Number.isFinite(clusterId)) {
         closeClusterSelection();
+        const currentZoom = map.getZoom();
+        if (currentZoom >= MAP_SERVER_CLUSTER_MAX_ZOOM) {
+          clearSessionMapPinCache(mapPinCacheKey);
+          setLoading(true);
+          setReloadKey((key) => key + 1);
+          return;
+        }
         map.easeTo({
           center: [Number(longitude), Number(latitude)],
-          zoom: Math.min(22, map.getZoom() + 2),
+          zoom: serverClusterExpansionTargetZoom(currentZoom, MAP_SERVER_CLUSTER_MAX_ZOOM),
           duration: 450,
         });
         return;
@@ -2746,6 +2755,7 @@ function MapPage() {
     formatNumber,
     localizePreviews,
     compactPinBatch.clustered,
+    mapPinCacheKey,
     mapInstance,
     mapReady,
     openEventSelection,

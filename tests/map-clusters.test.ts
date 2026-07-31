@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   EVENT_CLUSTER_MAX_ZOOM,
+  EVENT_CLUSTER_TERMINAL_ZOOM,
   EVENT_CLUSTER_RADIUS,
   CLUSTER_SELECTION_PAGE_SIZE,
   clusterLeafPageRequest,
@@ -12,6 +13,7 @@ import {
   eventClusterTextSize,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
+  serverClusterExpansionTargetZoom,
 } from "../src/lib/map-cluster-config.ts";
 import {
   eventCategoryTextColor,
@@ -559,13 +561,20 @@ test("uses large, readable event clusters that grow monotonically", () => {
 test("cluster expansion always zooms in and remains within the supported source zoom", () => {
   assert.equal(clusterExpansionTargetZoom(4, 6), 6.35);
   assert.equal(clusterExpansionTargetZoom(12, 12), 13.25);
-  assert.equal(clusterExpansionTargetZoom(20, 22), 20.75);
+  assert.equal(clusterExpansionTargetZoom(20, 21), EVENT_CLUSTER_TERMINAL_ZOOM);
 });
 
-test("opens a terminal cluster instead of requesting an ineffective extra zoom", () => {
-  assert.equal(shouldOpenClusterSelection(20.75, 21), true);
-  assert.equal(shouldOpenClusterSelection(19, 21), true);
+test("performs the final expansion to individual pins before opening the cluster list", () => {
+  assert.equal(shouldOpenClusterSelection(20, EVENT_CLUSTER_TERMINAL_ZOOM), false);
+  assert.equal(shouldOpenClusterSelection(EVENT_CLUSTER_TERMINAL_ZOOM, 21), true);
+  assert.equal(shouldOpenClusterSelection(19, 22), true);
   assert.equal(shouldOpenClusterSelection(12, 14), false);
+});
+
+test("server aggregates reach the individual-pin threshold in bounded steps", () => {
+  assert.equal(serverClusterExpansionTargetZoom(2, 14), 5);
+  assert.equal(serverClusterExpansionTargetZoom(12.5, 14), 14);
+  assert.equal(serverClusterExpansionTargetZoom(14, 14), 14);
 });
 
 test("requests terminal cluster leaves in small on-demand pages", () => {

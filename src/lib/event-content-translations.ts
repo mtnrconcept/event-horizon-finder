@@ -12,6 +12,15 @@ import type {
 
 export type EventTranslationScope = "summary" | "full";
 
+export type EventTranslationRequestOptions = {
+  /**
+   * Public browsing reads durable translations only. Generating a missing
+   * translation is an explicit server/admin concern because it can call a
+   * paid provider and must never hold up event or map rendering.
+   */
+  generateMissing?: boolean;
+};
+
 export type EventTranslationContent = {
   preview_description?: string | null;
   age_restriction?: string | null;
@@ -244,6 +253,7 @@ export async function getEventContentTranslations(
   values: readonly string[],
   locale: AppLocale,
   scope: EventTranslationScope = "summary",
+  options: EventTranslationRequestOptions = {},
 ): Promise<Map<string, EventContentTranslation>> {
   const eventIds = [...new Set(values.filter((value) => UUID_PATTERN.test(value)))];
   const result = new Map<string, EventContentTranslation>();
@@ -269,6 +279,13 @@ export async function getEventContentTranslations(
     } catch {
       // A rolling deployment can briefly expose the UI before the migration.
     }
+  }
+
+  if (!options.generateMissing) {
+    for (const eventId of missing) {
+      negativeCache.set(cacheKey(eventId, locale), Date.now() + NEGATIVE_CACHE_TTL_MS);
+    }
+    return result;
   }
 
   const batchSize = scope === "full" ? 1 : 20;

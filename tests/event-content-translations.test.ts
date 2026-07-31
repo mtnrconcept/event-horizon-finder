@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -121,4 +122,17 @@ test("splits long provider inputs without losing characters", () => {
   assert.ok(chunks.length > 1);
   assert.equal(chunks.join(""), source);
   assert.ok(chunks.every((chunk) => chunk.length <= 300));
+});
+
+test("public event rendering reads durable translations without generating them live", () => {
+  const clientSource = readFileSync(
+    new URL("../src/lib/event-content-translations.ts", import.meta.url),
+    "utf8",
+  );
+  const cacheOnlyGuard = clientSource.indexOf("if (!options.generateMissing)");
+  const providerLoop = clientSource.indexOf('const batchSize = scope === "full" ? 1 : 20');
+
+  assert.ok(cacheOnlyGuard >= 0);
+  assert.ok(providerLoop > cacheOnlyGuard);
+  assert.match(clientSource, /generateMissing\?: boolean/);
 });

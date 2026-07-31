@@ -3,7 +3,8 @@ import type { ExpressionSpecification } from "maplibre-gl";
 export const EVENT_CLUSTER_RADIUS = 82;
 export const EVENT_CLUSTER_MAX_ZOOM = 20;
 export const EVENT_SOURCE_MAX_ZOOM = 22;
-export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = 20.75;
+export const EVENT_CLUSTER_TERMINAL_ZOOM = EVENT_CLUSTER_MAX_ZOOM + 1;
+export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = EVENT_CLUSTER_TERMINAL_ZOOM;
 export const CLUSTER_SELECTION_PAGE_SIZE = 24;
 
 export function shouldClusterMapPointsInClient(serverClustered: boolean): boolean {
@@ -79,11 +80,23 @@ export function clusterExpansionTargetZoom(currentZoom: number, expansionZoom: n
   );
 }
 
+export function serverClusterExpansionTargetZoom(
+  currentZoom: number,
+  serverClusterMaxZoom: number,
+): number {
+  const safeCurrentZoom = Number.isFinite(currentZoom) ? Math.max(0, currentZoom) : 0;
+  const safeServerMaxZoom = Number.isFinite(serverClusterMaxZoom)
+    ? Math.max(0, serverClusterMaxZoom)
+    : safeCurrentZoom + 1;
+
+  return Math.min(safeServerMaxZoom, safeCurrentZoom + 3);
+}
+
 export function shouldOpenClusterSelection(currentZoom: number, expansionZoom: number): boolean {
   return (
-    (Number.isFinite(currentZoom) && currentZoom >= EVENT_CLUSTER_MAX_ZOOM) ||
+    (Number.isFinite(currentZoom) && currentZoom >= EVENT_CLUSTER_TERMINAL_ZOOM) ||
     !Number.isFinite(expansionZoom) ||
-    expansionZoom > EVENT_CLUSTER_MAX_ZOOM
+    expansionZoom > EVENT_CLUSTER_TERMINAL_ZOOM
   );
 }
 
