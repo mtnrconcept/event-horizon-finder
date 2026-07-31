@@ -874,10 +874,21 @@ export async function fetchGeographies(): Promise<{
   regions: RegionOption[];
   cities: CityOption[];
 }> {
-  const [countriesResult, regionsResult, genevaCities] = await Promise.all([
+  const [catalogue, genevaCities] = await Promise.all([
+    fetchGeographyCatalog(),
+    searchGeographyCities({ query: "Geneve", limit: 20 }),
+  ]);
+
+  return { ...catalogue, cities: genevaCities };
+}
+
+export async function fetchGeographyCatalog(): Promise<{
+  countries: CountryOption[];
+  regions: RegionOption[];
+}> {
+  const [countriesResult, regionsResult] = await Promise.all([
     supabase.from("countries").select("id,code,name").order("name"),
     supabase.from("regions").select("id,country_id,name").order("name"),
-    searchGeographyCities({ query: "Geneve", limit: 20 }),
   ]);
   const catalogueError = countriesResult.error ?? regionsResult.error;
   if (catalogueError) throw catalogueError;
@@ -885,7 +896,6 @@ export async function fetchGeographies(): Promise<{
   return {
     countries: (countriesResult.data ?? []) as CountryOption[],
     regions: (regionsResult.data ?? []) as RegionOption[],
-    cities: genevaCities,
   };
 }
 

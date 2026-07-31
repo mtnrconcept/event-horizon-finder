@@ -51,9 +51,14 @@ async function fetchFavoriteEventIds(userId: string) {
 type EventCardProps = {
   ev: DiscoveredEvent;
   variant?: "default" | "compact";
+  imagePriority?: boolean;
 };
 
-export function EventCard({ ev: sourceEvent, variant = "default" }: EventCardProps) {
+export function EventCard({
+  ev: sourceEvent,
+  variant = "default",
+  imagePriority = false,
+}: EventCardProps) {
   const { t, tr, categoryLabel, genreLabel, formatNumber, locale, localeTag } = useTranslation();
   const translation = useEventContentTranslation(sourceEvent.event_id, locale, "summary");
   const ev = applyTranslationToDiscoveredEvent(sourceEvent, translation);
@@ -132,7 +137,8 @@ export function EventCard({ ev: sourceEvent, variant = "default" }: EventCardPro
           eventId={ev.event_id}
           sourceUrl={ev.cover_image_url}
           alt={ev.title}
-          loading="lazy"
+          loading={imagePriority ? "eager" : "lazy"}
+          fetchPriority={imagePriority ? "high" : "auto"}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           fallback={
             <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_75%_20%,oklch(0.72_0.18_35_/_0.38),transparent_30%),linear-gradient(135deg,oklch(0.3_0.12_295),oklch(0.16_0.04_265))] text-white">

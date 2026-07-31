@@ -1043,6 +1043,13 @@ export const UI_TRANSLATIONS = {
   },
   "7 jours": { en: "7 days", pl: "7 dni", it: "7 giorni", ru: "7 дней", es: "7 días" },
   "30 jours": { en: "30 days", pl: "30 dni", it: "30 giorni", ru: "30 дней", es: "30 días" },
+  "12 prochains mois": {
+    en: "Next 12 months",
+    pl: "Najbliższe 12 miesięcy",
+    it: "Prossimi 12 mesi",
+    ru: "Следующие 12 месяцев",
+    es: "Próximos 12 meses",
+  },
   "Tout à venir": {
     en: "All upcoming",
     pl: "Wszystkie nadchodzące",

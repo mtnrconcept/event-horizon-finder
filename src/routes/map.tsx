@@ -85,6 +85,12 @@ import {
   type MapViewportBounds,
 } from "@/lib/map-viewport";
 import {
+  MAP_EVENT_PAGE_SIZE,
+  MAP_INITIAL_GEOLOCATION_OPTIONS,
+  MAP_REFINEMENT_GEOLOCATION_OPTIONS,
+  MOBILE_LIST_BATCH_SIZE,
+} from "@/lib/map-loading";
+import {
   eventCategoryTextColor,
   eventCategoryVisual,
   registerEventCategoryImages,
@@ -144,7 +150,6 @@ export const Route = createFileRoute("/map")({
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
 const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;
-const MAP_ALL_UPCOMING_END = new Date("2100-01-01T00:00:00.000Z");
 
 const RASTER_FALLBACK_STYLE: StyleSpecification = {
   version: 8,
@@ -164,8 +169,6 @@ const RASTER_FALLBACK_STYLE: StyleSpecification = {
 };
 
 type Category = { slug: string; name_fr: string; icon: string | null };
-const MAP_EVENT_PAGE_SIZE = 1_000;
-const MOBILE_LIST_BATCH_SIZE = 24;
 const COUNT_FORMATTER = new Intl.NumberFormat("fr-CH");
 const MAP_EVENT_SOURCE_ID = "eventa-map-events";
 const MAP_CLUSTER_HALO_LAYER_ID = "eventa-map-cluster-halo";
@@ -241,7 +244,7 @@ const MAP_RANGES: { value: QuickRange; label: UiTranslationPhrase }[] = [
   { value: "weekend", label: "Ce week-end" },
   { value: "week", label: "7 jours" },
   { value: "month", label: "30 jours" },
-  { value: "year", label: "Tout à venir" },
+  { value: "year", label: "12 prochains mois" },
 ];
 
 function mapFeatureHitKind(feature: MapGeoJSONFeature): MapHitKind | null {
@@ -1822,12 +1825,7 @@ function MapPage() {
   const hoverTimerRef = useRef<number | null>(null);
   const hoverRequestRef = useRef(0);
   const mapReady = mapInstance !== null && readyMap === mapInstance;
-  const { from, to } = useMemo(() => {
-    const selectedRange = computeRange(range);
-    return range === "year"
-      ? { from: selectedRange.from, to: MAP_ALL_UPCOMING_END }
-      : selectedRange;
-  }, [range]);
+  const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
   const eventMapPoints = useMemo(
     () => buildCompactMapPointCollection({ pins: compactPins, showEvents }),
@@ -2068,43 +2066,55 @@ function MapPage() {
   useEffect(() => {
     let active = true;
     let hasPosition = false;
+    let watchId: number | null = null;
     if (!window.isSecureContext || !navigator.geolocation) {
       setGeolocationStatus("unavailable");
       return;
     }
 
     setGeolocationStatus("requesting");
-    const watchId = navigator.geolocation.watchPosition(
+    const acceptPosition = (position: GeolocationPosition) => {
+      if (!active) return;
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        if (!hasPosition) setGeolocationStatus("error");
+        return;
+      }
+      hasPosition = true;
+      const nextLocation = {
+        latitude,
+        longitude,
+        accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : 0,
+      };
+      userLocationRef.current = nextLocation;
+      setUserLocation(nextLocation);
+      setGeolocationStatus("ready");
+    };
+    const handleInitialError = (locationError: GeolocationPositionError) => {
+      if (!active || hasPosition) return;
+      setGeolocationStatus(
+        locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error",
+      );
+    };
+
+    navigator.geolocation.getCurrentPosition(
       (position) => {
+        acceptPosition(position);
         if (!active) return;
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-          if (!hasPosition) setGeolocationStatus("error");
-          return;
-        }
-        hasPosition = true;
-        const nextLocation = {
-          latitude,
-          longitude,
-          accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : 0,
-        };
-        userLocationRef.current = nextLocation;
-        setUserLocation(nextLocation);
-        setGeolocationStatus("ready");
-      },
-      (locationError) => {
-        if (!active || hasPosition) return;
-        setGeolocationStatus(
-          locationError.code === locationError.PERMISSION_DENIED ? "denied" : "error",
+        watchId = navigator.geolocation.watchPosition(
+          acceptPosition,
+          () => undefined,
+          MAP_REFINEMENT_GEOLOCATION_OPTIONS,
         );
       },
-      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 15_000 },
+      handleInitialError,
+      MAP_INITIAL_GEOLOCATION_OPTIONS,
     );
 
     return () => {
       active = false;
-      navigator.geolocation.clearWatch(watchId);
+      if (watchId != null) navigator.geolocation.clearWatch(watchId);
     };
   }, [locationRequestKey]);
 
@@ -2998,12 +3008,12 @@ function MapPage() {
               </div>
             ) : mobileListEvents.length > 0 ? (
               <div className="grid gap-3">
-                {mobileListEvents.map((event) => (
+                {mobileListEvents.map((event, index) => (
                   <div
                     key={event.occurrence_id}
                     style={{ contentVisibility: "auto", containIntrinsicSize: "0 160px" }}
                   >
-                    <EventCard ev={event} variant="compact" />
+                    <EventCard ev={event} variant="compact" imagePriority={index < 2} />
                   </div>
                 ))}
               </div>
