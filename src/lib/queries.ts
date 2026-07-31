@@ -370,10 +370,16 @@ export async function discoverMapPinsInBounds(
   for (let attempt = 0; ; attempt += 1) {
     if (isAborted(signal)) throw signal?.reason;
     // Keep the cast at the additive RPC rollout boundary until generated
-    // database types include v2.
+    // database types include v3.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const request = (supabase as any).rpc("discover_map_pins_in_bounds_v2", args).retry(false);
-    const { data, error } = await (signal ? request.abortSignal(signal) : request);
+    const request = (supabase as any).rpc("discover_map_pins_in_bounds_v3", args).retry(false);
+    let { data, error } = await (signal ? request.abortSignal(signal) : request);
+    if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+      // Keep the map available during the short migration/frontend overlap.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v2", args).retry(false);
+      ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+    }
     if (!error) return parseCompactMapPinBatch(data);
     if (
       attempt >= MAP_PIN_NETWORK_RETRY_DELAYS_MS.length ||
@@ -482,13 +488,14 @@ export async function fetchMapOccurrencePreviews(
 async function fetchMapOccurrenceDetailCollections(
   eventId: string,
   usesPublicationProjection: boolean,
+  signal?: AbortSignal,
 ): Promise<MapOccurrenceDetailCollections> {
   const [occurrences, offers, media, performers] = await Promise.all([
     loadAllPages<{ id: string }>({
       pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
       getKey: (row) => row.id,
       fetchPage: async ({ limit, offset }) => {
-        const { data, error } = await supabase
+        let query = supabase
           .from("event_occurrences")
           .select(
             `
@@ -511,6 +518,8 @@ async function fetchMapOccurrenceDetailCollections(
           .eq("event_id", eventId)
           .order("id", { ascending: true })
           .range(offset, offset + limit - 1);
+        if (signal) query = query.abortSignal(signal);
+        const { data, error } = await query;
         if (error) throw error;
         return data ?? [];
       },
@@ -519,12 +528,14 @@ async function fetchMapOccurrenceDetailCollections(
       pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
       getKey: (row) => row.id,
       fetchPage: async ({ limit, offset }) => {
-        const { data, error } = await supabase
+        let query = supabase
           .from("ticket_offers")
           .select("id,name,price_min,price_max,currency,is_free,ticket_url,status")
           .eq("event_id", eventId)
           .order("id", { ascending: true })
           .range(offset, offset + limit - 1);
+        if (signal) query = query.abortSignal(signal);
+        const { data, error } = await query;
         if (error) throw error;
         return data ?? [];
       },
@@ -547,6 +558,7 @@ async function fetchMapOccurrenceDetailCollections(
           .order(usesPublicationProjection ? "source_media_id" : "id", { ascending: true })
           .range(offset, offset + limit - 1);
         if (usesPublicationProjection) query = query.eq("is_approved", true);
+        if (signal) query = query.abortSignal(signal);
         const { data, error } = await query;
         if (error) throw error;
         return data ?? [];
@@ -556,7 +568,7 @@ async function fetchMapOccurrenceDetailCollections(
       pageSize: MAP_OCCURRENCE_DETAIL_PAGE_SIZE,
       getKey: (row) => row.performer_id,
       fetchPage: async ({ limit, offset }) => {
-        const { data, error } = await supabase
+        let query = supabase
           .from("event_performers")
           .select(
             `
@@ -575,6 +587,8 @@ async function fetchMapOccurrenceDetailCollections(
           .eq("event_id", eventId)
           .order("performer_id", { ascending: true })
           .range(offset, offset + limit - 1);
+        if (signal) query = query.abortSignal(signal);
+        const { data, error } = await query;
         if (error) throw error;
         return data ?? [];
       },
@@ -592,8 +606,9 @@ async function fetchMapOccurrenceDetailCollections(
  * kept at this query boundary until the generated Database type includes the
  * parallel event_publications_v2 relation.
  */
-export async function fetchMapOccurrenceDetail(
+async function fetchMapOccurrenceDetailLegacy(
   occurrenceId: string,
+  signal?: AbortSignal,
 ): Promise<MapOccurrenceDetail | null> {
   const normalizedId = assertMapOccurrenceId(occurrenceId);
   const detailSelect = `
@@ -690,17 +705,20 @@ export async function fetchMapOccurrenceDetail(
         )
       )
     `;
-  const runDetailQuery = (select: string) =>
+  const runDetailQuery = (select: string) => {
     // Keep this cast at the boundary so a rolling deploy still works while
     // PostgREST refreshes the new public relation in its schema cache.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    let request = (supabase as any)
       .from("event_occurrences")
       .select(select)
       .eq("id", normalizedId)
       .eq("event.is_demo", false)
       .in("event.status", ["published", "cancelled", "postponed", "sold_out"])
       .maybeSingle();
+    if (signal) request = request.abortSignal(signal);
+    return request;
+  };
 
   let { data, error } = await runDetailQuery(detailSelect);
   if (error && ["42P01", "PGRST200", "PGRST205"].includes(error.code ?? "")) {
@@ -718,11 +736,38 @@ export async function fetchMapOccurrenceDetail(
   const collections = await fetchMapOccurrenceDetailCollections(
     baseDetail.event_id,
     baseDetail.uses_publication_projection,
+    signal,
   );
   return (
     parseMapOccurrenceDetailRow(attachMapOccurrenceDetailCollections(data, collections)) ??
     baseDetail
   );
+}
+
+function isMissingMapDetailRpc(error: { code?: string | null }): boolean {
+  return ["42883", "PGRST202"].includes(error.code ?? "");
+}
+
+/** Loads the complete public event record in one RLS-protected round trip. */
+export async function fetchMapOccurrenceDetail(
+  occurrenceId: string,
+  signal?: AbortSignal,
+): Promise<MapOccurrenceDetail | null> {
+  const normalizedId = assertMapOccurrenceId(occurrenceId);
+  // Keep the cast at the additive RPC rollout boundary until generated types
+  // include the on-demand detail function.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let request = (supabase as any)
+    .rpc("get_map_occurrence_detail_v1", { _occurrence_id: normalizedId })
+    .retry(false);
+  if (signal) request = request.abortSignal(signal);
+  const { data, error } = await request;
+  if (!error) return parseMapOccurrenceDetailRow(data);
+  if (!isMissingMapDetailRpc(error)) throw error;
+
+  // A short-lived compatibility fallback keeps pin clicks working while the
+  // additive migration and the frontend deployment overlap.
+  return fetchMapOccurrenceDetailLegacy(normalizedId, signal);
 }
 
 export async function discoverEventStats(

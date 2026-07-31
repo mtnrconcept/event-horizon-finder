@@ -4,7 +4,7 @@ export const EVENT_CLUSTER_RADIUS = 82;
 export const EVENT_CLUSTER_MAX_ZOOM = 20;
 export const EVENT_SOURCE_MAX_ZOOM = 22;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = 20.75;
-export const EVENT_CLUSTER_LEAF_BATCH_SIZE = 250;
+export const CLUSTER_SELECTION_PAGE_SIZE = 24;
 
 export function shouldClusterMapPointsInClient(serverClustered: boolean): boolean {
   return !serverClustered;
@@ -87,29 +87,19 @@ export function shouldOpenClusterSelection(currentZoom: number, expansionZoom: n
   );
 }
 
-export function clusterLeafPageRequests(
+export function clusterLeafPageRequest(
   pointCount: number,
-  batchSize = EVENT_CLUSTER_LEAF_BATCH_SIZE,
-): Array<{ limit: number; offset: number }> {
+  offset: number,
+  batchSize = CLUSTER_SELECTION_PAGE_SIZE,
+): { limit: number; offset: number } | null {
   const total = Number.isFinite(pointCount) ? Math.max(0, Math.floor(pointCount)) : 0;
+  const normalizedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
   if (!Number.isInteger(batchSize) || batchSize <= 0) {
     throw new RangeError("batchSize must be a positive integer");
   }
-
-  const requests: Array<{ limit: number; offset: number }> = [];
-  for (let offset = 0; offset < total; offset += batchSize) {
-    requests.push({ limit: Math.min(batchSize, total - offset), offset });
-  }
-  return requests;
-}
-
-export async function loadAllClusterLeaves<T>(
-  pointCount: number,
-  loadPage: (limit: number, offset: number) => Promise<T[]>,
-): Promise<T[]> {
-  const leaves: T[] = [];
-  for (const request of clusterLeafPageRequests(pointCount)) {
-    leaves.push(...(await loadPage(request.limit, request.offset)));
-  }
-  return leaves;
+  if (normalizedOffset >= total) return null;
+  return {
+    limit: Math.min(batchSize, total - normalizedOffset),
+    offset: normalizedOffset,
+  };
 }

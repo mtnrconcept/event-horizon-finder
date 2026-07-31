@@ -7,6 +7,7 @@ import {
 
 const MAX_FILTER_BUCKETS = 8;
 const MAX_ENTRIES_PER_FILTER = 12;
+export const MAP_SERVER_CLUSTER_MAX_ZOOM = 14;
 const DEFAULT_VIEWPORT_PADDING_RATIO = 0.35;
 
 type CachedPinRegion = {
@@ -179,7 +180,8 @@ export async function loadSessionMapPins({
     return filterMapPinBatchToViewport(await sharedRequest.promise, viewport);
   }
 
-  const requestBounds = zoom < 8 ? viewport : expandMapViewportBounds(viewport);
+  const requestBounds =
+    zoom < MAP_SERVER_CLUSTER_MAX_ZOOM ? viewport : expandMapViewportBounds(viewport);
   const cachedExpanded = readSessionMapPins(cacheKey, requestBounds);
   if (cachedExpanded) return filterMapPinBatchToViewport(cachedExpanded, viewport);
 
@@ -191,7 +193,7 @@ export async function loadSessionMapPins({
       pins: [],
       totalCount: 0,
       freeCount: 0,
-      clustered: zoom < 8,
+      clustered: zoom < MAP_SERVER_CLUSTER_MAX_ZOOM,
       truncated: false,
     }),
   };

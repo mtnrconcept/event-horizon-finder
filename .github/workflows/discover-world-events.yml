@@ -211,6 +211,11 @@ jobs:
           supabase db query --local
           --file tests/map-legacy-rpc-smoke.sql
 
+      - name: Exercise compact pins and on-demand map details
+        run: >-
+          supabase db query --local
+          --file tests/map-on-demand-loading-smoke.sql
+
       - name: Exercise the event search taxonomy facets
         run: >-
           supabase db query --local
