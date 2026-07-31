@@ -13,6 +13,7 @@ import {
   eventClusterTextSize,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
+  shouldRequestTerminalClusterReload,
   serverClusterExpansionTargetZoom,
 } from "../src/lib/map-cluster-config.ts";
 import {
@@ -165,6 +166,13 @@ test("preserves server aggregate weights for low-zoom clusters", () => {
 test("never clusters low-zoom server aggregates a second time in the browser", () => {
   assert.equal(shouldClusterMapPointsInClient(true), false);
   assert.equal(shouldClusterMapPointsInClient(false), true);
+});
+
+test("terminal server clusters cannot trigger overlapping reload loops", () => {
+  assert.equal(shouldRequestTerminalClusterReload(false, false), true);
+  assert.equal(shouldRequestTerminalClusterReload(true, false), false);
+  assert.equal(shouldRequestTerminalClusterReload(false, true), false);
+  assert.equal(shouldRequestTerminalClusterReload(true, true), false);
 });
 
 test("never presents the first 1,000 detailed rows as a complete worldwide map", () => {

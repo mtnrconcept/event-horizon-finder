@@ -11,6 +11,13 @@ export function shouldClusterMapPointsInClient(serverClustered: boolean): boolea
   return !serverClustered;
 }
 
+export function shouldRequestTerminalClusterReload(
+  requestLoading: boolean,
+  reloadPending: boolean,
+): boolean {
+  return !requestLoading && !reloadPending;
+}
+
 const CLUSTER_RADIUS_STOPS = [
   [1, 27],
   [10, 32],

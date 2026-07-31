@@ -20,6 +20,7 @@ import {
   type MapOccurrencePreview,
 } from "@/lib/map-occurrence-previews";
 import { loadAllPages } from "@/lib/load-all-pages";
+import { runMapRequestWithRetry } from "@/lib/map-network-retry";
 import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-viewport";
 import { parseHomeCollections, type HomeCollections } from "@/lib/home-collections";
 
@@ -323,43 +324,6 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
   return (data ?? []) as DiscoveredEvent[];
 }
 
-const MAP_PIN_NETWORK_RETRY_DELAYS_MS = [300, 600] as const;
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
-}
-
-function isTransientMapNetworkError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
-  const code = typeof candidate.code === "string" ? candidate.code : "";
-  const message = [candidate.message, candidate.details]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-
-  return (
-    code === "" &&
-    /failed to fetch|fetch failed|networkerror|network request|name_not_resolved|load failed/i.test(
-      message,
-    )
-  );
-}
-
-function waitForMapRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
-  if (isAborted(signal)) return Promise.reject(signal?.reason);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, delayMs);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true },
-    );
-  });
-}
-
 /** Returns zoom-aware aggregate markers or individual pins for the current viewport. */
 export async function discoverMapPinsInBounds(
   p: DiscoverMapViewportParams,
@@ -367,43 +331,53 @@ export async function discoverMapPinsInBounds(
 ): Promise<CompactMapPinBatch> {
   const args = viewportDiscoveryArgs(p, null, true);
 
-  for (let attempt = 0; ; attempt += 1) {
-    if (isAborted(signal)) throw signal?.reason;
-    // Keep the cast at the additive RPC rollout boundary until generated
-    // database types include v3.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const request = (supabase as any).rpc("discover_map_pins_in_bounds_v3", args).retry(false);
-    let { data, error } = await (signal ? request.abortSignal(signal) : request);
-    if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
-      // Keep the map available during the short migration/frontend overlap.
+  return runMapRequestWithRetry(
+    async () => {
+      // Keep the cast at the additive RPC rollout boundary until generated
+      // database types include v4.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v2", args).retry(false);
-      ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
-    }
-    if (!error) return parseCompactMapPinBatch(data);
-    if (
-      attempt >= MAP_PIN_NETWORK_RETRY_DELAYS_MS.length ||
-      !isTransientMapNetworkError(error) ||
-      isAborted(signal)
-    ) {
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v4", args).retry(false);
+      let { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Keep the map available during the short migration/frontend overlap.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v3", args).retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Preserve compatibility with installations that have not received v3 yet.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const legacyFallback = (supabase as any)
+          .rpc("discover_map_pins_in_bounds_v2", args)
+          .retry(false);
+        ({ data, error } = await (signal ? legacyFallback.abortSignal(signal) : legacyFallback));
+      }
+      if (!error) return parseCompactMapPinBatch(data);
       throw error;
-    }
-    await waitForMapRetry(MAP_PIN_NETWORK_RETRY_DELAYS_MS[attempt], signal);
-  }
+    },
+    { signal },
+  );
 }
 
 /** Loads one stable page of rich list rows for the current visible map zone. */
 export async function discoverMapEventsInBounds(
   p: DiscoverMapViewportParams,
+  signal?: AbortSignal,
 ): Promise<DiscoveredEvent[]> {
   const args = viewportDiscoveryArgs(p, {
     limit: p.limit ?? 1_000,
     offset: p.offset ?? 0,
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("discover_map_events_in_bounds_v1", args);
-  if (error) throw error;
-  return (data ?? []) as DiscoveredEvent[];
+  return runMapRequestWithRetry(
+    async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const request = (supabase as any).rpc("discover_map_events_in_bounds_v1", args).retry(false);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return (data ?? []) as DiscoveredEvent[];
+    },
+    { signal },
+  );
 }
 
 export async function discoverAllMapPins({
