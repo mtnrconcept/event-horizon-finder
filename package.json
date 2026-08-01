@@ -20,7 +20,7 @@
     "test:mcp": "node --test tests/mcp-server.test.ts",
     "test:i18n": "node --test tests/i18n-coverage.test.mjs",
     "test:translations": "node --test tests/event-content-translations.test.ts",
-    "test:performance": "node --test tests/service-worker-safety.test.ts tests/performance-monitor-contract.test.ts tests/home-performance-contract.test.ts",
+    "test:performance": "node --test tests/service-worker-safety.test.ts tests/performance-monitor-contract.test.ts tests/home-performance-contract.test.ts tests/deployment-migration-order.test.ts",
     "test:payments-ai": "bun test tests/ad-payment-ai-api.test.ts",
     "test:monetization": "node --test tests/organizer-monetization-contract.test.ts",
     "test:ladecadanse": "node --test supabase/functions/ladecadanse-discovery/parser.test.ts tests/ladecadanse-ui-contract.test.ts",
