@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import maplibregl, {
-  type GeoJSONSource,
-  type MapLayerMouseEvent,
-  type MapMouseEvent,
-} from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
 import {
   buildPlaceFeatureCollection,
   PLACE_SERVER_CLUSTER_MAX_ZOOM,
@@ -32,24 +28,6 @@ const EMPTY_COLLECTION: PlaceFeatureCollection = {
   features: [],
 };
 
-const PLACE_CATEGORY_COLOR_EXPRESSION = [
-  "match",
-  ["get", "category"],
-  "nature",
-  "#16a34a",
-  "culture",
-  "#8b5cf6",
-  "family",
-  "#f59e0b",
-  "sports-outdoors",
-  "#ef4444",
-  "food-drink",
-  "#f97316",
-  "attraction",
-  "#0ea5e9",
-  "#0f766e",
-] as const;
-
 function placeCount(properties: Record<string, unknown> | null | undefined): number {
   const raw = properties?.place_total ?? properties?.place_count ?? properties?.point_count;
   const value = Number(raw);
@@ -77,7 +55,17 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "place_total"], 2, 24, 50, 34, 500, 46],
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["get", "place_total"],
+          2,
+          24,
+          50,
+          34,
+          500,
+          46,
+        ],
         "circle-color": "rgba(15, 118, 110, 0.2)",
         "circle-blur": 0.3,
       },
@@ -91,7 +79,17 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "place_total"], 2, 18, 50, 25, 500, 34],
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["get", "place_total"],
+          2,
+          18,
+          50,
+          25,
+          500,
+          34,
+        ],
         "circle-color": "#0f766e",
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2.5,
@@ -107,7 +105,10 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       layout: {
-        "text-field": ["to-string", ["coalesce", ["get", "place_total"], ["get", "point_count"]]],
+        "text-field": [
+          "to-string",
+          ["coalesce", ["get", "place_total"], ["get", "point_count"]],
+        ],
         "text-size": 12,
         "text-font": ["Noto Sans Bold"],
         "text-allow-overlap": true,
@@ -120,20 +121,28 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
     });
   }
 
-  const serverClusterFilter = [
-    "all",
-    ["!", ["has", "point_count"]],
-    ["==", ["get", "entity_kind"], "cluster"],
-  ] as const;
-
   if (!map.getLayer(MAP_PLACE_SERVER_CLUSTER_HALO_ID)) {
     map.addLayer({
       id: MAP_PLACE_SERVER_CLUSTER_HALO_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: serverClusterFilter,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "place_count"], 2, 25, 100, 38, 1000, 50],
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["get", "place_count"],
+          2,
+          25,
+          100,
+          38,
+          1000,
+          50,
+        ],
         "circle-color": "rgba(15, 118, 110, 0.18)",
         "circle-blur": 0.32,
       },
@@ -145,9 +154,23 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: serverClusterFilter,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "place_count"], 2, 19, 100, 29, 1000, 39],
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["get", "place_count"],
+          2,
+          19,
+          100,
+          29,
+          1000,
+          39,
+        ],
         "circle-color": "#0f766e",
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2.5,
@@ -161,7 +184,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_COUNT_ID,
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
-      filter: serverClusterFilter,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       layout: {
         "text-field": ["to-string", ["get", "place_count"]],
         "text-size": 12,
@@ -176,21 +203,35 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
     });
   }
 
-  const individualPlaceFilter = [
-    "all",
-    ["!", ["has", "point_count"]],
-    ["==", ["get", "entity_kind"], "place"],
-  ] as const;
-
   if (!map.getLayer(MAP_PLACE_POINT_ID)) {
     map.addLayer({
       id: MAP_PLACE_POINT_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: individualPlaceFilter,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "place"],
+      ],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 7, 15, 9],
-        "circle-color": PLACE_CATEGORY_COLOR_EXPRESSION,
+        "circle-color": [
+          "match",
+          ["get", "category"],
+          "nature",
+          "#16a34a",
+          "culture",
+          "#8b5cf6",
+          "family",
+          "#f59e0b",
+          "sports-outdoors",
+          "#ef4444",
+          "food-drink",
+          "#f97316",
+          "attraction",
+          "#0ea5e9",
+          "#0f766e",
+        ],
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2,
         "circle-opacity": 0.96,
@@ -204,7 +245,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
       minzoom: 13.5,
-      filter: individualPlaceFilter,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "place"],
+      ],
       layout: {
         "text-field": ["get", "name"],
         "text-size": 11,
@@ -304,26 +349,16 @@ export function usePlaceMapLayer({
       if (place) onSelectRef.current(place);
     };
 
-    const handleMapClick = (event: MapMouseEvent) => {
-      const hits = map.queryRenderedFeatures(event.point, {
-        layers: [MAP_PLACE_POINT_ID],
-      });
-      if (!hits.length) return;
-      const place = placeFromFeatureProperties(
-        hits[0]?.properties as Partial<PlaceFeatureProperties> | undefined,
-      );
-      if (place) onSelectRef.current(place);
-    };
-
     map.on("click", MAP_PLACE_CLIENT_CLUSTER_ID, openClientCluster);
     map.on("click", MAP_PLACE_SERVER_CLUSTER_ID, openServerCluster);
     map.on("click", MAP_PLACE_POINT_ID, openPlace);
-    map.on("click", handleMapClick);
+    map.on("click", MAP_PLACE_LABEL_ID, openPlace);
 
     const interactiveLayers = [
       MAP_PLACE_CLIENT_CLUSTER_ID,
       MAP_PLACE_SERVER_CLUSTER_ID,
       MAP_PLACE_POINT_ID,
+      MAP_PLACE_LABEL_ID,
     ] as const;
     interactiveLayers.forEach((layerId) => map.on("mouseenter", layerId, setPointer));
     interactiveLayers.forEach((layerId) => map.on("mouseleave", layerId, resetPointer));
@@ -332,7 +367,7 @@ export function usePlaceMapLayer({
       map.off("click", MAP_PLACE_CLIENT_CLUSTER_ID, openClientCluster);
       map.off("click", MAP_PLACE_SERVER_CLUSTER_ID, openServerCluster);
       map.off("click", MAP_PLACE_POINT_ID, openPlace);
-      map.off("click", handleMapClick);
+      map.off("click", MAP_PLACE_LABEL_ID, openPlace);
       interactiveLayers.forEach((layerId) => map.off("mouseenter", layerId, setPointer));
       interactiveLayers.forEach((layerId) => map.off("mouseleave", layerId, resetPointer));
       resetPointer();
