@@ -61,7 +61,10 @@ export default tseslint.config(
     },
   },
   {
-    files: ["supabase/functions/global-place-discovery/enrichment.ts"],
+    files: [
+      "supabase/functions/global-place-discovery/enrichment.ts",
+      "supabase/functions/ladecadanse-discovery/**/*.ts",
+    ],
     rules: {
       "no-useless-escape": "off",
     },
