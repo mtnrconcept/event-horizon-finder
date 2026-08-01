@@ -17,9 +17,6 @@ import { safeExternalUrl } from "@/lib/map-event-details";
 import { useTranslation } from "@/lib/i18n";
 import { fetchVenueDetail, type VenueDetail } from "@/lib/venue-detail";
 
-// The generated route tree can lag one commit behind newly added file routes in
-// a plain typecheck. The router generator requires this exact string literal.
-// @ts-expect-error The generated route tree is refreshed by the production build.
 export const Route = createFileRoute("/venue/$slug")({
   loader: async ({ params }): Promise<VenueDetail> => {
     const venue = await fetchVenueDetail(params.slug);
