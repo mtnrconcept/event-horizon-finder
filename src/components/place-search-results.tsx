@@ -8,7 +8,9 @@ function PlaceCardSkeleton({ compact }: { compact: boolean }) {
   return (
     <div
       className={`animate-pulse overflow-hidden rounded-3xl border bg-surface ${
-        compact ? "grid grid-cols-[6.75rem_minmax(0,1fr)]" : "grid sm:grid-cols-[10rem_minmax(0,1fr)]"
+        compact
+          ? "grid grid-cols-[6.75rem_minmax(0,1fr)]"
+          : "grid sm:grid-cols-[10rem_minmax(0,1fr)]"
       }`}
     >
       <div className={compact ? "min-h-36 bg-muted" : "min-h-44 bg-muted"} />
@@ -60,7 +62,9 @@ export function PlaceSearchResults({
             {tr("Lieux à visiter")}
           </p>
           <h2 className={compact ? "text-base font-black" : "text-xl font-black"}>
-            {tr("{count} lieux", { count: loading && !places.length ? "…" : formatNumber(totalCount) })}
+            {tr("{count} lieux", {
+              count: loading && !places.length ? "…" : formatNumber(totalCount),
+            })}
           </h2>
         </div>
         {places.length > 0 && (
@@ -73,7 +77,11 @@ export function PlaceSearchResults({
       {error && (
         <div className="flex items-center justify-between gap-2 rounded-2xl bg-destructive/10 p-3 text-xs text-destructive">
           <span>{error}</span>
-          <button type="button" className="min-h-11 shrink-0 font-black underline" onClick={onRetry}>
+          <button
+            type="button"
+            className="min-h-11 shrink-0 font-black underline"
+            onClick={onRetry}
+          >
             {tr("Réessayer")}
           </button>
         </div>
@@ -90,7 +98,10 @@ export function PlaceSearchResults({
           {visiblePlaces.map((place, index) => (
             <div
               key={place.id}
-              style={{ contentVisibility: "auto", containIntrinsicSize: compact ? "0 144px" : "0 176px" }}
+              style={{
+                contentVisibility: "auto",
+                containIntrinsicSize: compact ? "0 144px" : "0 176px",
+              }}
             >
               <PlaceCard
                 place={place}
