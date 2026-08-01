@@ -1,0 +1,41 @@
+name: Apply progressive basemap
+
+on:
+  push:
+    branches:
+      - agent/progressive-basemap-loading
+    paths:
+      - scripts/apply-progressive-basemap.mjs
+      - .github/workflows/apply-progressive-basemap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-and-commit:
+    if: ${{ !contains(github.event.head_commit.message, '[skip map patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: node scripts/apply-progressive-basemap.mjs
+      - run: node --test tests/map-basemap-loading.test.ts tests/map-loading.test.ts tests/map-surface.test.ts
+      - run: npm run typecheck
+      - run: npm run build
+
+      - name: Commit generated fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/map.tsx tests/map-basemap-loading.test.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "perf: render map basemap immediately [skip map patch]"
+          git push
