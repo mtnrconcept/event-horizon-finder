@@ -44,17 +44,12 @@ function isPlaceUpcomingEvent(value: unknown): value is PlaceUpcomingEvent {
 }
 
 function parseBatch(value: unknown): PlaceUpcomingEventBatch {
-  const payload =
-    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const items = Array.isArray(payload.items)
-    ? payload.items.filter(isPlaceUpcomingEvent)
-    : [];
+  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const items = Array.isArray(payload.items) ? payload.items.filter(isPlaceUpcomingEvent) : [];
   const totalCount = Number(payload.total_count ?? items.length);
   return {
     items,
-    totalCount: Number.isFinite(totalCount)
-      ? Math.max(0, Math.round(totalCount))
-      : items.length,
+    totalCount: Number.isFinite(totalCount) ? Math.max(0, Math.round(totalCount)) : items.length,
     hasMore: payload.has_more === true,
   };
 }
@@ -97,9 +92,7 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
           if (!append) return next;
           const merged = [...current.items, ...next.items];
           const unique = [
-            ...new Map(
-              merged.map((event) => [event.occurrence_id, event] as const),
-            ).values(),
+            ...new Map(merged.map((event) => [event.occurrence_id, event] as const)).values(),
           ];
           return {
             items: unique,
@@ -165,9 +158,7 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
           <CalendarDays className="mx-auto mb-3 h-8 w-8 text-primary" />
           <p className="font-black">{tr("Aucun événement à venir pour le moment")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {tr(
-              "La fiche sera actualisée automatiquement dès qu’une nouvelle date sera publiée.",
-            )}
+            {tr("La fiche sera actualisée automatiquement dès qu’une nouvelle date sera publiée.")}
           </p>
         </div>
       </div>
@@ -208,14 +199,10 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap gap-1.5">
-                  {event.category_name && (
-                    <Badge variant="outline">{event.category_name}</Badge>
-                  )}
+                  {event.category_name && <Badge variant="outline">{event.category_name}</Badge>}
                   {event.is_free && <Badge>{t("common.free")}</Badge>}
                 </div>
-                <h3 className="mt-2 line-clamp-2 font-black leading-tight">
-                  {event.title}
-                </h3>
+                <h3 className="mt-2 line-clamp-2 font-black leading-tight">{event.title}</h3>
                 <time
                   dateTime={event.starts_at}
                   className="mt-1 block text-xs font-bold text-primary"
