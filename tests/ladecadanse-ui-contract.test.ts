@@ -39,7 +39,10 @@ test("missing venue images use only attributed open-license fallback sources", a
   assert.match(media, /commonsLicenseAllowed/);
   assert.match(media, /foreign_landing_url/);
   assert.match(media, /isFallback: true/);
-  assert.match(media, /if \(candidate\.media\.length \|\| candidate\.imageUrls\.length\) return candidate/);
+  assert.match(
+    media,
+    /if \(candidate\.media\.length \|\| candidate\.imageUrls\.length\) return candidate/,
+  );
 });
 
 test("the dedicated worker honours robots and the database-backed crawl delay", async () => {
