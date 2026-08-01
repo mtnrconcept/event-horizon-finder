@@ -249,7 +249,9 @@ export async function fetchVenueDetail(
   const request = (async () => {
     // Generated database types intentionally lag behind additive detail RPCs.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query = (supabase as any).rpc("get_venue_detail_v1", { _slug: normalizedSlug }).retry(false);
+    let query = (supabase as any)
+      .rpc("get_venue_detail_v1", { _slug: normalizedSlug })
+      .retry(false);
     if (signal) query = query.abortSignal(signal);
     const { data, error } = await query;
     if (error) throw error;
@@ -280,7 +282,9 @@ export async function fetchPlaceVenueContext(
 
   const request = (async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query = (supabase as any).rpc("get_place_detail_v1", { _place_id: normalizedId }).retry(false);
+    let query = (supabase as any)
+      .rpc("get_place_detail_v1", { _place_id: normalizedId })
+      .retry(false);
     if (signal) query = query.abortSignal(signal);
     const { data, error } = await query;
     if (error) throw error;

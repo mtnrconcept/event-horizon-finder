@@ -231,7 +231,9 @@ function VenueDetailPage() {
                       ) : null;
                     })}
                     {!venue.sources.length && (
-                      <p className="text-muted-foreground">{tr("Sources en cours de vérification.")}</p>
+                      <p className="text-muted-foreground">
+                        {tr("Sources en cours de vérification.")}
+                      </p>
                     )}
                   </div>
                 </section>

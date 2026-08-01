@@ -61,10 +61,7 @@ test("venue pages preserve address, presentation, media, official website and ev
       <a href="/event/evenement.php?idE=2002">Deuxième spectacle</a>
     </body></html>
   `;
-  const venue = parseLadecadanseVenuePage(
-    html,
-    "https://www.ladecadanse.ch/lieu/lieu.php?idL=321",
-  );
+  const venue = parseLadecadanseVenuePage(html, "https://www.ladecadanse.ch/lieu/lieu.php?idL=321");
   assert.ok(venue);
   assert.equal(venue.externalIdentifier, "321");
   assert.equal(venue.name, "Salle test");

@@ -50,7 +50,8 @@ type UpsertOutcome = {
   published?: boolean;
 };
 
-const USER_AGENT = "GlobalParty-LaDecadanse/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)";
+const USER_AGENT =
+  "GlobalParty-LaDecadanse/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)";
 const ROBOTS_AGENT = "GlobalParty-LaDecadanse";
 const MAX_BODY_BYTES = 3 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -171,7 +172,10 @@ function record(value: unknown): JsonObject {
 
 function exactSourceUrl(value: string): string {
   const url = new URL(value, LADECADANSE_ROOT_URL);
-  if (url.protocol !== "https:" || url.hostname.toLowerCase().replace(/\.$/, "") !== LADECADANSE_HOST) {
+  if (
+    url.protocol !== "https:" ||
+    url.hostname.toLowerCase().replace(/\.$/, "") !== LADECADANSE_HOST
+  ) {
     throw new SyncError("source_url_not_allowed", { terminal: true });
   }
   url.username = "";
@@ -293,7 +297,11 @@ async function fetchSourceHtml(
       await response.body?.cancel();
       throw new SyncError("source_non_html", { terminal: true });
     }
-    return { html: await limitedText(response, MAX_BODY_BYTES), url: currentUrl, status: response.status };
+    return {
+      html: await limitedText(response, MAX_BODY_BYTES),
+      url: currentUrl,
+      status: response.status,
+    };
   }
   throw new SyncError("too_many_redirects", { terminal: true });
 }
@@ -304,7 +312,9 @@ async function rpc<T>(admin: AdminClient, name: string, args: JsonObject = {}): 
   return data as T;
 }
 
-async function sourceContext(admin: AdminClient): Promise<{ source: DataSource; context: EventSourceContext }> {
+async function sourceContext(
+  admin: AdminClient,
+): Promise<{ source: DataSource; context: EventSourceContext }> {
   const { data, error } = await admin
     .from("data_sources")
     .select(
@@ -368,7 +378,10 @@ async function seedCatalog(admin: AdminClient): Promise<number> {
   for (let page = 1; page <= 4; page += 1) {
     links.push({
       kind: "venue_catalog",
-      url: page === 1 ? LADECADANSE_VENUE_CATALOG_URL : `${LADECADANSE_VENUE_CATALOG_URL}?page=${page}`,
+      url:
+        page === 1
+          ? LADECADANSE_VENUE_CATALOG_URL
+          : `${LADECADANSE_VENUE_CATALOG_URL}?page=${page}`,
       externalIdentifier: null,
       priority: 10 + page,
     });
@@ -443,7 +456,8 @@ async function persistEvent(
   const parsed = parseLadecadanseEventPage(html, pageUrl, context);
   if (!parsed) throw new SyncError("event_parse_failed");
   const normalized = normalizeEventCandidate(parsed.candidate, context, pageUrl);
-  if (!normalized.ok) throw new SyncError(`event_rejected_${normalized.reason}`, { terminal: true });
+  if (!normalized.ok)
+    throw new SyncError(`event_rejected_${normalized.reason}`, { terminal: true });
 
   const upserted = await rpc<unknown>(admin, "upsert_ingested_event_v2", {
     _data_source_id: source.id,
@@ -478,7 +492,8 @@ async function persistEvent(
     },
     { onConflict: "event_id,canonical_url" },
   );
-  if (sourceError) throw new SyncError("event_source_upsert_failed", { message: sourceError.message });
+  if (sourceError)
+    throw new SyncError("event_source_upsert_failed", { message: sourceError.message });
 
   const discoveredLinks = [...parsed.discoveredLinks];
   if (parsed.venueSourceUrl && parsed.venueExternalIdentifier) {
@@ -509,10 +524,7 @@ async function persistVenue(
   const parsed = parseLadecadanseVenuePage(html, pageUrl);
   if (!parsed) throw new SyncError("venue_parse_failed");
   if (!parsed.media.length) {
-    parsed.media = await findLicensedCommonsVenueMedia(
-      parsed.name,
-      source.city?.name ?? "Genève",
-    );
+    parsed.media = await findLicensedCommonsVenueMedia(parsed.name, source.city?.name ?? "Genève");
     if (parsed.media.length) parsed.qualityScore = Math.min(100, parsed.qualityScore + 6);
   }
 
@@ -650,7 +662,11 @@ Deno.serve(async (req) => {
   try {
     admin = createAdminClient();
   } catch (error) {
-    return json(req, { error: error instanceof Error ? error.message : "server_not_configured" }, 500);
+    return json(
+      req,
+      { error: error instanceof Error ? error.message : "server_not_configured" },
+      500,
+    );
   }
   if (!(await isAuthorized(req, admin))) return json(req, { error: "unauthorized" }, 401);
 
@@ -672,17 +688,30 @@ Deno.serve(async (req) => {
         status: await rpc<unknown>(admin, "ladecadanse_sync_status_v1"),
       });
     }
-    if (!['work', 'sync'].includes(action)) {
+    if (!["work", "sync"].includes(action)) {
       return json(req, { error: "invalid_action" }, 400);
     }
     if (action === "sync") await seedCatalog(admin);
-    const batchSize = integer(body.batch_size ?? body.batchSize, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE);
-    const maxBatches = integer(body.max_batches ?? body.maxBatches, DEFAULT_MAX_BATCHES, 1, MAX_BATCHES);
+    const batchSize = integer(
+      body.batch_size ?? body.batchSize,
+      DEFAULT_BATCH_SIZE,
+      1,
+      MAX_BATCH_SIZE,
+    );
+    const maxBatches = integer(
+      body.max_batches ?? body.maxBatches,
+      DEFAULT_MAX_BATCHES,
+      1,
+      MAX_BATCHES,
+    );
     return json(req, await work(admin, batchSize, maxBatches));
   } catch (error) {
-    const failure = error instanceof SyncError ? error : new SyncError("unexpected_error", {
-      message: error instanceof Error ? error.message : "unexpected_error",
-    });
+    const failure =
+      error instanceof SyncError
+        ? error
+        : new SyncError("unexpected_error", {
+            message: error instanceof Error ? error.message : "unexpected_error",
+          });
     return json(
       req,
       { ok: false, error: failure.code, message: failure.message },

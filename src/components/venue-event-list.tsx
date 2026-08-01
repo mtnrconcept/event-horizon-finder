@@ -45,7 +45,10 @@ export function VenueEventList({
               ? "group flex min-h-20 gap-3 rounded-2xl border bg-background p-2.5 hover:border-primary"
               : "group overflow-hidden rounded-2xl border bg-surface hover:border-primary"
           }
-          style={{ contentVisibility: "auto", containIntrinsicSize: compact ? "0 80px" : "0 260px" }}
+          style={{
+            contentVisibility: "auto",
+            containIntrinsicSize: compact ? "0 80px" : "0 260px",
+          }}
         >
           <div
             className={
@@ -71,14 +74,14 @@ export function VenueEventList({
             <div className="flex flex-wrap gap-1.5">
               {event.category?.name_fr && <Badge variant="outline">{event.category.name_fr}</Badge>}
               {event.is_free && <Badge>{tr("Gratuit")}</Badge>}
-              {event.status === "sold_out" && (
-                <Badge variant="destructive">{tr("Complet")}</Badge>
-              )}
-              {event.status === "postponed" && (
-                <Badge variant="outline">{tr("Reporté")}</Badge>
-              )}
+              {event.status === "sold_out" && <Badge variant="destructive">{tr("Complet")}</Badge>}
+              {event.status === "postponed" && <Badge variant="outline">{tr("Reporté")}</Badge>}
             </div>
-            <h3 className={compact ? "mt-1.5 truncate text-sm font-black" : "mt-2 line-clamp-2 font-black"}>
+            <h3
+              className={
+                compact ? "mt-1.5 truncate text-sm font-black" : "mt-2 line-clamp-2 font-black"
+              }
+            >
               {event.title}
             </h3>
             <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">

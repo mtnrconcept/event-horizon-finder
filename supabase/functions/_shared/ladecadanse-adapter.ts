@@ -97,13 +97,15 @@ const MONTHS: Record<string, number> = {
   décembre: 12,
 };
 
-const FREE_TEXT = /\b(?:entree libre|entrée libre|gratuit|gratuite|free|prix libre|donation libre)\b/i;
+const FREE_TEXT =
+  /\b(?:entree libre|entrée libre|gratuit|gratuite|free|prix libre|donation libre)\b/i;
 const PRICE_TEXT = /\b(\d{1,4})(?:[.,](\d{1,2}))?\s*(CHF|EUR|€|fr\.?|chf|euros?)\b/i;
 const DATE_TEXT = new RegExp(
   `\\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)?\\s*(\\d{1,2})(?:er)?\\s+(${Object.keys(MONTHS).join("|")})\\s+(20\\d{2})\\b`,
   "i",
 );
-const TIME_RANGE = /\b([01]?\d|2[0-3])\s*(?::|h)\s*([0-5]\d)\s*(?:–|—|\-|a|à)\s*([01]?\d|2[0-3])\s*(?::|h)\s*([0-5]\d)\b/i;
+const TIME_RANGE =
+  /\b([01]?\d|2[0-3])\s*(?::|h)\s*([0-5]\d)\s*(?:–|—|-|a|à)\s*([01]?\d|2[0-3])\s*(?::|h)\s*([0-5]\d)\b/i;
 const SINGLE_TIME = /\b([01]?\d|2[0-3])\s*(?::|h)\s*([0-5]\d)\b/i;
 const ALLOWED_COMMONS_LICENSE = /^(?:CC0|Public domain|PD|CC BY(?:-SA)?(?: \d(?:\.\d)?)?)$/i;
 
@@ -151,10 +153,9 @@ function htmlText(value: string, maximum = 8_000): string {
 
 function attribute(tag: string, name: string): string {
   const escaped = escapeRegExp(name);
-  const match = new RegExp(
-    `\\b${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
-    "i",
-  ).exec(tag);
+  const match = new RegExp(`\\b${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(
+    tag,
+  );
   return decodeEntities(match?.[1] ?? match?.[2] ?? match?.[3] ?? "").trim();
 }
 
@@ -176,7 +177,7 @@ function metaContent(html: string, key: string, expectedValue: string): string |
 function safeAbsoluteUrl(value: string, pageUrl: string): string | null {
   try {
     const url = new URL(value, pageUrl);
-    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    if (!["http:", "https:"].includes(url.protocol)) return null;
     url.hash = "";
     return url.toString();
   } catch {
@@ -240,7 +241,8 @@ function queueLink(
   return {
     kind,
     url,
-    externalIdentifier: kind === "event" ? eventIdFromUrl(url) : kind === "venue" ? venueIdFromUrl(url) : null,
+    externalIdentifier:
+      kind === "event" ? eventIdFromUrl(url) : kind === "venue" ? venueIdFromUrl(url) : null,
     priority,
   };
 }
@@ -296,7 +298,10 @@ export function discoverLadecadanseLinks(
 }
 
 function pageTextAfterHeading(html: string, heading: string, nextHeading?: string): string | null {
-  const start = new RegExp(`<h[1-6]\\b[^>]*>[^<]*${escapeRegExp(heading)}[\\s\\S]*?<\\/h[1-6]>`, "i").exec(html);
+  const start = new RegExp(
+    `<h[1-6]\\b[^>]*>[^<]*${escapeRegExp(heading)}[\\s\\S]*?<\\/h[1-6]>`,
+    "i",
+  ).exec(html);
   if (!start || start.index == null) return null;
   const rest = html.slice(start.index + start[0].length);
   const endIndex = nextHeading
@@ -308,7 +313,8 @@ function pageTextAfterHeading(html: string, heading: string, nextHeading?: strin
 
 function candidateImages(html: string, pageUrl: string): string[] {
   const candidates: string[] = [];
-  const metaImage = metaContent(html, "property", "og:image") ?? metaContent(html, "name", "twitter:image");
+  const metaImage =
+    metaContent(html, "property", "og:image") ?? metaContent(html, "name", "twitter:image");
   if (metaImage) candidates.push(metaImage);
   for (const match of html.matchAll(/<img\b[^>]*>/gi)) {
     const source = attribute(match[0], "data-src") || attribute(match[0], "src");
@@ -331,7 +337,10 @@ function candidateImages(html: string, pageUrl: string): string[] {
   return output.slice(0, 12);
 }
 
-function coordinatesFromLinks(html: string, pageUrl: string): { latitude: number | null; longitude: number | null } {
+function coordinatesFromLinks(
+  html: string,
+  pageUrl: string,
+): { latitude: number | null; longitude: number | null } {
   for (const anchor of anchors(html, pageUrl)) {
     if (!/(?:plan|map|itineraire|itinéraire)/i.test(anchor.label)) continue;
     const absolute = anchor.absoluteUrl;
@@ -389,10 +398,15 @@ function postalCodeFromAddress(address: string | null): string | null {
 }
 
 function normalizeVenueType(value: string): string {
-  return normalizeEventText(value).replace(/[^a-z0-9 -]/g, "").trim();
+  return normalizeEventText(value)
+    .replace(/[^a-z0-9 -]/g, "")
+    .trim();
 }
 
-function venueClassification(types: string[], name: string): { category: string; subcategory: string | null } {
+function venueClassification(
+  types: string[],
+  name: string,
+): { category: string; subcategory: string | null } {
   const text = normalizeEventText(`${types.join(" ")} ${name}`);
   if (/musee|museum|galerie|gallery|theatre|cinema|salle|culture|concert/.test(text)) {
     return { category: "culture", subcategory: types[0] ?? null };
@@ -426,12 +440,18 @@ function venueAddressAndTypes(html: string): { address: string | null; types: st
     .map((match) => htmlText(match[1], 500))
     .filter(Boolean);
   const address =
-    listItems.find((value) => /(?:\d|rue|route|chemin|quai|place|avenue|boulevard|sentier|parc|geneve|genève)/i.test(value) && !/(?:voir sur le plan|horaire)/i.test(value)) ??
-    null;
+    listItems.find(
+      (value) =>
+        /(?:\d|rue|route|chemin|quai|place|avenue|boulevard|sentier|parc|geneve|genève)/i.test(
+          value,
+        ) && !/(?:voir sur le plan|horaire)/i.test(value),
+    ) ?? null;
   const typeCandidate = listItems.find(
     (value) =>
       value !== address &&
-      /(?:bistrot|salle|restaurant|cinema|cinéma|theatre|théâtre|galerie|boutique|musee|musée|autre|bar|club|association)/i.test(value),
+      /(?:bistrot|salle|restaurant|cinema|cinéma|theatre|théâtre|galerie|boutique|musee|musée|autre|bar|club|association)/i.test(
+        value,
+      ),
   );
   const types = (typeCandidate ?? "")
     .split(/[,/]/)
@@ -463,11 +483,14 @@ export function parseLadecadanseVenuePage(html: string, pageUrl: string): Ladeca
     isPrimary: index === 0,
     sortOrder: index,
   }));
-  const eventLinks = discoverLadecadanseLinks(html, pageUrl).filter((link) => link.kind === "event");
+  const eventLinks = discoverLadecadanseLinks(html, pageUrl).filter(
+    (link) => link.kind === "event",
+  );
   const futureUrl = new URL(sourceUrl);
   futureUrl.searchParams.set("periode", "futur");
   const futureLink = queueLink("venue", futureUrl.toString(), pageUrl, 25);
-  const discovered = futureLink && futureLink.url !== sourceUrl ? [...eventLinks, futureLink] : eventLinks;
+  const discovered =
+    futureLink && futureLink.url !== sourceUrl ? [...eventLinks, futureLink] : eventLinks;
 
   return {
     externalIdentifier,
@@ -479,14 +502,20 @@ export function parseLadecadanseVenuePage(html: string, pageUrl: string): Ladeca
     description,
     address,
     postalCode: postalCodeFromAddress(address),
-    website: websites.find((url) => !/instagram\.com|facebook\.com/i.test(url)) ?? websites[0] ?? null,
+    website:
+      websites.find((url) => !/instagram\.com|facebook\.com/i.test(url)) ?? websites[0] ?? null,
     latitude: coordinates.latitude,
     longitude: coordinates.longitude,
     media,
     eventLinks: uniqueLinks(discovered),
     qualityScore: Math.min(
       100,
-      55 + (description ? 12 : 0) + (address ? 10 : 0) + (coordinates.latitude != null ? 10 : 0) + (media.length ? 8 : 0) + (websites.length ? 5 : 0),
+      55 +
+        (description ? 12 : 0) +
+        (address ? 10 : 0) +
+        (coordinates.latitude != null ? 10 : 0) +
+        (media.length ? 8 : 0) +
+        (websites.length ? 5 : 0),
     ),
   };
 }
@@ -499,7 +528,12 @@ function parseDate(text: string): { year: number; month: number; day: number } |
   const day = Number(match[1]);
   if (!month || day < 1 || day > 31) return null;
   const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  )
+    return null;
   return { year, month, day };
 }
 
@@ -517,7 +551,10 @@ function isoLocalDateTime(
     .padStart(2, "0")}:${minute.toString().padStart(2, "0")}:00`;
 }
 
-function eventTimes(text: string, date: { year: number; month: number; day: number }): {
+function eventTimes(
+  text: string,
+  date: { year: number; month: number; day: number },
+): {
   startDate: string;
   endDate: string | null;
   allDay: boolean;
@@ -562,12 +599,19 @@ function eventDescription(html: string, title: string, venueName: string | null)
   const h1 = /<h1\b[^>]*>[\s\S]*?<\/h1>/i.exec(html);
   if (!h1 || h1.index == null) return metaContent(html, "property", "og:description");
   let section = html.slice(h1.index + h1[0].length);
-  const end = section.search(/(?:Signaler une erreur|Ajouter à un agenda|<form\b|<table\b[^>]*class=["'][^"']*calendrier)/i);
+  const end = section.search(
+    /(?:Signaler une erreur|Ajouter à un agenda|<form\b|<table\b[^>]*class=["'][^"']*calendrier)/i,
+  );
   if (end >= 0) section = section.slice(0, end);
   const paragraphs = [...section.matchAll(/<(?:p|div)\b[^>]*>([\s\S]*?)<\/(?:p|div)>/gi)]
     .map((match) => htmlText(match[1], 2_000))
     .filter((value) => value.length >= 25)
-    .filter((value) => !/(?:voir sur le plan|ajouter a un agenda|google calendar|outlook|signaler une erreur)/i.test(normalizeEventText(value)))
+    .filter(
+      (value) =>
+        !/(?:voir sur le plan|ajouter a un agenda|google calendar|outlook|signaler une erreur)/i.test(
+          normalizeEventText(value),
+        ),
+    )
     .filter((value) => normalizeEventText(value) !== normalizeEventText(title))
     .filter((value) => !venueName || normalizeEventText(value) !== normalizeEventText(venueName));
   const unique = [...new Set(paragraphs)];
@@ -575,7 +619,10 @@ function eventDescription(html: string, title: string, venueName: string | null)
   return description || metaContent(html, "property", "og:description");
 }
 
-function venueAnchor(html: string, pageUrl: string): { id: string; url: string; name: string } | null {
+function venueAnchor(
+  html: string,
+  pageUrl: string,
+): { id: string; url: string; name: string } | null {
   for (const anchor of anchors(html, pageUrl)) {
     if (!anchor.absoluteUrl) continue;
     const id = venueIdFromUrl(anchor.absoluteUrl);
@@ -587,7 +634,10 @@ function venueAnchor(html: string, pageUrl: string): { id: string; url: string; 
 
 function eventAddress(html: string, venue: { name: string } | null): string | null {
   const h1 = /<h1\b[^>]*>[\s\S]*?<\/h1>/i.exec(html);
-  const section = h1 && h1.index != null ? html.slice(h1.index + h1[0].length, h1.index + h1[0].length + 6_000) : html;
+  const section =
+    h1 && h1.index != null
+      ? html.slice(h1.index + h1[0].length, h1.index + h1[0].length + 6_000)
+      : html;
   const listItems = [...section.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
     .map((match) => htmlText(match[1], 500))
     .filter(Boolean);
@@ -596,18 +646,26 @@ function eventAddress(html: string, venue: { name: string } | null): string | nu
       (value) =>
         (!venue || normalizeEventText(value) !== normalizeEventText(venue.name)) &&
         !/(?:voir sur le plan|www\.|http|ajouter a un agenda)/i.test(normalizeEventText(value)) &&
-        /(?:\d|rue|route|chemin|quai|place|avenue|boulevard|sentier|parc|geneve|genève|france|vaud)/i.test(value),
+        /(?:\d|rue|route|chemin|quai|place|avenue|boulevard|sentier|parc|geneve|genève|france|vaud)/i.test(
+          value,
+        ),
     ) ?? null
   );
 }
 
-function eventPrice(text: string): { isFree: boolean; min: number | null; max: number | null; currency: string | null } {
+function eventPrice(text: string): {
+  isFree: boolean;
+  min: number | null;
+  max: number | null;
+  currency: string | null;
+} {
   const isFree = FREE_TEXT.test(text);
   const prices = [...text.matchAll(new RegExp(PRICE_TEXT.source, "gi"))]
     .map((match) => Number(`${match[1]}.${match[2] ?? "0"}`))
     .filter((value) => Number.isFinite(value) && value >= 0 && value <= 100_000);
   const currencyMatch = PRICE_TEXT.exec(text)?.[3]?.toUpperCase() ?? null;
-  const currency = currencyMatch?.includes("EUR") || currencyMatch === "€" ? "EUR" : currencyMatch ? "CHF" : null;
+  const currency =
+    currencyMatch?.includes("EUR") || currencyMatch === "€" ? "EUR" : currencyMatch ? "CHF" : null;
   return {
     isFree,
     min: prices.length ? Math.min(...prices) : null,
@@ -618,7 +676,8 @@ function eventPrice(text: string): { isFree: boolean; min: number | null; max: n
 
 function ticketUrl(html: string, pageUrl: string): string | null {
   for (const anchor of anchors(html, pageUrl)) {
-    if (!/(?:billet|ticket|reservation|réservation|reserver|réserver)/i.test(anchor.label)) continue;
+    if (!/(?:billet|ticket|reservation|réservation|reserver|réserver)/i.test(anchor.label))
+      continue;
     const absolute = safeAbsoluteUrl(anchor.href, pageUrl);
     if (absolute) return absolute;
   }
@@ -688,7 +747,10 @@ export function parseLadecadanseEventPage(
   };
 }
 
-function commonsText(metadata: Record<string, { value?: string }> | undefined, key: string): string | null {
+function commonsText(
+  metadata: Record<string, { value?: string }> | undefined,
+  key: string,
+): string | null {
   const value = metadata?.[key]?.value;
   return typeof value === "string" && value.trim() ? htmlText(value, 500) : null;
 }
@@ -701,7 +763,7 @@ export async function findLicensedCommonsVenueMedia(
   const api = new URL("https://commons.wikimedia.org/w/api.php");
   api.searchParams.set("action", "query");
   api.searchParams.set("generator", "search");
-  api.searchParams.set("gsrsearch", `\"${venueName}\" ${cityName} filetype:bitmap`);
+  api.searchParams.set("gsrsearch", `"${venueName}" ${cityName} filetype:bitmap`);
   api.searchParams.set("gsrnamespace", "6");
   api.searchParams.set("gsrlimit", "8");
   api.searchParams.set("prop", "imageinfo");
@@ -722,7 +784,9 @@ export async function findLicensedCommonsVenueMedia(
     for (const page of Object.values(payload.query?.pages ?? {})) {
       const info = page.imageinfo?.[0];
       if (!info?.url || !info.mime?.startsWith("image/")) continue;
-      const license = commonsText(info.extmetadata, "LicenseShortName") ?? commonsText(info.extmetadata, "UsageTerms");
+      const license =
+        commonsText(info.extmetadata, "LicenseShortName") ??
+        commonsText(info.extmetadata, "UsageTerms");
       if (!license || !ALLOWED_COMMONS_LICENSE.test(license)) continue;
       const artist = commonsText(info.extmetadata, "Artist");
       const credit = commonsText(info.extmetadata, "Credit");
