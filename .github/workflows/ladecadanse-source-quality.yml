@@ -1,0 +1,81 @@
+name: La Décadanse source quality
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ladecadanse-source-quality.yml"
+      - "supabase/config.toml"
+      - "supabase/functions/ladecadanse-discovery/**"
+      - "supabase/migrations/20260801170000_ladecadanse_complete_ingestion.sql"
+      - "src/components/place-detail-dialog.tsx"
+      - "src/components/place-upcoming-events-tab.tsx"
+      - "tests/ladecadanse-**"
+  push:
+    branches:
+      - main
+      - "feat/ladecadanse-complete-ingestion"
+    paths:
+      - ".github/workflows/ladecadanse-source-quality.yml"
+      - "supabase/config.toml"
+      - "supabase/functions/ladecadanse-discovery/**"
+      - "supabase/migrations/20260801170000_ladecadanse_complete_ingestion.sql"
+      - "src/components/place-detail-dialog.tsx"
+      - "src/components/place-upcoming-events-tab.tsx"
+      - "tests/ladecadanse-**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ladecadanse-source-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test deterministic parser and UI contracts
+        run: |
+          node --test \
+            supabase/functions/ladecadanse-discovery/parser.test.ts \
+            tests/ladecadanse-ui-contract.test.ts
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check the deployed Edge Function
+        run: |
+          deno check \
+            --config supabase/functions/deno.json \
+            --node-modules-dir=auto \
+            supabase/functions/ladecadanse-discovery/index.ts
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Replay all migrations on a disposable database
+        run: |
+          supabase db start
+          supabase db reset --local --no-seed
+
+      - name: Exercise venue, media, place and event linking
+        run: supabase db query --local --file tests/ladecadanse-ingestion-smoke.sql
+
+      - name: Remove disposable database
+        if: always()
+        run: supabase stop --no-backup

@@ -46,6 +46,7 @@ export default tseslint.config(
       "scripts/apply-adaptive-map-rendering.mjs",
       "supabase/functions/global-place-discovery/index.ts",
       "supabase/functions/global-place-discovery/enrichment.ts",
+      "supabase/functions/ladecadanse-discovery/**/*.ts",
       "src/components/home-place-search-results.tsx",
       "src/components/place-detail-dialog.tsx",
       "src/hooks/usePlaceMapDiscovery.ts",
@@ -60,7 +61,10 @@ export default tseslint.config(
     },
   },
   {
-    files: ["supabase/functions/global-place-discovery/enrichment.ts"],
+    files: [
+      "supabase/functions/global-place-discovery/enrichment.ts",
+      "supabase/functions/ladecadanse-discovery/**/*.ts",
+    ],
     rules: {
       "no-useless-escape": "off",
     },

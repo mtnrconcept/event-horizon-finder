@@ -20,6 +20,11 @@ verify_jwt = false
 # performs its own constant-time secret/JWT + role verification.
 verify_jwt = false
 
+[functions.ladecadanse-discovery]
+# Supabase Cron uses a short-lived one-time scheduler token; manual operations
+# may use GLOBAL_SCRAPER_SECRET. The function verifies either credential itself.
+verify_jwt = false
+
 [functions.stripe-ad-webhook]
 verify_jwt = false
 
