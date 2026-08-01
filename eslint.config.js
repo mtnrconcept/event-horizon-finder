@@ -41,6 +41,7 @@ export default tseslint.config(
     files: [
       "scripts/apply-poi-map-layer.mjs",
       "supabase/functions/global-place-discovery/index.ts",
+      "tests/map-clusters.test.ts",
     ],
     rules: {
       "prettier/prettier": "off",
