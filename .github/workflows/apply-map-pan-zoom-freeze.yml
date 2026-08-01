@@ -46,6 +46,7 @@ jobs:
             src/hooks/usePlaceMapLayer.ts \
             tests/map-interaction-performance.test.ts
           bun run test:map
+          bun run build
           bun run typecheck
 
       - name: Commit final hotfix
