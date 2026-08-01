@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Accessibility,
   Clock3,
@@ -9,7 +10,12 @@ import {
   Navigation,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { safeExternalUrl } from "@/lib/map-event-details";
 import {
   placeCategoryColor,
@@ -27,7 +33,7 @@ function DetailSection({
 }: {
   icon: typeof Landmark;
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border bg-surface p-4 sm:p-5">
@@ -68,7 +74,9 @@ export function PlaceDetailDialog({
           <>
             <div
               className="relative h-[min(13rem,25dvh)] shrink-0 overflow-hidden"
-              style={{ background: `linear-gradient(145deg, ${categoryColor}55, ${categoryColor})` }}
+              style={{
+                background: `linear-gradient(145deg, ${categoryColor}55, ${categoryColor})`,
+              }}
             >
               <div className="absolute inset-0 grid place-items-center text-white/85">
                 <Landmark className="h-16 w-16" aria-hidden="true" />
@@ -152,13 +160,17 @@ export function PlaceDetailDialog({
                       <dt className="text-xs font-black uppercase text-muted-foreground">
                         {tr("Horaires")}
                       </dt>
-                      <dd className="mt-1">{place.opening_hours ?? tr("À vérifier sur place")}</dd>
+                      <dd className="mt-1">
+                        {place.opening_hours ?? tr("À vérifier sur place")}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs font-black uppercase text-muted-foreground">
                         {tr("Tarif")}
                       </dt>
-                      <dd className="mt-1">{free ? tr("Gratuit") : place.fee ?? tr("Non renseigné")}</dd>
+                      <dd className="mt-1">
+                        {free ? tr("Gratuit") : place.fee ?? tr("Non renseigné")}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs font-black uppercase text-muted-foreground">
@@ -191,7 +203,9 @@ export function PlaceDetailDialog({
                 <DetailSection icon={Globe2} title={tr("Origine des informations")}>
                   <div className="grid gap-2">
                     <p className="text-muted-foreground">
-                      {tr("Données géographiques issues d’OpenStreetMap et des informations publiques du lieu.")}
+                      {tr(
+                        "Données géographiques issues d’OpenStreetMap et des informations publiques du lieu.",
+                      )}
                     </p>
                     {sourceUrl && (
                       <a
@@ -211,7 +225,9 @@ export function PlaceDetailDialog({
         ) : (
           <div className="grid min-h-64 place-items-center p-8 text-center">
             <DialogTitle>{tr("Lieu sélectionné")}</DialogTitle>
-            <DialogDescription>{tr("Les informations de ce lieu sont indisponibles.")}</DialogDescription>
+            <DialogDescription>
+              {tr("Les informations de ce lieu sont indisponibles.")}
+            </DialogDescription>
           </div>
         )}
       </DialogContent>
