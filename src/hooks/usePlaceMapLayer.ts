@@ -105,10 +105,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       layout: {
-        "text-field": [
-          "to-string",
-          ["coalesce", ["get", "place_total"], ["get", "point_count"]],
-        ],
+        "text-field": ["to-string", ["coalesce", ["get", "place_total"], ["get", "point_count"]]],
         "text-size": 12,
         "text-font": ["Noto Sans Bold"],
         "text-allow-overlap": true,
@@ -126,11 +123,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_HALO_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -154,11 +147,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -184,11 +173,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_COUNT_ID,
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       layout: {
         "text-field": ["to-string", ["get", "place_count"]],
         "text-size": 12,
@@ -208,11 +193,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_POINT_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "place"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 7, 15, 9],
         "circle-color": [
@@ -245,11 +226,7 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
       minzoom: 13.5,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "place"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
       layout: {
         "text-field": ["get", "name"],
         "text-size": 11,
@@ -332,10 +309,7 @@ export function usePlaceMapLayer({
       const [longitude, latitude] = feature.geometry.coordinates;
       map.easeTo({
         center: [Number(longitude), Number(latitude)],
-        zoom: Math.min(
-          PLACE_SERVER_CLUSTER_MAX_ZOOM + 0.5,
-          Math.max(map.getZoom() + 2, 5),
-        ),
+        zoom: Math.min(PLACE_SERVER_CLUSTER_MAX_ZOOM + 0.5, Math.max(map.getZoom() + 2, 5)),
         duration: 420,
       });
     };
