@@ -121,13 +121,34 @@ function nonNegativeInteger(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+function placeWithoutPinMetadata(pin: PlaceMapPin): PlaceOfInterest {
+  return {
+    id: pin.id,
+    name: pin.name,
+    slug: pin.slug,
+    category: pin.category,
+    subcategory: pin.subcategory,
+    description: pin.description,
+    address: pin.address,
+    website: pin.website,
+    source_url: pin.source_url,
+    image_url: pin.image_url,
+    opening_hours: pin.opening_hours,
+    fee: pin.fee,
+    wheelchair: pin.wheelchair,
+    latitude: pin.latitude,
+    longitude: pin.longitude,
+    quality_score: pin.quality_score,
+  };
+}
+
 function parsePlace(value: unknown, forcedKind?: PlacePinKind): PlaceMapPin | null {
   if (!isRecord(value)) return null;
   const latitude = finiteNumber(value.latitude, Number.NaN);
   const longitude = finiteNumber(value.longitude, Number.NaN);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-  const rawKind = forcedKind ?? stringValue(value.kind) as PlacePinKind;
+  const rawKind = forcedKind ?? (stringValue(value.kind) as PlacePinKind);
   const kind: PlacePinKind = rawKind === "cluster" ? "cluster" : "place";
   const id = stringValue(value.id);
   const count = Math.max(1, nonNegativeInteger(value.count, 1));
@@ -163,7 +184,10 @@ function parsePinBatch(value: unknown): PlaceMapPinBatch {
   });
   return {
     pins,
-    totalCount: nonNegativeInteger(value.total_count, pins.reduce((sum, pin) => sum + pin.count, 0)),
+    totalCount: nonNegativeInteger(
+      value.total_count,
+      pins.reduce((sum, pin) => sum + pin.count, 0),
+    ),
     clustered: value.clustered === true,
     truncated: value.truncated === true,
   };
@@ -175,9 +199,7 @@ function parseListBatch(value: unknown): PlaceListBatch {
   }
   const items = value.items.flatMap((item) => {
     const parsed = parsePlace(item, "place");
-    if (!parsed) return [];
-    const { kind: _kind, count: _count, ...place } = parsed;
-    return [place];
+    return parsed ? [placeWithoutPinMetadata(parsed)] : [];
   });
   return {
     items,
@@ -218,7 +240,9 @@ export async function discoverPlacePinsInBounds(
     async () => {
       // Generated database types intentionally lag behind additive migrations.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_place_pins_in_bounds_v1", args).retry(false);
+      const request = (supabase as any)
+        .rpc("discover_place_pins_in_bounds_v1", args)
+        .retry(false);
       const { data, error } = await (signal ? request.abortSignal(signal) : request);
       if (error) throw error;
       return parsePinBatch(data);
@@ -236,7 +260,9 @@ export async function discoverPlacesInBounds(
     async () => {
       // Generated database types intentionally lag behind additive migrations.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_places_in_bounds_v1", args).retry(false);
+      const request = (supabase as any)
+        .rpc("discover_places_in_bounds_v1", args)
+        .retry(false);
       const { data, error } = await (signal ? request.abortSignal(signal) : request);
       if (error) throw error;
       return parseListBatch(data);
@@ -272,9 +298,7 @@ export function placeFromFeatureProperties(
   if (!properties?.place_json) return null;
   try {
     const parsed = parsePlace(JSON.parse(properties.place_json), "place");
-    if (!parsed) return null;
-    const { kind: _kind, count: _count, ...place } = parsed;
-    return place;
+    return parsed ? placeWithoutPinMetadata(parsed) : null;
   } catch {
     return null;
   }
