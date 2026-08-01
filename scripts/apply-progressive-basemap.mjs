@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+// One-shot repository patch used by the guarded GitHub workflow.
 const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
 const testPath = new URL("../tests/map-basemap-loading.test.ts", import.meta.url);
 
