@@ -56,13 +56,21 @@ export function isTransientMapRequestError(error: unknown, signal?: AbortSignal)
   const status = normalizedStatus(candidate);
   const message = errorText(error);
 
+  // A database statement timeout is deterministic for the same query plan.
+  // Repeating it only multiplies load and delays the visible recovery path.
+  if (
+    code === "57014" ||
+    /statement timeout|canceling statement due to statement timeout/i.test(message)
+  ) {
+    return false;
+  }
   if (status !== null && status >= 500 && status <= 599) return true;
   if (/^5\d\d$/.test(code)) return true;
   if (/^08[A-Z0-9]{3}$/.test(code)) return true;
-  if (["57014", "53300", "57P01", "57P02", "57P03"].includes(code)) return true;
+  if (["53300", "57P01", "57P02", "57P03"].includes(code)) return true;
   if (/^PGRST00[0-3]$/.test(code)) return true;
 
-  return /failed to fetch|fetch failed|networkerror|network request|name_not_resolved|load failed|service unavailable|bad gateway|gateway timeout|internal server error|connection (?:closed|refused|reset)|timed? ?out|statement timeout|canceling statement due to statement timeout|\bhttp\s+5\d\d\b/i.test(
+  return /failed to fetch|fetch failed|networkerror|network request|name_not_resolved|load failed|service unavailable|bad gateway|gateway timeout|internal server error|connection (?:closed|refused|reset)|timed? ?out|\bhttp\s+5\d\d\b/i.test(
     message,
   );
 }

@@ -4,7 +4,7 @@ import type { CompactMapPin } from "@/lib/map-pins";
 import type { DiscoveredEvent } from "@/lib/queries";
 
 export type MapPointProperties = {
-  kind: "event" | "server_cluster";
+  kind: "event" | "server_cluster" | "coincident_cluster";
   entity_id: string;
   label: string;
   category_slug: string;
@@ -15,9 +15,16 @@ export type MapPointProperties = {
   slug: string;
   event_count: number;
   free_count: number;
+  coincident_ids?: string;
 };
 
 export type MapPointCollection = FeatureCollection<Point, MapPointProperties>;
+
+const WEB_MERCATOR_METERS_PER_PIXEL_AT_ZOOM_ZERO = 156_543.03392;
+const METERS_PER_LATITUDE_DEGREE = 111_320;
+const COINCIDENT_PIN_SPACING_PX = 48;
+const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
+export const MAX_SPIDERFY_GROUP_SIZE = 12;
 
 function validLongitude(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value) && value >= -180 && value <= 180;
@@ -134,6 +141,120 @@ export function buildCompactMapPointCollection({
   }
 
   return { type: "FeatureCollection", features };
+}
+
+/**
+ * Spreads events sharing the exact same venue coordinate once client
+ * clustering has ended. This is the map equivalent of spiderfying: distinct
+ * event pins remain individually clickable without changing their stored
+ * coordinates or any lower-zoom clustering decision.
+ */
+export function spreadCoincidentMapPoints(
+  collection: MapPointCollection,
+  zoom: number,
+  terminalZoom: number,
+): MapPointCollection {
+  if (!Number.isFinite(zoom) || zoom < terminalZoom) return collection;
+
+  const groups = new Map<string, Array<Feature<Point, MapPointProperties>>>();
+  for (const feature of collection.features) {
+    if (feature.properties.kind !== "event") continue;
+    const [longitude, latitude] = feature.geometry.coordinates;
+    const key = `${longitude.toFixed(7)}:${latitude.toFixed(7)}`;
+    const group = groups.get(key);
+    if (group) group.push(feature);
+    else groups.set(key, [feature]);
+  }
+
+  const offsets = new Map<string | number, [number, number]>();
+  const collapsedIds = new Set<string | number>();
+  const collapsedGroups = new Map<string | number, Feature<Point, MapPointProperties>>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const ordered = [...group].sort((left, right) =>
+      left.properties.entity_id.localeCompare(right.properties.entity_id),
+    );
+    if (ordered.length > MAX_SPIDERFY_GROUP_SIZE) {
+      const first = ordered[0];
+      if (first.id == null) continue;
+      ordered.forEach((feature) => {
+        if (feature.id != null) collapsedIds.add(feature.id);
+      });
+      collapsedGroups.set(first.id, {
+        ...first,
+        id: `coincident:${first.geometry.coordinates.join(":")}`,
+        properties: {
+          ...first.properties,
+          kind: "coincident_cluster",
+          entity_id: `coincident:${first.geometry.coordinates.join(":")}`,
+          event_count: ordered.length,
+          free_count: ordered.reduce((count, feature) => count + feature.properties.free_count, 0),
+          coincident_ids: JSON.stringify(ordered.map((feature) => feature.properties.entity_id)),
+        },
+      });
+      continue;
+    }
+    const [, latitude] = ordered[0].geometry.coordinates;
+    const latitudeCosine = Math.max(0.01, Math.cos((latitude * Math.PI) / 180));
+    const metersPerPixel =
+      (WEB_MERCATOR_METERS_PER_PIXEL_AT_ZOOM_ZERO * latitudeCosine) / 2 ** zoom;
+
+    ordered.forEach((feature, index) => {
+      if (feature.id == null) return;
+      if (index === 0) {
+        offsets.set(feature.id, [0, 0]);
+        return;
+      }
+      const angle = index * GOLDEN_ANGLE_RADIANS;
+      const radiusMeters = COINCIDENT_PIN_SPACING_PX * Math.sqrt(index) * metersPerPixel;
+      const eastMeters = Math.cos(angle) * radiusMeters;
+      const northMeters = Math.sin(angle) * radiusMeters;
+      offsets.set(feature.id, [
+        eastMeters / (METERS_PER_LATITUDE_DEGREE * latitudeCosine),
+        northMeters / METERS_PER_LATITUDE_DEGREE,
+      ]);
+    });
+  }
+
+  if (!offsets.size && !collapsedGroups.size) return collection;
+  return {
+    type: "FeatureCollection",
+    features: collection.features.flatMap((feature) => {
+      if (feature.id == null) return [feature];
+      const collapsed = collapsedGroups.get(feature.id);
+      if (collapsed) return [collapsed];
+      if (collapsedIds.has(feature.id)) return [];
+      const offset = offsets.get(feature.id);
+      if (!offset || (offset[0] === 0 && offset[1] === 0)) return [feature];
+      const [longitude, latitude] = feature.geometry.coordinates;
+      return [
+        {
+          ...feature,
+          geometry: {
+            type: "Point",
+            coordinates: [longitude + offset[0], latitude + offset[1]],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+export function coincidentMapPointOccurrenceIds(
+  properties: Partial<MapPointProperties> | null | undefined,
+): string[] {
+  if (properties?.kind !== "coincident_cluster" || !properties.coincident_ids) return [];
+  try {
+    const parsed = JSON.parse(properties.coincident_ids);
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed.filter((value): value is string => typeof value === "string" && value.length > 0),
+      ),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 export function buildLoadedMapPointCollection({

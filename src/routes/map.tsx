@@ -14,6 +14,7 @@ import maplibregl, {
   type MapGeoJSONFeature,
   type MapLayerMouseEvent,
   type MapMouseEvent,
+  type MapSourceDataEvent,
   type StyleSpecification,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -71,6 +72,8 @@ import {
 } from "@/lib/event-content-translations";
 import {
   buildCompactMapPointCollection,
+  coincidentMapPointOccurrenceIds,
+  spreadCoincidentMapPoints,
   type MapPointCollection,
   type MapPointProperties,
 } from "@/lib/map-clusters";
@@ -103,11 +106,15 @@ import {
   registerEventCategoryImages,
 } from "@/lib/event-category-style";
 import {
+  beginMapSourceUpdate,
+  completeMapSourceUpdate,
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_RADIUS,
+  EVENT_CLUSTER_TERMINAL_ZOOM,
   EVENT_SOURCE_MAX_ZOOM,
   CLUSTER_SELECTION_PAGE_SIZE,
   clusterLeafPageRequest,
+  isMapSourceRevisionReady,
   clusterExpansionTargetZoom,
   eventClusterCircleRadiusExpression,
   eventClusterCountExpression,
@@ -193,6 +200,9 @@ const MAP_EVENT_LAYER_IDS = [
   MAP_CLUSTER_HALO_LAYER_ID,
 ] as const;
 const MAP_EVENT_SOURCE_CLIENT_CLUSTERING = new WeakMap<maplibregl.Map, boolean>();
+const MAP_EVENT_SOURCE_REVISION = new WeakMap<maplibregl.Map, number>();
+const MAP_EVENT_SOURCE_PENDING_REVISION = new WeakMap<maplibregl.Map, number>();
+const MAP_EVENT_SOURCE_SETTLE_CLEANUP = new WeakMap<maplibregl.Map, () => void>();
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
 const CLUSTER_PREVIEW_CONCURRENCY = 4;
@@ -276,6 +286,45 @@ function syncClusterLayers(
   serverClustered: boolean,
 ) {
   hideBasemapPoiLayers(map);
+  const sourceRevision = beginMapSourceUpdate(
+    MAP_EVENT_SOURCE_REVISION,
+    MAP_EVENT_SOURCE_PENDING_REVISION,
+    map,
+  );
+  MAP_EVENT_SOURCE_SETTLE_CLEANUP.get(map)?.();
+  let listening = true;
+  const cleanupSourceSettlement = () => {
+    if (!listening) return;
+    listening = false;
+    map.off("sourcedata", handleSourceData);
+    map.off("idle", handleMapIdle);
+    if (MAP_EVENT_SOURCE_SETTLE_CLEANUP.get(map) === cleanupSourceSettlement) {
+      MAP_EVENT_SOURCE_SETTLE_CLEANUP.delete(map);
+    }
+  };
+  const completeSourceSettlement = () => {
+    if (!map.getSource(MAP_EVENT_SOURCE_ID) || !map.isSourceLoaded(MAP_EVENT_SOURCE_ID)) return;
+    if (
+      completeMapSourceUpdate(
+        MAP_EVENT_SOURCE_REVISION,
+        MAP_EVENT_SOURCE_PENDING_REVISION,
+        map,
+        sourceRevision,
+      )
+    ) {
+      cleanupSourceSettlement();
+    }
+  };
+  function handleSourceData(event: MapSourceDataEvent) {
+    if (event.sourceId === MAP_EVENT_SOURCE_ID) completeSourceSettlement();
+  }
+  function handleMapIdle() {
+    completeSourceSettlement();
+  }
+  map.on("sourcedata", handleSourceData);
+  map.on("idle", handleMapIdle);
+  MAP_EVENT_SOURCE_SETTLE_CLEANUP.set(map, cleanupSourceSettlement);
+
   const clientClustered = shouldClusterMapPointsInClient(serverClustered);
   const previousClientClustered = MAP_EVENT_SOURCE_CLIENT_CLUSTERING.get(map);
   let existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
@@ -347,7 +396,12 @@ function syncClusterLayers(
       id: MAP_CLUSTER_HALO_LAYER_ID,
       type: "circle",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
+      filter: [
+        "any",
+        ["has", "point_count"],
+        ["==", ["get", "kind"], "server_cluster"],
+        ["==", ["get", "kind"], "coincident_cluster"],
+      ],
       paint: {
         "circle-color": "#a855f7",
         "circle-radius": ["+", eventClusterCircleRadiusExpression(), 9],
@@ -362,7 +416,12 @@ function syncClusterLayers(
       id: MAP_CLUSTER_LAYER_ID,
       type: "circle",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
+      filter: [
+        "any",
+        ["has", "point_count"],
+        ["==", ["get", "kind"], "server_cluster"],
+        ["==", ["get", "kind"], "coincident_cluster"],
+      ],
       paint: {
         "circle-color": [
           "step",
@@ -391,7 +450,12 @@ function syncClusterLayers(
       id: MAP_CLUSTER_COUNT_LAYER_ID,
       type: "symbol",
       source: MAP_EVENT_SOURCE_ID,
-      filter: ["any", ["has", "point_count"], ["==", ["get", "kind"], "server_cluster"]],
+      filter: [
+        "any",
+        ["has", "point_count"],
+        ["==", ["get", "kind"], "server_cluster"],
+        ["==", ["get", "kind"], "coincident_cluster"],
+      ],
       layout: {
         "text-field": ["to-string", eventClusterCountExpression()],
         "text-font": ["Noto Sans Regular"],
@@ -406,6 +470,19 @@ function syncClusterLayers(
       },
     });
   }
+}
+
+function isMapEventSourceInteractionReady(map: maplibregl.Map, expectedRevision: number): boolean {
+  return (
+    isMapSourceRevisionReady(
+      MAP_EVENT_SOURCE_REVISION,
+      MAP_EVENT_SOURCE_PENDING_REVISION,
+      map,
+      expectedRevision,
+    ) &&
+    Boolean(map.getSource(MAP_EVENT_SOURCE_ID)) &&
+    map.isSourceLoaded(MAP_EVENT_SOURCE_ID)
+  );
 }
 
 function MapSurface({
@@ -1785,8 +1862,13 @@ function MapPage() {
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
   const eventMapPoints = useMemo(
-    () => buildCompactMapPointCollection({ pins: compactPins, showEvents }),
-    [compactPins, showEvents],
+    () =>
+      spreadCoincidentMapPoints(
+        buildCompactMapPointCollection({ pins: compactPins, showEvents }),
+        compactPinBatch.clustered ? 0 : viewportZoom,
+        EVENT_CLUSTER_TERMINAL_ZOOM,
+      ),
+    [compactPinBatch.clustered, compactPins, showEvents, viewportZoom],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -2530,6 +2612,7 @@ function MapPage() {
       pointCount,
       offset,
       requestVersion,
+      sourceRevision,
       append,
     }: {
       source: GeoJSONSource;
@@ -2537,6 +2620,7 @@ function MapPage() {
       pointCount: number;
       offset: number;
       requestVersion: number;
+      sourceRevision: number;
       append: boolean;
     }) => {
       const page = clusterLeafPageRequest(pointCount, offset, CLUSTER_SELECTION_PAGE_SIZE);
@@ -2551,12 +2635,22 @@ function MapPage() {
       setClusterSelectionError(null);
       try {
         const leaves = await source.getClusterLeaves(clusterId, page.limit, page.offset);
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) {
+          if (requestVersion === clusterSelectionRequestRef.current) {
+            closeClusterSelection();
+          }
+          return;
+        }
         const occurrenceIds = leaves.flatMap((leaf) => {
           const occurrenceId = leaf.properties?.entity_id;
           return typeof occurrenceId === "string" ? [occurrenceId] : [];
         });
         const previews = await resolveOccurrencePreviews(occurrenceIds);
         if (requestVersion !== clusterSelectionRequestRef.current) return;
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) {
+          closeClusterSelection();
+          return;
+        }
 
         setSelectedClusterEvents((current) => {
           const merged = append ? [...current, ...previews] : previews;
@@ -2573,6 +2667,7 @@ function MapPage() {
                 pointCount,
                 offset: nextOffset,
                 requestVersion,
+                sourceRevision,
                 append: true,
               });
             }
@@ -2581,6 +2676,7 @@ function MapPage() {
 
         void localizePreviews(previews).then((localizedPreviews) => {
           if (requestVersion !== clusterSelectionRequestRef.current) return;
+          if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
           const localizedById = new Map(
             localizedPreviews.map((preview) => [preview.occurrence_id, preview]),
           );
@@ -2595,13 +2691,22 @@ function MapPage() {
         }
       } catch {
         if (requestVersion !== clusterSelectionRequestRef.current) return;
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) {
+          closeClusterSelection();
+          return;
+        }
         clusterSelectionRetryRef.current = () => {
+          if (!isMapEventSourceInteractionReady(map, sourceRevision)) {
+            closeClusterSelection();
+            return;
+          }
           void loadClusterSelectionPage({
             source,
             clusterId,
             pointCount,
             offset: page.offset,
             requestVersion,
+            sourceRevision,
             append,
           });
         };
@@ -2619,9 +2724,15 @@ function MapPage() {
       source: GeoJSONSource,
       clusterId: number,
       pointCount: number,
+      sourceRevision = MAP_EVENT_SOURCE_REVISION.get(map) ?? 0,
     ) => {
+      if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
       const requestVersion = ++clusterSelectionRequestRef.current;
       clusterSelectionRetryRef.current = () => {
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) {
+          closeClusterSelection();
+          return;
+        }
         void loadClusterSelection(source, clusterId, pointCount);
       };
       clusterSelectionLoadMoreRef.current = null;
@@ -2639,18 +2750,28 @@ function MapPage() {
         pointCount,
         offset: 0,
         requestVersion,
+        sourceRevision,
         append: false,
       });
     };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
+      const sourceRevision = MAP_EVENT_SOURCE_REVISION.get(map) ?? 0;
+      if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
       const clusterId = Number(feature.properties?.cluster_id);
       const [longitude, latitude] = feature.geometry.coordinates;
       const pointCount = mapClusterPointCount(
         feature.properties?.point_count ?? feature.properties?.event_count,
       );
+      const coincidentOccurrenceIds = coincidentMapPointOccurrenceIds(
+        feature.properties as Partial<MapPointProperties> | undefined,
+      );
 
       closeEventSelection();
+      if (coincidentOccurrenceIds.length) {
+        void loadCoincidentSelection(coincidentOccurrenceIds);
+        return;
+      }
       if (!Number.isFinite(clusterId)) {
         closeClusterSelection();
         const currentZoom = map.getZoom();
@@ -2668,15 +2789,16 @@ function MapPage() {
 
       const source = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
       if (!source) return;
-      if (map.getZoom() >= EVENT_CLUSTER_MAX_ZOOM) {
-        void loadClusterSelection(source, clusterId, pointCount);
+      if (map.getZoom() >= EVENT_CLUSTER_TERMINAL_ZOOM) {
+        void loadClusterSelection(source, clusterId, pointCount, sourceRevision);
         return;
       }
 
       try {
         const expansionZoom = await source.getClusterExpansionZoom(clusterId);
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
         if (shouldOpenClusterSelection(map.getZoom(), expansionZoom)) {
-          void loadClusterSelection(source, clusterId, pointCount);
+          void loadClusterSelection(source, clusterId, pointCount, sourceRevision);
           return;
         }
         closeClusterSelection();
@@ -2686,6 +2808,7 @@ function MapPage() {
           duration: 450,
         });
       } catch {
+        if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
         setError("Impossible d’ouvrir ce groupe de points. Réessaie dans un instant.");
       }
     };
@@ -2711,6 +2834,8 @@ function MapPage() {
     const handleClusterMouseEnter = (event: MapLayerMouseEvent) => {
       map.getCanvas().style.cursor = "pointer";
       if (isMobileRef.current) return;
+      const sourceRevision = MAP_EVENT_SOURCE_REVISION.get(map) ?? 0;
+      if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
       const feature = event.features?.[0];
       if (!feature || feature.geometry.type !== "Point") return;
       const pointCount = mapClusterPointCount(feature.properties?.event_count);
@@ -2726,6 +2851,112 @@ function MapPage() {
         }),
       );
     };
+    const loadCoincidentSelectionPage = async ({
+      occurrenceIds,
+      offset,
+      requestVersion,
+      append,
+    }: {
+      occurrenceIds: string[];
+      offset: number;
+      requestVersion: number;
+      append: boolean;
+    }) => {
+      const page = clusterLeafPageRequest(
+        occurrenceIds.length,
+        offset,
+        CLUSTER_SELECTION_PAGE_SIZE,
+      );
+      if (!page) {
+        setClusterSelectionHasMore(false);
+        clusterSelectionLoadMoreRef.current = null;
+        return;
+      }
+
+      if (append) setClusterSelectionLoadingMore(true);
+      else setClusterSelectionLoading(true);
+      setClusterSelectionError(null);
+      const pageIds = occurrenceIds.slice(page.offset, page.offset + page.limit);
+      try {
+        const previews = await resolveOccurrencePreviews(pageIds);
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+
+        setSelectedClusterEvents((current) => {
+          const merged = append ? [...current, ...previews] : previews;
+          return [...new Map(merged.map((preview) => [preview.occurrence_id, preview])).values()];
+        });
+        const nextOffset = page.offset + pageIds.length;
+        const hasMore = nextOffset < occurrenceIds.length;
+        setClusterSelectionHasMore(hasMore);
+        clusterSelectionLoadMoreRef.current = hasMore
+          ? () => {
+              void loadCoincidentSelectionPage({
+                occurrenceIds,
+                offset: nextOffset,
+                requestVersion,
+                append: true,
+              });
+            }
+          : null;
+        clusterSelectionRetryRef.current = null;
+
+        void localizePreviews(previews).then((localizedPreviews) => {
+          if (requestVersion !== clusterSelectionRequestRef.current) return;
+          const localizedById = new Map(
+            localizedPreviews.map((preview) => [preview.occurrence_id, preview]),
+          );
+          setSelectedClusterEvents((current) =>
+            current.map((preview) => localizedById.get(preview.occurrence_id) ?? preview),
+          );
+        });
+        if (!previews.length) {
+          setClusterSelectionError(
+            "Les événements de ce lieu n’ont pas pu être chargés. Réessaie dans un instant.",
+          );
+        }
+      } catch {
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+        clusterSelectionRetryRef.current = () => {
+          void loadCoincidentSelectionPage({
+            occurrenceIds,
+            offset: page.offset,
+            requestVersion,
+            append,
+          });
+        };
+        setClusterSelectionError(
+          "Impossible de charger les événements regroupés. Vérifie ta connexion puis réessaie.",
+        );
+      } finally {
+        if (requestVersion === clusterSelectionRequestRef.current) {
+          if (append) setClusterSelectionLoadingMore(false);
+          else setClusterSelectionLoading(false);
+        }
+      }
+    };
+    const loadCoincidentSelection = async (rawOccurrenceIds: string[]) => {
+      const occurrenceIds = [...new Set(rawOccurrenceIds)];
+      if (!occurrenceIds.length) return;
+      const requestVersion = ++clusterSelectionRequestRef.current;
+      clusterSelectionRetryRef.current = () => {
+        void loadCoincidentSelection(occurrenceIds);
+      };
+      clusterSelectionLoadMoreRef.current = null;
+      closeEventSelection();
+      setClusterSelectionOpen(true);
+      setClusterSelectionLoading(true);
+      setClusterSelectionLoadingMore(false);
+      setClusterSelectionHasMore(occurrenceIds.length > CLUSTER_SELECTION_PAGE_SIZE);
+      setClusterSelectionError(null);
+      setClusterSelectionExpectedCount(occurrenceIds.length);
+      setSelectedClusterEvents([]);
+      await loadCoincidentSelectionPage({
+        occurrenceIds,
+        offset: 0,
+        requestVersion,
+        append: false,
+      });
+    };
     const interactiveLayers = [
       MAP_CLUSTER_HALO_LAYER_ID,
       MAP_CLUSTER_LAYER_ID,
@@ -2733,6 +2964,8 @@ function MapPage() {
     ] as const;
     const handleMapClick = (event: MapMouseEvent) => {
       removeHoverPopup();
+      const sourceRevision = MAP_EVENT_SOURCE_REVISION.get(map) ?? 0;
+      if (!isMapEventSourceInteractionReady(map, sourceRevision)) return;
       const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
       if (!renderedLayers.length) return;
 

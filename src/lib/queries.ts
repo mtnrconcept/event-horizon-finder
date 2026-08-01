@@ -334,12 +334,18 @@ export async function discoverMapPinsInBounds(
   return runMapRequestWithRetry(
     async () => {
       // Keep the cast at the additive RPC rollout boundary until generated
-      // database types include v4.
+      // database types include v5.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v4", args).retry(false);
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v5", args).retry(false);
       let { data, error } = await (signal ? request.abortSignal(signal) : request);
       if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
         // Keep the map available during the short migration/frontend overlap.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v4", args).retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Preserve compatibility with installations that have not received v4 yet.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v3", args).retry(false);
         ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));

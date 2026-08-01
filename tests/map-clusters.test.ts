@@ -3,6 +3,9 @@ import { registerHooks } from "node:module";
 import test from "node:test";
 
 import {
+  beginMapSourceUpdate,
+  bumpMapSourceRevision,
+  completeMapSourceUpdate,
   EVENT_CLUSTER_MAX_ZOOM,
   EVENT_CLUSTER_TERMINAL_ZOOM,
   EVENT_CLUSTER_RADIUS,
@@ -11,6 +14,8 @@ import {
   clusterExpansionTargetZoom,
   eventClusterCircleRadius,
   eventClusterTextSize,
+  isMapSourceRevisionCurrent,
+  isMapSourceRevisionReady,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
   shouldRequestTerminalClusterReload,
@@ -53,8 +58,14 @@ registerHooks({
   },
 });
 
-const { buildCompactMapPointCollection, buildLoadedMapPointCollection, buildMapPointCollection } =
-  await import("../src/lib/map-clusters.ts");
+const {
+  buildCompactMapPointCollection,
+  buildLoadedMapPointCollection,
+  buildMapPointCollection,
+  coincidentMapPointOccurrenceIds,
+  MAX_SPIDERFY_GROUP_SIZE,
+  spreadCoincidentMapPoints,
+} = await import("../src/lib/map-clusters.ts");
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   return {
@@ -143,6 +154,95 @@ test("builds every compact world pin returned by the uncapped RPC", () => {
       free_count: 1,
     },
   });
+});
+
+test("spiderfies coincident terminal pins without moving stored lower-zoom points", () => {
+  const points = buildCompactMapPointCollection({
+    pins: parseCompactMapPins([
+      ["event", "occurrence-b", 6.1452, 46.2004, "concert", 0, 0, "b", 1, 0],
+      ["event", "occurrence-a", 6.1452, 46.2004, "culture", 1, 0, "a", 1, 1],
+      ["event", "occurrence-c", 6.1452, 46.2004, "family", 0, 0, "c", 1, 0],
+    ]),
+    showEvents: true,
+  });
+
+  assert.equal(spreadCoincidentMapPoints(points, 20, EVENT_CLUSTER_TERMINAL_ZOOM), points);
+  const spread = spreadCoincidentMapPoints(
+    points,
+    EVENT_CLUSTER_TERMINAL_ZOOM,
+    EVENT_CLUSTER_TERMINAL_ZOOM,
+  );
+  assert.equal(spread.features.length, 3);
+  assert.deepEqual(spread.features[1]?.geometry.coordinates, [6.1452, 46.2004]);
+  assert.equal(
+    new Set(spread.features.map((feature) => feature.geometry.coordinates.join(":"))).size,
+    3,
+  );
+  assert.deepEqual(points.features[0]?.geometry.coordinates, [6.1452, 46.2004]);
+});
+
+test("turns large coincident venues into a bounded terminal selection", () => {
+  const occurrenceIds = Array.from(
+    { length: MAX_SPIDERFY_GROUP_SIZE + 1 },
+    (_, index) => `occurrence-${index}`,
+  );
+  const points = buildCompactMapPointCollection({
+    pins: parseCompactMapPins(
+      occurrenceIds.map((occurrenceId) => [
+        "event",
+        occurrenceId,
+        6.1452,
+        46.2004,
+        "culture",
+        0,
+        0,
+        occurrenceId,
+        1,
+        0,
+      ]),
+    ),
+    showEvents: true,
+  });
+
+  const layout = spreadCoincidentMapPoints(
+    points,
+    EVENT_CLUSTER_TERMINAL_ZOOM,
+    EVENT_CLUSTER_TERMINAL_ZOOM,
+  );
+  assert.equal(layout.features.length, 1);
+  assert.equal(layout.features[0]?.properties.kind, "coincident_cluster");
+  assert.equal(layout.features[0]?.properties.event_count, occurrenceIds.length);
+  assert.deepEqual(
+    coincidentMapPointOccurrenceIds(layout.features[0]?.properties),
+    [...occurrenceIds].sort(),
+  );
+  assert.deepEqual(layout.features[0]?.geometry.coordinates, [6.1452, 46.2004]);
+  assert.deepEqual(coincidentMapPointOccurrenceIds({ kind: "coincident_cluster" }), []);
+});
+
+test("invalidates asynchronous cluster work whenever source data changes", () => {
+  const revisions = new WeakMap<object, number>();
+  const map = {};
+  const first = bumpMapSourceRevision(revisions, map);
+  assert.equal(isMapSourceRevisionCurrent(revisions, map, first), true);
+  const second = bumpMapSourceRevision(revisions, map);
+  assert.equal(isMapSourceRevisionCurrent(revisions, map, first), false);
+  assert.equal(isMapSourceRevisionCurrent(revisions, map, second), true);
+});
+
+test("keeps cluster interaction disabled until the matching source update settles", () => {
+  const revisions = new WeakMap<object, number>();
+  const pendingRevisions = new WeakMap<object, number>();
+  const map = {};
+
+  const first = beginMapSourceUpdate(revisions, pendingRevisions, map);
+  assert.equal(isMapSourceRevisionReady(revisions, pendingRevisions, map, first), false);
+
+  const second = beginMapSourceUpdate(revisions, pendingRevisions, map);
+  assert.equal(completeMapSourceUpdate(revisions, pendingRevisions, map, first), false);
+  assert.equal(isMapSourceRevisionReady(revisions, pendingRevisions, map, second), false);
+  assert.equal(completeMapSourceUpdate(revisions, pendingRevisions, map, second), true);
+  assert.equal(isMapSourceRevisionReady(revisions, pendingRevisions, map, second), true);
 });
 
 test("preserves server aggregate weights for low-zoom clusters", () => {
