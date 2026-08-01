@@ -1,6 +1,13 @@
 -- Make permanent-place discovery resilient to overloaded Overpass instances,
 -- support targeted city runs, and schedule a conservative continuous worker.
+--
+-- This migration must be independently replayable from an empty database. The
+-- permanent-place schema was originally added by a later timestamped migration,
+-- so create every city scheduling column used below before building indexes or
+-- functions that reference it.
 alter table public.cities
+  add column if not exists places_last_discovered_at timestamptz,
+  add column if not exists places_discovery_error text,
   add column if not exists places_last_attempted_at timestamptz,
   add column if not exists places_discovery_failure_count integer not null default 0,
   add column if not exists places_discovery_next_retry_at timestamptz;
