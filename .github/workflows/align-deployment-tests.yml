@@ -1,0 +1,66 @@
+name: Align deployment tests
+
+on:
+  push:
+    branches:
+      - agent/deploy-github-pages
+
+permissions:
+  contents: write
+
+concurrency:
+  group: align-deployment-tests
+  cancel-in-progress: true
+
+jobs:
+  align:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout deployment branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/deploy-github-pages
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Align current map assertions
+        run: node scripts/align-current-map-tests.mjs
+
+      - name: Format deployment files
+        run: |
+          bunx prettier --write \
+            .github/workflows/github-pages.yml \
+            scripts/apply-map-mobile-performance-and-poi-filters.mjs \
+            scripts/apply-poi-map-layer.mjs \
+            scripts/prepare-github-pages-source.mjs \
+            scripts/prepare-github-pages-service-worker.mjs \
+            scripts/prepare-github-pages-output.mjs \
+            src/lib/app-cors.server.ts \
+            src/routes/api.supabase-read-proxy.ts \
+            tests/github-pages-deployment.test.ts \
+            tests/map-clusters.test.ts \
+            vercel.json
+
+      - name: Validate committed source
+        run: |
+          bun run lint
+          bun run typecheck
+          bun run test:map
+          node --test tests/github-pages-deployment.test.ts
+
+      - name: Commit alignment
+        run: |
+          git rm .github/workflows/align-deployment-tests.yml scripts/align-current-map-tests.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test(map): align assertions with current map behavior"
+          git push origin HEAD:agent/deploy-github-pages

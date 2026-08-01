@@ -1,0 +1,132 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GITHUB_PAGES: "true"
+  GITHUB_PAGES_BASE_PATH: /event-horizon-finder/
+  VITE_SERVER_ORIGIN: https://event-horizon-finder.vercel.app
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate deployment contracts
+        run: node --test tests/github-pages-deployment.test.ts
+
+      - name: Apply production feature patches
+        run: |
+          node scripts/apply-progressive-basemap.mjs
+          node scripts/apply-today-default-fullscreen-intro.mjs
+          node scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node scripts/apply-poi-map-layer.mjs
+
+      - name: Prepare GitHub Pages source
+        run: |
+          node scripts/prepare-github-pages-source.mjs
+          node scripts/prepare-github-pages-service-worker.mjs
+
+      - name: Format generated source
+        run: |
+          bunx prettier --write \
+            vite.config.ts \
+            src/router.tsx \
+            src/lib/deployment-paths.ts \
+            src/lib/event-filters.ts \
+            src/lib/i18n.tsx \
+            src/lib/monetization.ts \
+            src/lib/ad-queries.ts \
+            src/integrations/supabase/client.ts \
+            src/integrations/supabase/types.ts \
+            src/routes/__root.tsx \
+            src/routes/auth.tsx \
+            src/routes/map.tsx \
+            src/components/pwa-runtime.tsx \
+            src/components/brand/brand-logo.tsx \
+            src/components/brand/brand-arrival.tsx \
+            src/components/brand/brand-arrival.css \
+            src/components/event-filter-panel.tsx \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/today-default-fullscreen-intro.test.ts \
+            public/sw.js
+
+      - name: Validate generated Pages application
+        run: |
+          bun run lint
+          bun run check:routes
+          bun run typecheck
+          node --test \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/today-default-fullscreen-intro.test.ts
+          bun run test:taxonomy
+          bun run test:mcp
+          bun run test:i18n
+          bun run test:translations
+          bun run test:performance
+          bun run test:payments-ai
+          bun run test:monetization
+          bun run build
+          bun run check:bundle
+
+      - name: Prepare Pages artifact
+        run: node scripts/prepare-github-pages-output.mjs
+
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload validation artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-pages-preview
+          path: .github-pages-site
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .github-pages-site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
