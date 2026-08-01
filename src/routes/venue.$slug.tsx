@@ -17,7 +17,6 @@ import { safeExternalUrl } from "@/lib/map-event-details";
 import { useTranslation } from "@/lib/i18n";
 import { fetchVenueDetail, type VenueDetail } from "@/lib/venue-detail";
 
-// @ts-ignore Route type is generated during the production build.
 export const Route = createFileRoute("/venue/$slug")({
   loader: async ({ params }): Promise<VenueDetail> => {
     const venue = await fetchVenueDetail(params.slug);
