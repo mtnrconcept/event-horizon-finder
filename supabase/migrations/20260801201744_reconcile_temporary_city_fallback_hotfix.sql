@@ -1,0 +1,11 @@
+-- Migration-history reconciliation marker.
+--
+-- Version 20260801201744 was applied directly to production while diagnosing
+-- missing La Décadanse events. The broad city-centre fallback was subsequently
+-- reverted because it could collapse many approximate events onto one point
+-- and overload map interactions.
+--
+-- The durable schema intentionally remains unchanged here. Fresh databases
+-- retain the indexed exact occurrence/venue spatial discovery implemented by
+-- the preceding repository migrations.
+select 1;
