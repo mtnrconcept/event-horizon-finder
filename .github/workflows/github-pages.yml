@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -29,8 +29,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -39,29 +37,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Format deployment sources once
-        if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
-        run: |
-          bunx prettier --write \
-            scripts/apply-map-mobile-performance-and-poi-filters.mjs \
-            scripts/prepare-github-pages-source.mjs \
-            scripts/prepare-github-pages-service-worker.mjs \
-            scripts/prepare-github-pages-output.mjs \
-            supabase/functions/global-place-discovery/index.ts
-          if git diff --quiet; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            scripts/apply-map-mobile-performance-and-poi-filters.mjs \
-            scripts/prepare-github-pages-source.mjs \
-            scripts/prepare-github-pages-service-worker.mjs \
-            scripts/prepare-github-pages-output.mjs \
-            supabase/functions/global-place-discovery/index.ts
-          git commit -m "style: format GitHub Pages deployment"
-          git push origin HEAD:${{ github.head_ref }}
 
       - name: Validate deployment contracts
         run: node --test tests/github-pages-deployment.test.ts
@@ -87,12 +62,18 @@ jobs:
             src/lib/monetization.ts \
             src/lib/ad-queries.ts \
             src/integrations/supabase/client.ts \
+            src/integrations/supabase/types.ts \
             src/routes/__root.tsx \
             src/routes/auth.tsx \
+            src/routes/map.tsx \
             src/components/pwa-runtime.tsx \
             src/components/brand/brand-logo.tsx \
             src/components/brand/brand-arrival.tsx \
             src/components/brand/brand-arrival.css \
+            src/components/event-filter-panel.tsx \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/today-default-fullscreen-intro.test.ts \
             public/sw.js
 
       - name: Run complete quality gate
