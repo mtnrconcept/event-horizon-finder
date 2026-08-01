@@ -40,11 +40,23 @@ export default tseslint.config(
   {
     files: [
       "scripts/apply-poi-map-layer.mjs",
+      "scripts/apply-home-place-search.mjs",
+      "scripts/apply-place-scraper-enrichment.mjs",
       "supabase/functions/global-place-discovery/index.ts",
+      "supabase/functions/global-place-discovery/enrichment.ts",
+      "src/components/home-place-search-results.tsx",
+      "src/components/place-detail-dialog.tsx",
+      "src/lib/place-discovery.ts",
       "tests/map-clusters.test.ts",
     ],
     rules: {
       "prettier/prettier": "off",
+    },
+  },
+  {
+    files: ["supabase/functions/global-place-discovery/enrichment.ts"],
+    rules: {
+      "no-useless-escape": "off",
     },
   },
 );
