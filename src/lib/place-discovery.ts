@@ -7,6 +7,12 @@ export const PLACE_SERVER_CLUSTER_MAX_ZOOM = 12;
 
 export type PlacePinKind = "place" | "cluster";
 
+export interface PlaceContentSource {
+  label: string;
+  url: string;
+  provider?: string | null;
+}
+
 export interface PlaceOfInterest {
   id: string;
   name: string;
@@ -18,6 +24,10 @@ export interface PlaceOfInterest {
   website: string | null;
   source_url: string | null;
   image_url: string | null;
+  image_urls: string[];
+  booking_url: string | null;
+  source_urls: string[];
+  content_sources: PlaceContentSource[];
   opening_hours: string | null;
   fee: string | null;
   wheelchair: string | null;
@@ -47,6 +57,19 @@ export interface PlaceListBatch {
 export interface DiscoverPlaceParams {
   bounds: MapViewportBounds;
   zoom: number;
+  categories?: string[] | null;
+  query?: string | null;
+  accessibleOnly?: boolean;
+  freeOnly?: boolean;
+  hasHoursOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DiscoverHomePlaceParams {
+  countryId?: string | null;
+  regionId?: string | null;
+  cityId?: string | null;
   categories?: string[] | null;
   query?: string | null;
   accessibleOnly?: boolean;
@@ -113,6 +136,22 @@ function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))];
+}
+
+function contentSourceArray(value: unknown): PlaceContentSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const label = nullableString(item.label);
+    const url = nullableString(item.url);
+    if (!label || !url) return [];
+    return [{ label, url, provider: nullableString(item.provider) }];
+  });
+}
+
 function finiteNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -133,6 +172,10 @@ function placeWithoutPinMetadata(pin: PlaceMapPin): PlaceOfInterest {
     website: pin.website,
     source_url: pin.source_url,
     image_url: pin.image_url,
+    image_urls: pin.image_urls,
+    booking_url: pin.booking_url,
+    source_urls: pin.source_urls,
+    content_sources: pin.content_sources,
     opening_hours: pin.opening_hours,
     fee: pin.fee,
     wheelchair: pin.wheelchair,
@@ -154,6 +197,13 @@ function parsePlace(value: unknown, forcedKind?: PlacePinKind): PlaceMapPin | nu
   const count = Math.max(1, nonNegativeInteger(value.count, 1));
   if (!id) return null;
 
+  const imageUrl = nullableString(value.image_url);
+  const imageUrls = stringArray(value.image_urls);
+  if (imageUrl && !imageUrls.includes(imageUrl)) imageUrls.unshift(imageUrl);
+  const sourceUrl = nullableString(value.source_url);
+  const sourceUrls = stringArray(value.source_urls);
+  if (sourceUrl && !sourceUrls.includes(sourceUrl)) sourceUrls.unshift(sourceUrl);
+
   return {
     kind,
     count,
@@ -165,8 +215,12 @@ function parsePlace(value: unknown, forcedKind?: PlacePinKind): PlaceMapPin | nu
     description: nullableString(value.description),
     address: nullableString(value.address),
     website: nullableString(value.website),
-    source_url: nullableString(value.source_url),
-    image_url: nullableString(value.image_url),
+    source_url: sourceUrl,
+    image_url: imageUrl ?? imageUrls[0] ?? null,
+    image_urls: imageUrls.slice(0, 12),
+    booking_url: nullableString(value.booking_url),
+    source_urls: sourceUrls.slice(0, 12),
+    content_sources: contentSourceArray(value.content_sources).slice(0, 12),
     opening_hours: nullableString(value.opening_hours),
     fee: nullableString(value.fee),
     wheelchair: nullableString(value.wheelchair),
@@ -265,6 +319,46 @@ export async function discoverPlacesInBounds(
     },
     { signal },
   );
+}
+
+export async function discoverPlacesForHome(
+  params: DiscoverHomePlaceParams,
+  signal?: AbortSignal,
+): Promise<PlaceListBatch> {
+  const args = {
+    _country_id: params.countryId ?? null,
+    _region_id: params.regionId ?? null,
+    _city_id: params.cityId ?? null,
+    _category_slugs: params.categories?.length ? [...new Set(params.categories)] : null,
+    _query: params.query?.trim() || null,
+    _accessible_only: params.accessibleOnly ?? false,
+    _free_only: params.freeOnly ?? false,
+    _has_hours_only: params.hasHoursOnly ?? false,
+    _limit: Math.min(200, Math.max(1, params.limit ?? PLACE_LIST_PAGE_SIZE)),
+    _offset: Math.max(0, params.offset ?? 0),
+  };
+  return runMapRequestWithRetry(
+    async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const request = (supabase as any).rpc("discover_places_for_home_v1", args).retry(false);
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return parseListBatch(data);
+    },
+    { signal },
+  );
+}
+
+export async function fetchPlaceDetail(
+  placeId: string,
+  signal?: AbortSignal,
+): Promise<PlaceOfInterest | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const request = (supabase as any).rpc("get_place_detail_v1", { _place_id: placeId }).retry(false);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  const parsed = parsePlace(data, "place");
+  return parsed ? placeWithoutPinMetadata(parsed) : null;
 }
 
 export function buildPlaceFeatureCollection(batch: PlaceMapPinBatch): PlaceFeatureCollection {

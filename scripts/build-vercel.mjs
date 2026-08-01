@@ -5,10 +5,14 @@ const steps = [
   ["node", ["--check", "scripts/apply-today-default-fullscreen-intro.mjs"]],
   ["node", ["--check", "scripts/apply-map-mobile-performance-and-poi-filters.mjs"]],
   ["node", ["--check", "scripts/apply-poi-map-layer.mjs"]],
+  ["node", ["--check", "scripts/apply-home-place-search.mjs"]],
+  ["node", ["--check", "scripts/apply-place-scraper-enrichment.mjs"]],
   ["node", ["scripts/apply-progressive-basemap.mjs"]],
   ["node", ["scripts/apply-today-default-fullscreen-intro.mjs"]],
   ["node", ["scripts/apply-map-mobile-performance-and-poi-filters.mjs"]],
   ["node", ["scripts/apply-poi-map-layer.mjs"]],
+  ["node", ["scripts/apply-home-place-search.mjs"]],
+  ["node", ["scripts/apply-place-scraper-enrichment.mjs"]],
   [
     "node",
     [
@@ -17,6 +21,7 @@ const steps = [
       "tests/poi-map-layer.test.ts",
       "tests/place-discovery.test.ts",
       "tests/place-map-experience-contract.test.ts",
+      "tests/place-enrichment-contract.test.ts",
     ],
   ],
   ["npm", ["run", "typecheck"]],

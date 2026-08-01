@@ -73,6 +73,11 @@ jobs:
           echo "### Cloudflare deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "Public URL: $resolved_url" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Apply place scraper enrichment source
+        run: |
+          node --check scripts/apply-place-scraper-enrichment.mjs
+          node scripts/apply-place-scraper-enrichment.mjs
+
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
         with:
@@ -103,16 +108,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Apply generated map patches
+      - name: Apply generated discovery and map patches
         run: |
           node --check scripts/apply-progressive-basemap.mjs
           node --check scripts/apply-today-default-fullscreen-intro.mjs
           node --check scripts/apply-map-mobile-performance-and-poi-filters.mjs
           node --check scripts/apply-poi-map-layer.mjs
+          node --check scripts/apply-home-place-search.mjs
           node scripts/apply-progressive-basemap.mjs
           node scripts/apply-today-default-fullscreen-intro.mjs
           node scripts/apply-map-mobile-performance-and-poi-filters.mjs
           node scripts/apply-poi-map-layer.mjs
+          node scripts/apply-home-place-search.mjs
 
       - name: Build Cloudflare Worker bundle
         env:
