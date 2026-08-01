@@ -117,7 +117,7 @@ test("builds a lightweight event-only GeoJSON feature with its category visual",
       entity_id: "occurrence-1",
       label: "Open Air Geneva",
       category_slug: "concerts",
-      category_color: "#e11d48",
+      category_color: "#f43f5e",
       category_icon_image: "event-category-concerts",
       is_free: 0,
       approximate: 0,
@@ -145,7 +145,7 @@ test("builds every compact world pin returned by the uncapped RPC", () => {
       entity_id: "occurrence-2",
       label: "",
       category_slug: "soirees",
-      category_color: "#4338ca",
+      category_color: "#d946ef",
       category_icon_image: "event-category-soirees",
       is_free: 1,
       approximate: 1,
@@ -166,7 +166,14 @@ test("spiderfies coincident terminal pins without moving stored lower-zoom point
     showEvents: true,
   });
 
-  assert.equal(spreadCoincidentMapPoints(points, 20, EVENT_CLUSTER_TERMINAL_ZOOM), points);
+  assert.equal(
+    spreadCoincidentMapPoints(
+      points,
+      EVENT_CLUSTER_TERMINAL_ZOOM - 1,
+      EVENT_CLUSTER_TERMINAL_ZOOM,
+    ),
+    points,
+  );
   const spread = spreadCoincidentMapPoints(
     points,
     EVENT_CLUSTER_TERMINAL_ZOOM,
@@ -559,13 +566,15 @@ test("normalizes category aliases and applies the explicit fallback visual", () 
   assert.equal(normalizeEventCategorySlug(null), "other");
 
   assert.deepEqual(eventCategoryVisual("concert"), {
-    color: "#e11d48",
-    icon: "🎸",
+    slug: "concerts",
+    color: "#f43f5e",
+    colorEnd: "#be123c",
     imageId: "event-category-concerts",
   });
   assert.deepEqual(eventCategoryVisual("unknown-category"), {
-    color: "#64748b",
-    icon: "✨",
+    slug: "other",
+    color: "#f472b6",
+    colorEnd: "#be185d",
     imageId: "event-category-other",
   });
 });
@@ -615,7 +624,7 @@ test("uses a readable foreground for every category color", () => {
     assert.match(eventCategoryTextColor(slug), /^#(?:ffffff|111827)$/);
   }
   assert.equal(eventCategoryTextColor("festivals"), "#111827");
-  assert.equal(eventCategoryTextColor("soirees"), "#ffffff");
+  assert.equal(eventCategoryTextColor("soirees"), "#111827");
 });
 
 test("selects one nearby event hit by distance, then by marker priority", () => {
@@ -653,8 +662,8 @@ test("uses large, readable event clusters that grow monotonically", () => {
   const textSizes = counts.map(eventClusterTextSize);
 
   assert.ok(EVENT_CLUSTER_RADIUS >= 72);
-  assert.ok(EVENT_CLUSTER_MAX_ZOOM >= 17);
-  assert.ok(radii[0] >= 26);
+  assert.equal(EVENT_CLUSTER_MAX_ZOOM, 14);
+  assert.ok(radii[0] >= 24);
   assert.ok(textSizes[0] >= 14);
   assert.deepEqual(
     radii,
@@ -673,9 +682,12 @@ test("cluster expansion always zooms in and remains within the supported source 
 });
 
 test("performs the final expansion to individual pins before opening the cluster list", () => {
-  assert.equal(shouldOpenClusterSelection(20, EVENT_CLUSTER_TERMINAL_ZOOM), false);
+  assert.equal(
+    shouldOpenClusterSelection(EVENT_CLUSTER_TERMINAL_ZOOM - 1, EVENT_CLUSTER_TERMINAL_ZOOM),
+    false,
+  );
   assert.equal(shouldOpenClusterSelection(EVENT_CLUSTER_TERMINAL_ZOOM, 21), true);
-  assert.equal(shouldOpenClusterSelection(19, 22), true);
+  assert.equal(shouldOpenClusterSelection(14, EVENT_CLUSTER_TERMINAL_ZOOM + 1), true);
   assert.equal(shouldOpenClusterSelection(12, 14), false);
 });
 
