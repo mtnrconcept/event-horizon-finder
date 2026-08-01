@@ -48,6 +48,8 @@ jobs:
             supabase/functions/_shared/ladecadanse-adapter.test.ts \
             supabase/functions/_shared/ladecadanse-adapter.ts \
             supabase/functions/ladecadanse-sync/index.ts
+          sed -i '108s/\\-/-/g;766s/\\"/"/g' supabase/functions/_shared/ladecadanse-adapter.ts
+          bunx prettier --write supabase/functions/_shared/ladecadanse-adapter.ts
           bunx eslint --fix \
             src/components/venue-event-list.tsx \
             src/lib/venue-detail.ts \
