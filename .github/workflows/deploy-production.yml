@@ -51,11 +51,27 @@ jobs:
             CLOUDFLARE_ACCOUNT_ID
             SUPABASE_URL
             SUPABASE_PUBLISHABLE_KEY
-            SITE_URL
           )
           for name in "${required[@]}"; do
             test -n "${!name}" || { echo "GitHub production secret $name is required" >&2; exit 1; }
           done
+
+      - name: Resolve public Cloudflare URL
+        shell: bash
+        run: |
+          if [ -n "$SITE_URL" ]; then
+            resolved_url="${SITE_URL%/}"
+          else
+            response="$(curl --fail --silent --show-error \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+            subdomain="$(printf '%s' "$response" | jq -r '.result.subdomain // empty')"
+            test -n "$subdomain" || { echo "Unable to resolve the Cloudflare workers.dev subdomain" >&2; exit 1; }
+            resolved_url="https://globalparty.${subdomain}.workers.dev"
+          fi
+          echo "SITE_URL=$resolved_url" >> "$GITHUB_ENV"
+          echo "### Cloudflare deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Public URL: $resolved_url" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
@@ -123,4 +139,4 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          SITE_URL: ${{ secrets.SITE_URL }}
+          SITE_URL: ${{ env.SITE_URL }}
