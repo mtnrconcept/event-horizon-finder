@@ -1,7 +1,7 @@
 import type { ExpressionSpecification } from "maplibre-gl";
 
-export const EVENT_CLUSTER_RADIUS = 82;
-export const EVENT_CLUSTER_MAX_ZOOM = 20;
+export const EVENT_CLUSTER_RADIUS = 120;
+export const EVENT_CLUSTER_MAX_ZOOM = 14;
 export const EVENT_SOURCE_MAX_ZOOM = 22;
 export const EVENT_CLUSTER_TERMINAL_ZOOM = EVENT_CLUSTER_MAX_ZOOM + 1;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = EVENT_CLUSTER_TERMINAL_ZOOM;
@@ -74,20 +74,20 @@ export function shouldRequestTerminalClusterReload(
 }
 
 const CLUSTER_RADIUS_STOPS = [
-  [1, 27],
-  [10, 32],
-  [50, 38],
-  [250, 46],
-  [1_000, 55],
-  [5_000, 66],
+  [1, 24],
+  [10, 29],
+  [50, 34],
+  [250, 40],
+  [1_000, 47],
+  [5_000, 54],
 ] as const;
 
 const CLUSTER_TEXT_STOPS = [
   [1, 14],
   [50, 15],
   [250, 16],
-  [1_000, 18],
-  [5_000, 19],
+  [1_000, 17],
+  [5_000, 18],
 ] as const;
 
 function steppedValue(count: number, stops: ReadonlyArray<readonly [number, number]>): number {
