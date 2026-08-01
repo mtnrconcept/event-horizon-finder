@@ -29,7 +29,10 @@ test("production uses include-all only for the reviewed historical migrations", 
   assert.ok(includeAllPreview > standardPreview);
   assert.match(workflow, new RegExp(compatibilityMigrationPath.replaceAll("/", "\\/")));
   assert.match(workflow, new RegExp(catalogMigrationPath.replaceAll("/", "\\/")));
-  assert.match(workflow, /Refusing --include-all because an unreviewed historical migration is pending/);
+  assert.match(
+    workflow,
+    /Refusing --include-all because an unreviewed historical migration is pending/,
+  );
   assert.match(workflow, /SUPABASE_DB_PUSH_FLAGS=--include-all/);
   assert.match(workflow, /supabase db push --include-all/);
   assert.match(workflow, /else\n\s+supabase db push\n\s+fi/);
