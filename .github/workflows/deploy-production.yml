@@ -115,11 +115,26 @@ jobs:
           node --check scripts/apply-map-mobile-performance-and-poi-filters.mjs
           node --check scripts/apply-poi-map-layer.mjs
           node --check scripts/apply-home-place-search.mjs
+          node --check scripts/apply-map-consistency-performance.mjs
           node scripts/apply-progressive-basemap.mjs
           node scripts/apply-today-default-fullscreen-intro.mjs
           node scripts/apply-map-mobile-performance-and-poi-filters.mjs
           node scripts/apply-poi-map-layer.mjs
           node scripts/apply-home-place-search.mjs
+          node scripts/apply-map-consistency-performance.mjs
+
+      - name: Verify generated map runtime
+        run: |
+          node --test \
+            tests/map-basemap-loading.test.ts \
+            tests/map-filter-consistency.test.ts \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/place-discovery.test.ts \
+            tests/place-pin-session-cache.test.ts \
+            tests/place-map-experience-contract.test.ts \
+            tests/place-enrichment-contract.test.ts
+          bun run typecheck
 
       - name: Build Cloudflare Worker bundle
         env:
