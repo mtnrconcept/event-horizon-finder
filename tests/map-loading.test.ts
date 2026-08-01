@@ -70,9 +70,8 @@ test("map pins stay compact and event content is loaded only on demand", () => {
   const queries = readFileSync(new URL("../src/lib/queries.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/routes/map.tsx", import.meta.url), "utf8");
 
-  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v5"/);
-  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v4"/);
-  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v3"/);
+  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v6"/);
+  assert.match(queries, /\["v5", "v4", "v3", "v2"\]/);
   assert.match(queries, /rpc\("get_map_occurrence_detail_v1"/);
   assert.match(route, /clusterLeafPageRequest/);
   assert.doesNotMatch(route, /loadAllClusterLeaves/);

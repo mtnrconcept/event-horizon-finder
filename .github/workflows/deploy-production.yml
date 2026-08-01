@@ -157,6 +157,7 @@ jobs:
           node --check scripts/apply-home-place-search.mjs
           node --check scripts/apply-map-consistency-performance.mjs
           node --check scripts/apply-adaptive-map-rendering.mjs
+          node --check scripts/apply-place-scraper-enrichment.mjs
           node scripts/apply-progressive-basemap.mjs
           node scripts/apply-today-default-fullscreen-intro.mjs
           node scripts/apply-map-mobile-performance-and-poi-filters.mjs
@@ -164,6 +165,10 @@ jobs:
           node scripts/apply-home-place-search.mjs
           node scripts/apply-map-consistency-performance.mjs
           node scripts/apply-adaptive-map-rendering.mjs
+          # Home/map generators can replace source fragments that the place
+          # enrichment applicator extends. Reapply it last, matching the
+          # verified Vercel build order.
+          node scripts/apply-place-scraper-enrichment.mjs
 
       - name: Verify generated map runtime
         run: |

@@ -11,18 +11,27 @@ function replaceOnce(source, before, after, label) {
   return source.replace(before, after);
 }
 
+function insertAfterOnce(source, pattern, insertion, label) {
+  const match = source.match(pattern);
+  if (!match?.[0]) {
+    throw new Error(`Expected ${label} fragment was not found`);
+  }
+  return source.replace(match[0], `${match[0]}${insertion}`);
+}
+
 let source = await readFile(mapPath, "utf8");
-source = replaceOnce(
-  source,
-  "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;\n",
-  [
-    "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;",
-    "const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;",
-    "const MAP_REVEAL_TIMEOUT_MS = 2_000;",
-    "",
-  ].join("\n"),
-  "map loading constants",
-);
+if (!source.includes("const MAP_PRIMARY_STYLE_TIMEOUT_MS")) {
+  source = insertAfterOnce(
+    source,
+    /const MAP_VIEWPORT_REFRESH_DELAY_MS = \d[\d_]*;\n/,
+    [
+      "const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;",
+      "const MAP_REVEAL_TIMEOUT_MS = 2_000;",
+      "",
+    ].join("\n"),
+    "map loading constants",
+  );
+}
 
 const originalLoadingBlock = `    let primaryStyleLoaded = false;
     const markMapReady = () => {
@@ -54,10 +63,7 @@ const resilientLoadingBlock = `    let primaryStyleLoaded = false;
       rasterFallbackApplied = true;
       map.setStyle(RASTER_FALLBACK_STYLE);
     };
-    const fallbackTimer = window.setTimeout(
-      applyRasterFallback,
-      MAP_PRIMARY_STYLE_TIMEOUT_MS,
-    );
+    const fallbackTimer = window.setTimeout(applyRasterFallback, MAP_PRIMARY_STYLE_TIMEOUT_MS);
     const handleMapError = () => {
       if (primaryStyleLoaded || rasterFallbackApplied) return;
       primaryStyleErrorCount += 1;
@@ -77,27 +83,32 @@ const resilientLoadingBlock = `    let primaryStyleLoaded = false;
       if (!rasterFallbackApplied) primaryStyleLoaded = true;
       if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
 `;
-source = replaceOnce(
-  source,
-  originalLoadingBlock,
-  resilientLoadingBlock,
-  "progressive basemap loading",
-);
-source = replaceOnce(
-  source,
-  `      window.clearTimeout(fallbackTimer);
+if (!source.includes("const applyRasterFallback = () =>")) {
+  source = replaceOnce(
+    source,
+    originalLoadingBlock,
+    resilientLoadingBlock,
+    "progressive basemap loading",
+  );
+}
+if (!source.includes('map.off("error", handleMapError);')) {
+  source = replaceOnce(
+    source,
+    `      window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
 `,
-  `      map.off("error", handleMapError);
+    `      map.off("error", handleMapError);
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
 `,
-  "basemap cleanup",
-);
+    "basemap cleanup",
+  );
+}
 await writeFile(mapPath, source);
 
 let queries = await readFile(queriesPath, "utf8");
-const originalQueryChain = `      // database types include v5.
+const originalQueryChain = `      // Keep the cast at the additive RPC rollout boundary until generated
+      // database types include v5.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const request = (supabase as any).rpc("discover_map_pins_in_bounds_v5", args).retry(false);
       let { data, error } = await (signal ? request.abortSignal(signal) : request);
@@ -136,12 +147,14 @@ const upgradedQueryChain = `      // Keep the cast at the additive RPC rollout b
         ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
       }
 `;
-queries = replaceOnce(
-  queries,
-  originalQueryChain,
-  upgradedQueryChain,
-  "complete v6 map pin fallback chain",
-);
+if (!queries.includes('rpc("discover_map_pins_in_bounds_v6"')) {
+  queries = replaceOnce(
+    queries,
+    originalQueryChain,
+    upgradedQueryChain,
+    "complete v6 map pin fallback chain",
+  );
+}
 await writeFile(queriesPath, queries);
 
 const testSource = `import assert from "node:assert/strict";
@@ -150,10 +163,27 @@ import test from "node:test";
 
 const mapSource = await readFile(new URL("../src/routes/map.tsx", import.meta.url), "utf8");
 const queriesSource = await readFile(new URL("../src/lib/queries.ts", import.meta.url), "utf8");
+const applicatorSource = await readFile(
+  new URL("../scripts/apply-progressive-basemap.mjs", import.meta.url),
+  "utf8",
+);
+
+test("the progressive map applicator is safe after interaction tuning", () => {
+  assert.match(applicatorSource, /MAP_VIEWPORT_REFRESH_DELAY_MS = \\d\[\\d_\]\*;/);
+  assert.doesNotMatch(applicatorSource, /MAP_VIEWPORT_REFRESH_DELAY_MS = 220;\\n/);
+  assert.match(
+    applicatorSource,
+    /if \\(!source\\.includes\\("const MAP_PRIMARY_STYLE_TIMEOUT_MS"\\)\\)/,
+  );
+  assert.match(
+    applicatorSource,
+    /if \\(!queries\\.includes\\('rpc\\("discover_map_pins_in_bounds_v6"'\\)\\)/,
+  );
+});
 
 test("the vector basemap is the primary mobile and desktop style", () => {
   assert.match(mapSource, /style: PRIMARY_MAP_STYLE/);
-  assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\\n        center/);
+  assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\\n {8}center/);
 });
 
 test("raster fallback remains bounded and reacts to repeated style errors", () => {

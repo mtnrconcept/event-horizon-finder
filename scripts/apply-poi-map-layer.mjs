@@ -179,7 +179,6 @@ replaceOnce(
     '  useEffect(() => {',
     '    if (!mapDiscoveryParams || !listRequested) {',
     '      if (!mapDiscoveryParams) {',
-    '        setEvents([]);',
     '        setMobileListHasMore(false);',
     '        setMobileListError(null);',
     '      }',
