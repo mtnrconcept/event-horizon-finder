@@ -11,12 +11,14 @@ de temps Edge ne fait donc pas recommencer le cycle.
 1. `scripts/import_geonames_city_targets.py` télécharge les exports GeoNames
    `countryInfo.txt` et `cities500.zip`, puis sélectionne les plus grandes
    villes de chaque pays/territoire couvert.
-2. L’action `plan` construit sept requêtes quotidiennes localisées de vie
-   nocturne, puis famille, plein air et culture pour chaque mois touché par
-   cette fenêtre. Elle complète la langue nationale principale par les autres
-   langues GeoNames du pays, dans un budget strict de 16 requêtes par ville.
-   Une ville monolingue produit donc 10 requêtes, ou 13 lorsqu’elle traverse un
-   changement de mois; une ville d’un pays multilingue peut monter à 16.
+2. L’action `plan` construit sept requêtes quotidiennes généralistes, huit
+   couloirs mensuels de catégories et une recherche annuelle de festivals.
+   Culture, famille, plein air, musique, sport, gastronomie, apprentissage,
+   bien-être, vie locale, business et vie nocturne tournent selon la ville et
+   la semaine. La langue locale tourne elle aussi d’une semaine à l’autre dans
+   les pays multilingues. Le budget reste strictement limité à 16 requêtes par
+   ville et la vie nocturne ne peut plus occuper que l’un des huit couloirs
+   mensuels.
 3. L’action `search` interroge uniquement une instance **SearXNG privée** en
    JSON. Elle conserve au maximum les dix premiers sites de domaines distincts
    après normalisation et met les résultats en cache (24 heures par défaut).
@@ -35,8 +37,9 @@ de temps Edge ne fait donc pas recommencer le cycle.
    limite globale silencieuse ne coupe un agenda. Il n’utilise ni navigateur
    caché ni fournisseur d’extraction payant.
 6. Les événements acceptés sont checkpointés dans une file SQL au niveau de
-   chaque événement, puis persistés par petits lots idempotents. Une page dense
-   ne dépend donc plus de la durée d’une seule fonction Edge.
+   chaque événement, puis l’action indépendante `persistence` les enregistre
+   par petits lots idempotents. Une page dense ne dépend donc plus de la durée
+   d’une seule fonction Edge et ne réduit plus le temps disponible au crawler.
 7. La normalisation conserve notamment dates, horaires, fuseau, lieu,
    coordonnées plausibles, description, organisateur, catégorie, prix,
    devise, statut, billetterie et image lorsqu’ils sont effectivement trouvés.
@@ -83,11 +86,11 @@ second déclencheur dans Supabase :
 - un verrou transactionnel et un délai minimum de douze minutes empêchent les
   doubles dispatchs ;
 - chaque tick envoie au maximum huit requêtes Edge asynchrones et bornées :
-  une planification, une recherche et six workers crawl/persistance ;
-- chaque worker réclame les persistances une par une, jusqu’à six par défaut
-  (huit au maximum), puis une page. Il ne pré-réserve donc jamais un gros lot,
-  limite la lecture directe à six sous-pages et réserve une marge avant le
-  plafond Edge de 150 secondes ;
+  une planification, une recherche, trois workers Persistence et trois workers
+  Crawl ;
+- chaque worker Persistence réclame les enregistrements un par un, jusqu’à huit
+  par appel, tandis qu’un worker Crawl ne réclame qu’une page. Aucun gros lot
+  n’est pré-réservé et chaque étape conserve son propre budget Edge ;
 - l’admission SQL limite Persistence à deux upserts simultanés sur l’ensemble
   des workers et à un seul travail actif par domaine. Trois timeouts PostgreSQL
   `57014` consécutifs en quinze minutes
@@ -143,6 +146,10 @@ Il désactive le job et supprime les objets propres au scheduler, tout en
 conservant `pg_cron` et `pg_net` pour ne pas casser d'autres tâches éventuelles.
 Le rollback du reaper et des nouveaux paramètres se trouve dans
 `supabase/rollback/20260728124509_global_discovery_lease_reaper_rollback.sql`.
+Le rollback du partage des workers et du rééquilibrage se trouve dans
+`supabase/rollback/20260801160000_fair_worldwide_discovery_workers_rollback.sql`.
+Il remet immédiatement tous les Crawl différés à disposition et restaure les
+six workers combinés du scheduler précédent, sans supprimer de job.
 Le circuit breaker est introduit par
 `20260729072607_persistence_circuit_breaker.sql` ; sa table et sa RPC de statut
 restent privées au rôle serveur. Son rollback récupérable se trouve dans
@@ -342,13 +349,13 @@ Le workflow `.github/workflows/discover-world-events.yml` :
 
 - exécute les tests Node/Python/Go et le type-check Deno; le `--dry-run`
   GeoNames réseau est exécuté en PR/manuel, pas avant chaque cycle planifié ;
-- lance une tranche toutes les quinze minutes avec quatre workers de
-  recherche et quatre workers de crawl par défaut, puis les reprend via les files,
+- lance une tranche toutes les quinze minutes avec quatre workers Search,
+  trois workers Persistence et quatre workers Crawl par défaut, puis les reprend via les files,
   uniquement lorsque la variable GitHub Actions `GLOBAL_DISCOVERY_ENABLED`
   vaut exactement `true` ;
 - publie après chaque tranche un rapport JSON horodaté dans le résumé de
   l’exécution GitHub Actions, y compris lorsqu’une étape précédente échoue ;
-- traite les files Search et Crawl globalement, sans dépendre du fichier d’état
+- traite les files Search, Persistence et Crawl globalement, sans dépendre du fichier d’état
   produit par Plan : une panne de planification ne bloque donc plus leur vidange ;
 - rejoue toute l’histoire des migrations sur une base Supabase locale jetable
   en validation; aucune clé de production n’est disponible dans ce job ;
@@ -385,6 +392,9 @@ python3 scripts/run_global_event_discovery.py plan \
 python3 scripts/run_global_event_discovery.py search \
   --batch-size 5 --max-batches 20 --pause-seconds 2
 
+python3 scripts/run_global_event_discovery.py persistence \
+  --batch-size 8 --max-batches 20 --pause-seconds 2 --timeout 120
+
 python3 scripts/run_global_event_discovery.py crawl \
   --batch-size 2 --max-batches 20 --pause-seconds 3 --timeout 360
 
@@ -393,7 +403,7 @@ python3 scripts/run_global_event_discovery.py status
 
 Le dernier `campaign_id` est écrit sans secret dans
 `.cache/global-event-discovery/state.json`. `--campaign-id <uuid>` permet une
-reprise explicite. `--no-state` désactive le fichier : `search` et `crawl`
+reprise explicite. `--no-state` désactive le fichier : `search`, `persistence` et `crawl`
 vident alors les files globales sans dépendre de Plan, tandis que `status`
 résout automatiquement la campagne correspondant à la fenêtre de demain.
 Chaque appel produit une ligne JSON nettoyée, puis un résumé. La boucle s’arrête lorsque le serveur renvoie
@@ -404,8 +414,9 @@ de sécurité anormalement atteint devient une erreur visible, jamais un succès
 tronqué.
 
 Sans `--target-date`, la fenêtre commence **demain** et couvre sept jours
-consécutifs. Les trois autres familles couvrent chaque mois touché, y compris
-quand la semaine traverse un changement de mois.
+consécutifs avec une recherche généraliste par jour. Huit catégories mensuelles
+tournent à chaque nouvelle planification et une recherche annuelle garde les
+grands festivals dans le cycle.
 
 ## Volume, parallélisme et montée en charge
 
@@ -414,9 +425,9 @@ Le nombre exact `N` est produit par le `--dry-run` du dump `cities500`, qui
 micro-États et territoires habités. La taille opérationnelle est donc :
 
 ```text
-N villes × 10 requêtes habituelles en langue unique
-N villes × 13 requêtes au changement de mois en langue unique
-N villes × 16 requêtes au maximum avec langues supplémentaires
+N villes × 7 recherches quotidiennes généralistes
+N villes × 8 couloirs mensuels de catégories
+N villes × 1 recherche annuelle de festivals
 N × 16 × 10 emplacements de résultat au maximum
 ```
 
@@ -431,8 +442,9 @@ planificateur n’ajoute plus de villes lorsque le backlog global atteint 2 000
 recherches ou 5 000 crawls. La réclamation d’une recherche réserve en plus dix
 places de crawl sous verrou transactionnel : plusieurs workers ne peuvent donc
 pas franchir silencieusement le plafond. Le crawl s’arrête à son tour lorsque
-la file de persistance événementielle atteint 20 000 éléments, tout en vidant
-cette file avant de télécharger de nouvelles pages. Les seuils sont
+la file de persistance événementielle exécutable atteint son seuil actif. Les
+jobs temporairement différés par circuit breaker ou rééquilibrage ne bloquent
+plus une file amont. Les seuils sont
 configurables par `GLOBAL_MAX_QUEUED_SEARCH_JOBS`,
 `GLOBAL_MAX_QUEUED_CRAWL_JOBS` et
 `GLOBAL_MAX_QUEUED_PERSISTENCE_JOBS`.
@@ -445,22 +457,23 @@ la pression continue sur PostgREST. Les plafonds théoriques sont :
 - plan : `1 appel × 25 villes × 96 passages/jour` = 2 400 villes/jour ;
 - recherche : `4 workers × 3 appels × 5 requêtes × 96` = 5 760
   recherches/jour ;
-- crawl : `4 workers × 5 appels × 2 sites × 96` = 3 840 pages/jour, avant
+- crawl : `4 workers × 5 appels × 1 site × 96` = 1 920 pages/jour, avant
   les continuations durables de pagination et de fiches détail.
-- persistance : les mêmes appels Crawl peuvent vider jusqu’à
-  `4 workers × 5 appels × 10 événements × 96` = 19 200 événements/jour,
-  séquentiellement dans chaque invocation et seulement tant que la file contient
-  du travail.
+- persistance : `3 workers × 5 appels × 8 événements × 96` = 11 520
+  tentatives/jour au maximum. L’admission SQL reste plafonnée à deux écritures
+  simultanées et un domaine actif par worker, indépendamment du nombre d’appels.
 
-Lorsque le backlog Crawl dépasse 5 000, `claimed: 0` côté Search est une
-pause de backpressure attendue, pas l’absence d’un worker. De même, au-dessus
-de 20 000 éléments de persistance, chaque appel Crawl commence par vider la
-file de persistance avant de réclamer de nouvelles pages. Le lot de persistance
-est volontairement indépendant du lot Crawl : le profil `--batch-size 2`
-conserve donc la valeur de vidange prévue de 10 événements par appel.
+Lorsque le backlog Crawl exécutable dépasse 5 000, `claimed: 0` côté Search est
+une pause de backpressure attendue, pas l’absence d’un worker. De même, lorsque
+Persistence atteint son seuil, Crawl se met en pause pendant que les workers
+Persistence continuent. Le rééquilibrage conserve 25 pages immédiatement
+exécutables par domaine, privilégie racines et faible profondeur, puis décale
+les continuations excédentaires par tranches de six heures. Il ne supprime
+aucun job ; `restore_deferred_global_crawl_jobs_v1` annule ces délais si un
+rollback est nécessaire.
 
 Sur le dump audité en juillet 2026 (246 pays/territoires et 3 414 villes
-sélectionnées), un cycle représente environ 34 140 à 54 624 recherches : la
+sélectionnées), un cycle complet représente au maximum 54 624 recherches : la
 file de recherche peut donc être vidée en 2,2 à 3,6 jours au plafond, sous
 réserve que SearXNG et les moteurs amont tolèrent le débit. La borne absolue de
 10 nouveaux sites par requête représenterait encore 22 à 36 jours de crawl ;

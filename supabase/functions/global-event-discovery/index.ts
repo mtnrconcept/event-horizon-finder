@@ -37,7 +37,7 @@ import {
 
 const SEARCH_PROVIDER = "searxng";
 const SEARCH_RESULT_LIMIT = 10;
-const NIGHTLIFE_WINDOW_DAYS = 7;
+const DAILY_GENERAL_WINDOW_DAYS = 7;
 const DEFAULT_PLAN_CITY_LIMIT = 25;
 const MAX_PLAN_CITY_LIMIT = 75;
 const DEFAULT_SEARCH_BATCH = 3;
@@ -455,10 +455,18 @@ function requestedCountryCodes(value: unknown): string[] {
 async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
   const date = discoveryDate(body.date ?? body.target_date);
   const countryCodes = requestedCountryCodes(body.countryCodes ?? body.country_codes);
-  const maintenance = await rpc<unknown>(admin, "prune_global_discovery_history", {
-    _retention_days: 45,
-    _batch_limit: 2_000,
-  });
+  const [historyMaintenance, backlogMaintenance] = await Promise.all([
+    rpc<unknown>(admin, "prune_global_discovery_history", {
+      _retention_days: 45,
+      _batch_limit: 2_000,
+    }),
+    rpc<unknown>(admin, "rebalance_global_discovery_backlog_v1", {
+      _per_domain_ready_limit: 25,
+      _defer_step_hours: 6,
+      _batch_limit: 10_000,
+    }),
+  ]);
+  const maintenance = { history: historyMaintenance, backlog: backlogMaintenance };
   const period = campaignPeriod(date);
   const cityLimit = boundedInteger(
     body.cityLimit ?? body.batch_size,
@@ -475,8 +483,10 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
     _provider: SEARCH_PROVIDER,
     _metadata: {
       query_date: date.toISOString().slice(0, 10),
-      planner_version: 2,
-      nightlife_window_days: NIGHTLIFE_WINDOW_DAYS,
+      planner_version: 3,
+      daily_general_window_days: DAILY_GENERAL_WINDOW_DAYS,
+      monthly_category_lanes: 8,
+      annual_category_lanes: 1,
       search_result_limit: SEARCH_RESULT_LIMIT,
       country_codes: countryCodes,
     },
@@ -554,8 +564,9 @@ async function handlePlan(admin: AdminClient, body: JsonObject): Promise<JsonObj
       countryName: target.country_name,
       date,
       locales: searchLocales(target),
-      primaryNightlifeDays: NIGHTLIFE_WINDOW_DAYS,
+      primaryDailyGeneralDays: DAILY_GENERAL_WINDOW_DAYS,
       maxQueries: 16,
+      rotationKey: target.city_id,
     });
     for (const query of queries) {
       const cacheKey = await sha256(
@@ -1916,40 +1927,29 @@ async function failCrawlJob(
   });
 }
 
-async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
+async function handlePersistence(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
   const startedAt = Date.now();
-  const crawlLimit = boundedInteger(
-    body.limit ?? body.batch_size,
-    DEFAULT_CRAWL_BATCH,
-    1,
-    MAX_CRAWL_BATCH,
-  );
-  const persistenceLimit = boundedInteger(
-    body.persistenceLimit ?? body.persistence_limit,
+  const limit = boundedInteger(
+    body.limit ?? body.batch_size ?? body.persistenceLimit ?? body.persistence_limit,
     DEFAULT_PERSISTENCE_BATCH,
     1,
     MAX_PERSISTENCE_BATCH,
   );
   const workerId = crypto.randomUUID();
-  const persistenceJobs: PersistenceJob[] = [];
-  let jobs: CrawlJob[] = [];
-  const persistenceSummaries: JsonObject[] = [];
-  const crawlSummaries: JsonObject[] = [];
-  let persistenceDeferred = 0;
-  let crawlDeferred = 0;
+  const jobs: PersistenceJob[] = [];
+  const summaries: JsonObject[] = [];
+  let deferred = 0;
 
   try {
     const leaseReaper = await rpc<JsonObject>(admin, "reap_global_discovery_expired_leases_v1", {
       _batch_limit: 1000,
     });
-
-    // Keep the two database admission slots productive without pre-leasing a
-    // large batch. The claim RPC also allows only one active job per domain,
-    // so independent sources can progress without fighting the same identity
-    // lock or letting a hot source monopolize both slots.
-    while (persistenceJobs.length < persistenceLimit) {
+    // The database remains authoritative for admission (two global leases,
+    // one per domain). Independent Edge calls only keep those slots occupied;
+    // they do not raise write concurrency or bypass identity locks.
+    while (jobs.length < limit) {
       if (!workerHasBudget(startedAt, MIN_PERSISTENCE_START_BUDGET_MS)) {
-        persistenceDeferred = persistenceLimit - persistenceJobs.length;
+        deferred = limit - jobs.length;
         break;
       }
       const claimed = asRows<PersistenceJob>(
@@ -1961,16 +1961,16 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
       );
       const job = claimed[0];
       if (!job) break;
-      persistenceJobs.push(job);
+      jobs.push(job);
       try {
-        persistenceSummaries.push(await persistClaimedEvent(admin, workerId, job));
+        summaries.push(await persistClaimedEvent(admin, workerId, job));
       } catch (error) {
         try {
           await failPersistenceJob(admin, workerId, job, error);
         } catch {
-          // The final lease release or periodic reaper will recover this job.
+          // The final release or periodic reaper will recover this job.
         }
-        persistenceSummaries.push({
+        summaries.push({
           jobId: job.persistence_job_id,
           crawlJobId: job.crawl_job_id,
           kind: "persistence",
@@ -1979,6 +1979,50 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
         });
       }
     }
+    return {
+      ok: true,
+      action: "persistence",
+      claimed: jobs.length,
+      completed: summaries.filter((summary) => summary.ok === true).length,
+      failed: summaries.filter((summary) => summary.ok === false).length,
+      budget: {
+        limitMs: WORKER_EXECUTION_BUDGET_MS,
+        remainingMs: remainingWorkerBudgetMs(startedAt),
+        deferred,
+        exhausted: deferred > 0,
+      },
+      leaseReaper,
+      jobs: summaries,
+    };
+  } finally {
+    try {
+      await rpc<JsonObject>(admin, "release_global_discovery_worker_leases_v1", {
+        _worker_id: workerId,
+        _retry_after_seconds: 5,
+      });
+    } catch {
+      // The independent SQL reaper remains the final recovery path.
+    }
+  }
+}
+
+async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonObject> {
+  const startedAt = Date.now();
+  const crawlLimit = boundedInteger(
+    body.limit ?? body.batch_size,
+    DEFAULT_CRAWL_BATCH,
+    1,
+    MAX_CRAWL_BATCH,
+  );
+  const workerId = crypto.randomUUID();
+  let jobs: CrawlJob[] = [];
+  const crawlSummaries: JsonObject[] = [];
+  let crawlDeferred = 0;
+
+  try {
+    const leaseReaper = await rpc<JsonObject>(admin, "reap_global_discovery_expired_leases_v1", {
+      _batch_limit: 1000,
+    });
 
     if (workerHasBudget(startedAt, MIN_CRAWL_START_BUDGET_MS)) {
       // Validate infrastructure before leasing crawl work. A missing proxy
@@ -2035,7 +2079,6 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
       }
     }
 
-    const summaries = [...persistenceSummaries, ...crawlSummaries];
     // Per-URL crawl failures (e.g. robots_disallowed, crawl_delay_deferred,
     // crawl_unexpected_error) are expected operational outcomes. Infrastructure
     // failures are caught by the outer handler after unfinished leases are
@@ -2043,25 +2086,17 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
     return {
       ok: true,
       action: "crawl",
-      claimed: persistenceJobs.length + jobs.length,
-      persistenceClaimed: persistenceJobs.length,
+      claimed: jobs.length,
       crawlClaimed: jobs.length,
-      completed: summaries.filter((summary) => summary.ok === true).length,
-      failed: summaries.filter((summary) => summary.ok === false).length,
+      completed: crawlSummaries.filter((summary) => summary.ok === true).length,
+      failed: crawlSummaries.filter((summary) => summary.ok === false).length,
       budget: {
         limitMs: WORKER_EXECUTION_BUDGET_MS,
         remainingMs: remainingWorkerBudgetMs(startedAt),
-        persistenceDeferred,
         crawlDeferred,
-        exhausted: persistenceDeferred > 0 || crawlDeferred > 0,
+        exhausted: crawlDeferred > 0,
       },
       leaseReaper,
-      persistence: {
-        batchLimit: persistenceLimit,
-        claimed: persistenceJobs.length,
-        completed: persistenceSummaries.filter((summary) => summary.ok === true).length,
-        failed: persistenceSummaries.filter((summary) => summary.ok === false).length,
-      },
       crawl: {
         batchLimit: crawlLimit,
         pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET,
@@ -2069,7 +2104,7 @@ async function handleCrawl(admin: AdminClient, body: JsonObject): Promise<JsonOb
         completed: crawlSummaries.filter((summary) => summary.ok === true).length,
         failed: crawlSummaries.filter((summary) => summary.ok === false).length,
       },
-      jobs: summaries,
+      jobs: crawlSummaries,
     };
   } finally {
     try {
@@ -2449,7 +2484,10 @@ Deno.serve(async (req: Request) => {
     }
     const body = await readJsonBody(req);
     const action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "";
-    if (["plan", "search", "crawl"].includes(action) && !validUuid(body.scheduler_dispatch_id)) {
+    if (
+      ["plan", "search", "persistence", "crawl"].includes(action) &&
+      !validUuid(body.scheduler_dispatch_id)
+    ) {
       await rpc<boolean>(admin, "record_global_discovery_external_activity_v1", {
         _action: action,
       });
@@ -2461,6 +2499,9 @@ Deno.serve(async (req: Request) => {
         break;
       case "search":
         result = await handleSearch(admin, body);
+        break;
+      case "persistence":
+        result = await handlePersistence(admin, body);
         break;
       case "crawl":
         result = await handleCrawl(admin, body);

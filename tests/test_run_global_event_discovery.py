@@ -136,13 +136,14 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn('".github/workflows/discover-world-events.yml"', push_block)
         self.assertNotIn('"scripts/', push_block)
         self.assertNotIn('"supabase/', push_block)
-        self.assertEqual(workflow.count("github.event_name == 'push'"), 8)
+        self.assertEqual(workflow.count("github.event_name == 'push'"), 9)
         self.assertGreaterEqual(
             workflow.count("vars.GLOBAL_DISCOVERY_ENABLED == 'true'"),
             2,
         )
         self.assertIn("inputs.plan_batches || 1", workflow)
         self.assertIn("inputs.search_batches || 3", workflow)
+        self.assertIn("inputs.persistence_batches || 5", workflow)
         self.assertIn("inputs.crawl_batches || 5", workflow)
 
         # run_worker_loop performs up to --max-batches calls for every spawned
@@ -152,6 +153,8 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             for name in (
                 "SEARCH_BATCHES",
                 "SEARCH_WORKERS",
+                "PERSISTENCE_BATCHES",
+                "PERSISTENCE_WORKERS",
                 "CRAWL_BATCHES",
                 "CRAWL_WORKERS",
             )
@@ -161,6 +164,8 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             {
                 "SEARCH_BATCHES": 3,
                 "SEARCH_WORKERS": 4,
+                "PERSISTENCE_BATCHES": 5,
+                "PERSISTENCE_WORKERS": 3,
                 "CRAWL_BATCHES": 5,
                 "CRAWL_WORKERS": 4,
             },
@@ -168,6 +173,10 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertEqual(
             scheduled["SEARCH_BATCHES"] * scheduled["SEARCH_WORKERS"] * 4,
             48,
+        )
+        self.assertEqual(
+            scheduled["PERSISTENCE_BATCHES"] * scheduled["PERSISTENCE_WORKERS"] * 4,
+            60,
         )
         self.assertEqual(
             scheduled["CRAWL_BATCHES"] * scheduled["CRAWL_WORKERS"] * 4,
@@ -200,17 +209,16 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
             workflow,
         )
 
-    def test_crawl_batch_does_not_reduce_the_persistence_batch(self):
+    def test_persistence_has_an_independent_bounded_worker_action(self):
         edge_function = EDGE_FUNCTION.read_text(encoding="utf-8")
         self.assertIn(
-            "body.persistenceLimit ?? body.persistence_limit,\n"
+            "body.limit ?? body.batch_size ?? body.persistenceLimit ?? body.persistence_limit,\n"
             "    DEFAULT_PERSISTENCE_BATCH,",
             edge_function,
         )
-        self.assertNotIn(
-            "body.persistenceLimit ?? body.persistence_limit ?? body.limit ?? body.batch_size",
-            edge_function,
-        )
+        self.assertIn('case "persistence":', edge_function)
+        self.assertIn('action: "persistence"', edge_function)
+        self.assertNotIn("persistenceClaimed", edge_function)
         self.assertIn('"upsert_ingested_event_serial_v1"', edge_function)
         self.assertNotIn('"upsert_ingested_event_v2"', edge_function)
 
@@ -291,7 +299,7 @@ class GlobalDiscoveryRunnerTests(unittest.TestCase):
         self.assertIn("const MAX_PERSISTENCE_BATCH = 8", edge_function)
         self.assertIn("_limit: 1", edge_function)
         self.assertIn(
-            "while (persistenceJobs.length < persistenceLimit)",
+            "while (jobs.length < limit)",
             edge_function,
         )
         self.assertIn("pageFetchBudget: DIRECT_PAGE_FETCH_BUDGET", edge_function)

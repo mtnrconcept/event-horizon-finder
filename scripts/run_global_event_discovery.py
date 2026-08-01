@@ -3,7 +3,8 @@
 
 The client only uses Python's standard library. It calls the protected
 ``global-event-discovery`` Supabase Edge Function with one of four actions:
-``plan``, ``search``, ``crawl`` or ``status``. Planning, search and crawl work
+``plan``, ``search``, ``persistence``, ``crawl`` or ``status``. Planning,
+search, persistence and crawl work
 is always bounded by ``--max-batches`` and resumes from durable server-side
 queues.
 
@@ -437,7 +438,7 @@ def _country_code(value: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("plan", "search", "crawl", "status"))
+    parser.add_argument("action", choices=("plan", "search", "persistence", "crawl", "status"))
     parser.add_argument(
         "--supabase-url",
         help="Project URL/ref; defaults to SUPABASE_URL or SUPABASE_PROJECT_ID",

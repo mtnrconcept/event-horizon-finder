@@ -63,6 +63,16 @@ on:
         required: false
         default: 4
         type: number
+      persistence_batches:
+        description: Maximum persistence worker calls
+        required: false
+        default: 8
+        type: number
+      persistence_workers:
+        description: Parallel persistence workers (database admission stays capped at 2)
+        required: false
+        default: 3
+        type: number
       crawl_batches:
         description: Maximum direct-crawl worker calls
         required: false
@@ -230,6 +240,11 @@ jobs:
         run: >-
           supabase db query --local
           --file tests/event-search-facets-smoke.sql
+
+      - name: Exercise worldwide queue fairness and reversible deferral
+        run: >-
+          supabase db query --local
+          --file tests/global-discovery-fairness-smoke.sql
 
       - name: Remove disposable local database
         if: always() && steps.setup_supabase_cli.outcome == 'success'
@@ -449,6 +464,40 @@ jobs:
             python3 scripts/run_global_event_discovery.py search \
               --no-state \
               --batch-size 5 --max-batches "$SEARCH_BATCHES" --pause-seconds 2 \
+              > "$log_file" &
+            pids+=("$!")
+          done
+          failed=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then failed=1; fi
+          done
+          for log_file in "${logs[@]}"; do cat "$log_file"; done
+          exit "$failed"
+
+      - name: Process a bounded persistence slice
+        if: >-
+          !cancelled() &&
+          (github.event_name == 'schedule' || github.event_name == 'push' || inputs.run_discovery)
+        env:
+          GLOBAL_SCRAPER_SECRET: ${{ secrets.GLOBAL_SCRAPER_SECRET }}
+          PERSISTENCE_BATCHES: ${{ github.event_name == 'workflow_dispatch' && inputs.persistence_batches || 5 }}
+          PERSISTENCE_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.persistence_workers || 3 }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          mkdir -p .cache/global-event-discovery
+          if [[ ! "$PERSISTENCE_WORKERS" =~ ^[0-9]+$ ]] || (( PERSISTENCE_WORKERS < 1 || PERSISTENCE_WORKERS > 4 )); then
+            echo "PERSISTENCE_WORKERS must be between 1 and 4" >&2
+            exit 1
+          fi
+          pids=()
+          logs=()
+          for ((worker = 1; worker <= PERSISTENCE_WORKERS; worker += 1)); do
+            log_file=".cache/global-event-discovery/persistence-${worker}.jsonl"
+            logs+=("$log_file")
+            python3 scripts/run_global_event_discovery.py persistence \
+              --no-state \
+              --batch-size 8 --max-batches "$PERSISTENCE_BATCHES" --pause-seconds 2 --timeout 120 \
               > "$log_file" &
             pids+=("$!")
           done
