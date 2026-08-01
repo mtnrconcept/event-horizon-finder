@@ -1,3 +1,12 @@
 {
-  "buildCommand": "node scripts/apply-progressive-basemap.mjs && node scripts/apply-today-default-fullscreen-intro.mjs && node scripts/apply-map-mobile-performance-and-poi-filters.mjs && node scripts/apply-poi-map-layer.mjs && npm run build:vercel"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "node scripts/apply-progressive-basemap.mjs && node scripts/apply-today-default-fullscreen-intro.mjs && node scripts/apply-map-mobile-performance-and-poi-filters.mjs && node scripts/apply-poi-map-layer.mjs && npm run build:vercel",
+  "git": {
+    "deploymentEnabled": {
+      "agent/*": false
+    }
+  },
+  "github": {
+    "silent": true
+  }
 }
