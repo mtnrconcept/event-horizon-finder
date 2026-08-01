@@ -2,15 +2,51 @@
 -- support targeted city runs, and schedule a conservative continuous worker.
 --
 -- This migration must be independently replayable from an empty database. The
--- permanent-place schema was originally added by a later timestamped migration,
--- so create every city scheduling column used below before building indexes or
--- functions that reference it.
+-- permanent-place schema was originally added by later timestamped migrations,
+-- so create every city scheduling column and the base places table before any
+-- earlier map projection migration references them.
 alter table public.cities
   add column if not exists places_last_discovered_at timestamptz,
   add column if not exists places_discovery_error text,
   add column if not exists places_last_attempted_at timestamptz,
   add column if not exists places_discovery_failure_count integer not null default 0,
   add column if not exists places_discovery_next_retry_at timestamptz;
+
+create table if not exists public.places_of_interest (
+  id uuid primary key default gen_random_uuid(),
+  city_id uuid not null references public.cities(id) on delete cascade,
+  country_id uuid references public.countries(id) on delete set null,
+  venue_id uuid references public.venues(id) on delete set null,
+  source_provider text not null default 'openstreetmap',
+  source_type text not null,
+  source_id bigint not null,
+  source_url text,
+  name text not null,
+  slug text not null,
+  category text not null,
+  subcategory text,
+  description text,
+  address text,
+  website text,
+  phone text,
+  image_url text,
+  opening_hours text,
+  fee text,
+  wheelchair text,
+  latitude double precision not null,
+  longitude double precision not null,
+  location geography(point, 4326) generated always as (
+    st_setsrid(st_makepoint(longitude, latitude), 4326)::geography
+  ) stored,
+  tags jsonb not null default '{}'::jsonb,
+  quality_score integer not null default 0 check (quality_score between 0 and 100),
+  is_public boolean not null default true,
+  last_seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (source_provider, source_type, source_id),
+  unique (city_id, slug)
+);
 
 create index if not exists cities_place_discovery_schedule_idx
   on public.cities (
