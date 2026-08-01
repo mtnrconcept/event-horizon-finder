@@ -112,7 +112,8 @@ function syncAdaptiveMapRendering(
 ) {
   const targetProjection =
     !reducedEffects && map.getZoom() < MAP_ADAPTIVE_GLOBE_MAX_ZOOM ? "globe" : "mercator";
-  if (map.getProjection().type !== targetProjection) {
+  const currentProjection = map.getProjection();
+  if (currentProjection && currentProjection.type !== targetProjection) {
     map.setProjection({ type: targetProjection });
   }
   ensureAdaptiveBuildingLayer(map, allowBuildings && !reducedEffects);
@@ -174,15 +175,22 @@ function syncAdaptiveMapRendering(
         map,
         revision: current?.map === map ? current.revision + 1 : 1,
       }));
-      syncAdaptiveMapRendering(map, reducedMapEffects, allow3DBuildings);
+      scheduleAdaptiveRendering();
       markMapReady();
     });
     map.on("styledata", () => {
       if (map.isStyleLoaded()) setReadyMap(map);
     });
-    const handleAdaptiveRendering = () =>
-      syncAdaptiveMapRendering(map, reducedMapEffects, allow3DBuildings);
-    map.on("zoomend", handleAdaptiveRendering);
+    let adaptiveRenderingFrame = 0;
+    function scheduleAdaptiveRendering() {
+      window.cancelAnimationFrame(adaptiveRenderingFrame);
+      adaptiveRenderingFrame = window.requestAnimationFrame(() => {
+        adaptiveRenderingFrame = 0;
+        if (map.isMoving() || !map.isStyleLoaded()) return;
+        syncAdaptiveMapRendering(map, reducedMapEffects, allow3DBuildings);
+      });
+    }
+    map.on("zoomend", scheduleAdaptiveRendering);
     map.addControl(
       new maplibregl.NavigationControl({ visualizePitch: allow3DBuildings }),
       "top-right",
@@ -197,7 +205,8 @@ function syncAdaptiveMapRendering(
       window.clearTimeout(fallbackTimer);
 `,
     `      map.off("error", handleMapError);
-      map.off("zoomend", handleAdaptiveRendering);
+      map.off("zoomend", scheduleAdaptiveRendering);
+      window.cancelAnimationFrame(adaptiveRenderingFrame);
       window.clearTimeout(fallbackTimer);
 `,
     "adaptive rendering cleanup",
@@ -241,7 +250,17 @@ const clusters = await readFile(new URL("../src/lib/map-cluster-config.ts", impo
 test("the map uses adaptive globe rather than a permanently expensive 3D scene", () => {
   assert.match(map, /MAP_ADAPTIVE_GLOBE_MAX_ZOOM = 5\\.5/);
   assert.match(map, /map\\.setProjection\\(\\{ type: targetProjection \\}\\)/);
+  assert.match(map, /currentProjection && currentProjection\\.type !== targetProjection/);
   assert.match(map, /targetProjection[\\s\\S]*\\? "globe" : "mercator"/);
+});
+
+test("projection changes wait until MapLibre has finished the active zoom render", () => {
+  assert.match(map, /function scheduleAdaptiveRendering\\(\\)/);
+  assert.match(map, /requestAnimationFrame\\(\\(\\) => \\{/);
+  assert.match(map, /map\\.isMoving\\(\\) \\|\\| !map\\.isStyleLoaded\\(\\)/);
+  assert.match(map, /map\\.on\\("zoomend", scheduleAdaptiveRendering\\)/);
+  assert.match(map, /cancelAnimationFrame\\(adaptiveRenderingFrame\\)/);
+  assert.doesNotMatch(map, /map\\.on\\("zoomend", handleAdaptiveRendering\\)/);
 });
 
 test("3D buildings reuse the loaded vector source and stay desktop-only", () => {
