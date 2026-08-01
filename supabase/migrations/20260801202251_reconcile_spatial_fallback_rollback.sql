@@ -1,0 +1,11 @@
+-- Migration-history reconciliation marker.
+--
+-- Version 20260801202251 restored production to the bounded spatial discovery
+-- path after the temporary city-centre fallback caused excessive map work.
+-- It also contained a one-off data repair for the current 1 August imports;
+-- transient production row repairs are deliberately not replayed on fresh
+-- databases.
+--
+-- No durable schema change is required because the repository's preceding
+-- migrations already define the intended indexed occurrence/venue behaviour.
+select 1;
