@@ -31,25 +31,30 @@ interface PlaceUpcomingEventBatch {
 
 const PAGE_SIZE = 24;
 
+function isPlaceUpcomingEvent(value: unknown): value is PlaceUpcomingEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PlaceUpcomingEvent>;
+  return (
+    typeof candidate.occurrence_id === "string" &&
+    typeof candidate.event_id === "string" &&
+    typeof candidate.slug === "string" &&
+    typeof candidate.title === "string" &&
+    typeof candidate.starts_at === "string"
+  );
+}
+
 function parseBatch(value: unknown): PlaceUpcomingEventBatch {
-  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const payload =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const items = Array.isArray(payload.items)
-    ? payload.items.filter(
-        (item): item is PlaceUpcomingEvent =>
-          Boolean(
-            item &&
-              typeof item === "object" &&
-              typeof (item as PlaceUpcomingEvent).occurrence_id === "string" &&
-              typeof (item as PlaceUpcomingEvent).slug === "string" &&
-              typeof (item as PlaceUpcomingEvent).title === "string" &&
-              typeof (item as PlaceUpcomingEvent).starts_at === "string",
-          ),
-      )
+    ? payload.items.filter(isPlaceUpcomingEvent)
     : [];
   const totalCount = Number(payload.total_count ?? items.length);
   return {
     items,
-    totalCount: Number.isFinite(totalCount) ? Math.max(0, Math.round(totalCount)) : items.length,
+    totalCount: Number.isFinite(totalCount)
+      ? Math.max(0, Math.round(totalCount))
+      : items.length,
     hasMore: payload.has_more === true,
   };
 }
@@ -69,8 +74,10 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
   const load = useCallback(
     async (offset: number, append: boolean) => {
       const requestVersion = ++requestVersionRef.current;
-      append ? setLoadingMore(true) : setLoading(true);
+      if (append) setLoadingMore(true);
+      else setLoading(true);
       setError(null);
+
       try {
         // Generated database types may lag one additive RPC migration.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,12 +91,15 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
         );
         if (requestError) throw requestError;
         if (requestVersion !== requestVersionRef.current) return;
+
         const next = parseBatch(data);
         setBatch((current) => {
           if (!append) return next;
           const merged = [...current.items, ...next.items];
           const unique = [
-            ...new Map(merged.map((event) => [event.occurrence_id, event])).values(),
+            ...new Map(
+              merged.map((event) => [event.occurrence_id, event] as const),
+            ).values(),
           ];
           return {
             items: unique,
@@ -102,7 +112,8 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
         setError(tr("Impossible de charger les prochains événements de ce lieu."));
       } finally {
         if (requestVersion === requestVersionRef.current) {
-          append ? setLoadingMore(false) : setLoading(false);
+          if (append) setLoadingMore(false);
+          else setLoading(false);
         }
       }
     },
@@ -130,9 +141,17 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
+      <div
+        role="alert"
+        className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
+      >
         <p>{error}</p>
-        <Button type="button" variant="outline" className="mt-3 min-h-11" onClick={() => void load(0, false)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 min-h-11"
+          onClick={() => void load(0, false)}
+        >
           {t("common.retry")}
         </Button>
       </div>
@@ -146,7 +165,9 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
           <CalendarDays className="mx-auto mb-3 h-8 w-8 text-primary" />
           <p className="font-black">{tr("Aucun événement à venir pour le moment")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {tr("La fiche sera actualisée automatiquement dès qu’une nouvelle date sera publiée.")}
+            {tr(
+              "La fiche sera actualisée automatiquement dès qu’une nouvelle date sera publiée.",
+            )}
           </p>
         </div>
       </div>
@@ -187,11 +208,18 @@ export function PlaceUpcomingEventsTab({ placeId }: { placeId: string }) {
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap gap-1.5">
-                  {event.category_name && <Badge variant="outline">{event.category_name}</Badge>}
+                  {event.category_name && (
+                    <Badge variant="outline">{event.category_name}</Badge>
+                  )}
                   {event.is_free && <Badge>{t("common.free")}</Badge>}
                 </div>
-                <h3 className="mt-2 line-clamp-2 font-black leading-tight">{event.title}</h3>
-                <time dateTime={event.starts_at} className="mt-1 block text-xs font-bold text-primary">
+                <h3 className="mt-2 line-clamp-2 font-black leading-tight">
+                  {event.title}
+                </h3>
+                <time
+                  dateTime={event.starts_at}
+                  className="mt-1 block text-xs font-bold text-primary"
+                >
                   {new Intl.DateTimeFormat(localeTag, {
                     dateStyle: "full",
                     timeStyle: "short",
