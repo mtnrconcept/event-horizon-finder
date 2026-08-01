@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+// These source-level contracts prevent expensive MapLibre work from returning
+// to the active touch/pointer gesture path during future map refactors.
 const mapSource = readFileSync("src/routes/map.tsx", "utf8");
 const placeLayerSource = readFileSync("src/hooks/usePlaceMapLayer.ts", "utf8");
 
