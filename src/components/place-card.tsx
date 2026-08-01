@@ -1,5 +1,6 @@
 import { Accessibility, Clock3, Landmark, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "@/lib/i18n";
 import { placeDisplayDescription } from "@/lib/place-description";
 import {
   placeCategoryColor,
@@ -25,6 +26,7 @@ export function PlaceCard({
   compact?: boolean;
   imagePriority?: boolean;
 }) {
+  const { t, tr } = useTranslation();
   const description = excerpt(placeDisplayDescription(place));
   const categoryColor = placeCategoryColor(place.category);
   const free = placeIsFree(place);
@@ -66,10 +68,10 @@ export function PlaceCard({
 
       <div className={compact ? "min-w-0 p-3" : "min-w-0 p-4"}>
         <div className="flex flex-wrap items-center gap-1.5">
-          {free && <Badge>Gratuit</Badge>}
+          {free && <Badge>{t("common.free")}</Badge>}
           {accessible && (
             <Badge variant="outline" className="gap-1">
-              <Accessibility className="h-3 w-3" /> Accessible
+              <Accessibility className="h-3 w-3" /> {tr("Accessible")}
             </Badge>
           )}
         </div>
@@ -98,7 +100,7 @@ export function PlaceCard({
           )}
         </div>
         <span className="mt-3 inline-flex text-xs font-black text-primary">
-          Voir la fiche du lieu
+          {tr("Voir la fiche du lieu")}
         </span>
       </div>
     </button>
