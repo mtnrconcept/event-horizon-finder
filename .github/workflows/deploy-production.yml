@@ -26,9 +26,14 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      VITE_MAPBOX_ACCESS_TOKEN: ${{ secrets.VITE_MAPBOX_ACCESS_TOKEN }}
+      SITE_URL: ${{ secrets.SITE_URL }}
     steps:
       - name: Check out the validated revision
         uses: actions/checkout@v4
@@ -42,9 +47,11 @@ jobs:
             SUPABASE_ACCESS_TOKEN
             SUPABASE_DB_PASSWORD
             SUPABASE_PROJECT_ID
-            VERCEL_ORG_ID
-            VERCEL_PROJECT_ID
-            VERCEL_TOKEN
+            CLOUDFLARE_API_TOKEN
+            CLOUDFLARE_ACCOUNT_ID
+            SUPABASE_URL
+            SUPABASE_PUBLISHABLE_KEY
+            SITE_URL
           )
           for name in "${required[@]}"; do
             test -n "${!name}" || { echo "GitHub production secret $name is required" >&2; exit 1; }
@@ -77,21 +84,37 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Pull production Vercel configuration
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Build the validated revision for Vercel
+      - name: Build Cloudflare Worker bundle
         env:
-          NITRO_PRESET: vercel
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-
-      - name: Verify Vercel SSR build output
+          NITRO_PRESET: cloudflare_module
         run: |
-          test -f .vercel/output/config.json
-          test -f .vercel/output/functions/__server.func/index.mjs
+          node scripts/apply-progressive-basemap.mjs
+          node scripts/apply-today-default-fullscreen-intro.mjs
+          node scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node scripts/apply-poi-map-layer.mjs
+          bun run build
 
-      - name: Deploy the prebuilt application to production
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Verify Cloudflare build output
+        run: |
+          test -f .output/server/index.mjs
+          test -d .output/public
+          test -f .output/public/manifest.webmanifest
+
+      - name: Deploy GlobalParty to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: deploy --config wrangler.jsonc
+          secrets: |
+            SUPABASE_URL
+            SUPABASE_PUBLISHABLE_KEY
+            SITE_URL
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SITE_URL: ${{ secrets.SITE_URL }}
