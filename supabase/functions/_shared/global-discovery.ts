@@ -1,12 +1,24 @@
 export const MAX_SEARCH_RESULTS_PER_QUERY = 10;
 
-export type DiscoveryQueryFamily = "nightlife" | "family" | "outdoor" | "culture";
+type CoreLocalizedQueryFamily = "nightlife" | "family" | "outdoor" | "culture";
+
+export type DiscoveryQueryFamily =
+  | "general"
+  | CoreLocalizedQueryFamily
+  | "music"
+  | "sports"
+  | "gastronomy"
+  | "learning"
+  | "wellness"
+  | "community"
+  | "business"
+  | "festivals";
 
 export type DiscoveryQuery = {
   family: DiscoveryQueryFamily;
   query: string;
   locale: string;
-  dateScope: "day" | "month";
+  dateScope: "day" | "month" | "year";
   dateKey: string;
   monthKey: string;
 };
@@ -16,16 +28,18 @@ export type BuildDiscoveryQueriesInput = {
   countryName?: string | null;
   date: Date | string;
   locale?: string | null;
-  /** Number of consecutive daily nightlife searches, starting at `date`. */
-  nightlifeDays?: number;
+  /** Number of consecutive daily general searches, starting at `date`. */
+  dailyGeneralDays?: number;
+  /** Stable city identifier used to rotate locales and category families. */
+  rotationKey?: string | null;
 };
 
 export type BuildMultilingualDiscoveryQueriesInput = Omit<
   BuildDiscoveryQueriesInput,
-  "locale" | "nightlifeDays"
+  "locale" | "dailyGeneralDays"
 > & {
   locales: Array<string | null | undefined>;
-  primaryNightlifeDays?: number;
+  primaryDailyGeneralDays?: number;
   maxQueries?: number;
 };
 
@@ -112,7 +126,7 @@ type QueryDateContext = {
   year: number;
 };
 
-type QueryTemplateSet = Record<DiscoveryQueryFamily, (context: QueryDateContext) => string>;
+type QueryTemplateSet = Record<CoreLocalizedQueryFamily, (context: QueryDateContext) => string>;
 
 const QUERY_TEMPLATES: Record<string, QueryTemplateSet> = {
   fr: {
@@ -219,7 +233,101 @@ const QUERY_TEMPLATES: Record<string, QueryTemplateSet> = {
   },
 };
 
-const MONTHLY_QUERY_FAMILIES: DiscoveryQueryFamily[] = ["family", "outdoor", "culture"];
+const ROTATING_MONTHLY_QUERY_FAMILIES: DiscoveryQueryFamily[] = [
+  "culture",
+  "family",
+  "outdoor",
+  "music",
+  "sports",
+  "gastronomy",
+  "learning",
+  "wellness",
+  "community",
+  "business",
+  "nightlife",
+];
+
+const DAILY_GENERAL_LABELS: Record<string, string> = {
+  fr: "Agenda événements",
+  en: "Events calendar",
+  de: "Veranstaltungskalender",
+  es: "Agenda de eventos",
+  it: "Calendario eventi",
+  pt: "Agenda de eventos",
+  nl: "Evenementenkalender",
+  pl: "Kalendarz wydarzeń",
+  ru: "Афиша событий",
+  tr: "Etkinlik takvimi",
+  id: "Kalender acara",
+  ar: "دليل الفعاليات",
+  hi: "कार्यक्रम कैलेंडर",
+  ja: "イベントカレンダー",
+  ko: "이벤트 일정",
+  zh: "活动日历",
+};
+
+const CATEGORY_LABELS: Record<string, Partial<Record<DiscoveryQueryFamily, string>>> = {
+  en: {
+    music: "Live music and concerts",
+    sports: "Sports events",
+    gastronomy: "Food and drink events",
+    learning: "Classes workshops and conferences",
+    wellness: "Health and wellness events",
+    community: "Community and local events",
+    business: "Business and networking events",
+    festivals: "Festivals and annual events",
+  },
+  fr: {
+    music: "Concerts et musique live",
+    sports: "Événements sportifs",
+    gastronomy: "Événements gastronomie et boissons",
+    learning: "Cours ateliers et conférences",
+    wellness: "Événements santé et bien-être",
+    community: "Manifestations locales et vie de quartier",
+    business: "Événements professionnels et réseautage",
+    festivals: "Festivals et événements annuels",
+  },
+  de: {
+    music: "Konzerte und Live-Musik",
+    sports: "Sportveranstaltungen",
+    gastronomy: "Essen und Trinken Veranstaltungen",
+    learning: "Kurse Workshops und Konferenzen",
+    wellness: "Gesundheit und Wellness Veranstaltungen",
+    community: "Lokale und Gemeinschaftsveranstaltungen",
+    business: "Business und Networking Veranstaltungen",
+    festivals: "Festivals und jährliche Veranstaltungen",
+  },
+  es: {
+    music: "Conciertos y música en vivo",
+    sports: "Eventos deportivos",
+    gastronomy: "Eventos de gastronomía y bebidas",
+    learning: "Cursos talleres y conferencias",
+    wellness: "Eventos de salud y bienestar",
+    community: "Eventos locales y comunitarios",
+    business: "Eventos profesionales y networking",
+    festivals: "Festivales y eventos anuales",
+  },
+  it: {
+    music: "Concerti e musica dal vivo",
+    sports: "Eventi sportivi",
+    gastronomy: "Eventi enogastronomici",
+    learning: "Corsi laboratori e conferenze",
+    wellness: "Eventi salute e benessere",
+    community: "Eventi locali e di comunità",
+    business: "Eventi professionali e networking",
+    festivals: "Festival ed eventi annuali",
+  },
+  pt: {
+    music: "Concertos e música ao vivo",
+    sports: "Eventos esportivos",
+    gastronomy: "Eventos de gastronomia e bebidas",
+    learning: "Cursos oficinas e conferências",
+    wellness: "Eventos de saúde e bem-estar",
+    community: "Eventos locais e comunitários",
+    business: "Eventos profissionais e networking",
+    festivals: "Festivais e eventos anuais",
+  },
+};
 
 export function selectAdaptiveCityLimit(
   countryPopulation: number | null | undefined,
@@ -279,23 +387,23 @@ export function buildLocalizedDiscoveryQueries(
   const templateLanguage = QUERY_TEMPLATES[language] ? language : "en";
   const locale = templateLanguage === language ? requestedLocale : "en";
   const templates = QUERY_TEMPLATES[templateLanguage];
-  const requestedNightlifeDays = input.nightlifeDays ?? 1;
+  const requestedDailyGeneralDays = input.dailyGeneralDays ?? 1;
   if (
-    !Number.isInteger(requestedNightlifeDays) ||
-    requestedNightlifeDays < 1 ||
-    requestedNightlifeDays > 31
+    !Number.isInteger(requestedDailyGeneralDays) ||
+    requestedDailyGeneralDays < 1 ||
+    requestedDailyGeneralDays > 31
   ) {
-    throw new TypeError("discovery_nightlife_days_invalid");
+    throw new TypeError("discovery_daily_general_days_invalid");
   }
 
-  const dailyDates = Array.from({ length: requestedNightlifeDays }, (_, offset) =>
+  const dailyDates = Array.from({ length: requestedDailyGeneralDays }, (_, offset) =>
     addUtcDays(date, offset),
   );
   const dailyQueries = dailyDates.map((dailyDate): DiscoveryQuery => {
     const { context, dateKey, monthKey } = queryDateContext(dailyDate, locale, place);
     return {
-      family: "nightlife",
-      query: templates.nightlife(context),
+      family: "general",
+      query: `${DAILY_GENERAL_LABELS[templateLanguage] ?? DAILY_GENERAL_LABELS.en} ${place} ${context.day} ${context.month} ${context.year}`,
       locale,
       dateScope: "day",
       dateKey,
@@ -303,29 +411,33 @@ export function buildLocalizedDiscoveryQueries(
     };
   });
 
-  // A seven-day window can cross a month boundary. Generate the three broad
-  // monthly families for every month touched so no family/outdoor/culture gap
-  // is introduced around the last days of a month.
-  const monthlyDates = new Map<string, Date>();
-  for (const dailyDate of dailyDates) {
-    const monthKey = dailyDate.toISOString().slice(0, 7);
-    if (!monthlyDates.has(monthKey)) monthlyDates.set(monthKey, dailyDate);
-  }
-  const monthlyQueries = [...monthlyDates.values()].flatMap((monthlyDate) => {
-    const { context, dateKey, monthKey } = queryDateContext(monthlyDate, locale, place);
-    return MONTHLY_QUERY_FAMILIES.map(
-      (family): DiscoveryQuery => ({
-        family,
-        query: templates[family](context),
-        locale,
-        dateScope: "month",
-        dateKey,
-        monthKey,
-      }),
-    );
-  });
+  // Eight monthly category lanes rotate for every city and planning date. In
+  // two consecutive weekly cycles every family gets a turn without letting
+  // nightlife consume the daily budget.
+  const { context, dateKey, monthKey } = queryDateContext(date, locale, place);
+  const rotation = stableHash(input.rotationKey ?? place) + weeklySequence(date) * 8;
+  const monthlyFamilies = rotate(ROTATING_MONTHLY_QUERY_FAMILIES, rotation).slice(0, 8);
+  const monthlyQueries = monthlyFamilies.map((family): DiscoveryQuery => ({
+    family,
+    query:
+      family === "nightlife" || family === "family" || family === "outdoor" || family === "culture"
+        ? templates[family](context)
+        : `${CATEGORY_LABELS[templateLanguage]?.[family] ?? CATEGORY_LABELS.en[family] ?? "Events"} ${place} ${context.month} ${context.year}`,
+    locale,
+    dateScope: "month",
+    dateKey,
+    monthKey,
+  }));
+  const annualQuery: DiscoveryQuery = {
+    family: "festivals",
+    query: `${CATEGORY_LABELS[templateLanguage]?.festivals ?? CATEGORY_LABELS.en.festivals} ${place} ${context.year}`,
+    locale,
+    dateScope: "year",
+    dateKey,
+    monthKey,
+  };
 
-  return [...dailyQueries, ...monthlyQueries];
+  return [...dailyQueries, ...monthlyQueries, annualQuery];
 }
 
 export function buildMultilingualDiscoveryQueries(
@@ -337,6 +449,15 @@ export function buildMultilingualDiscoveryQueries(
   }
   const locales = [...new Set(input.locales.map(normalizeLocale))];
   if (!locales.length) locales.push("en");
+
+  // A city keeps one language per weekly slice so the 16-query budget is
+  // spent on temporal/category coverage. The deterministic rotation gives all
+  // configured local languages a turn across subsequent refreshes.
+  const planningDate = parseDiscoveryDate(input.date);
+  const localeOffset =
+    (stableHash(input.rotationKey ?? input.cityName) + weeklySequence(planningDate)) %
+    locales.length;
+  const rotatedLocales = rotate(locales, localeOffset);
 
   const output: DiscoveryQuery[] = [];
   const seen = new Set<string>();
@@ -353,26 +474,41 @@ export function buildMultilingualDiscoveryQueries(
   append(
     buildLocalizedDiscoveryQueries({
       ...input,
-      locale: locales[0],
-      nightlifeDays: input.primaryNightlifeDays ?? 7,
+      locale: rotatedLocales[0],
+      dailyGeneralDays: input.primaryDailyGeneralDays ?? 7,
     }),
   );
-  for (const locale of locales.slice(1)) {
+  for (const locale of rotatedLocales.slice(1)) {
     if (output.length >= maximum) break;
     const supplemental = buildLocalizedDiscoveryQueries({
       ...input,
       locale,
-      nightlifeDays: 1,
+      dailyGeneralDays: 1,
     });
-    const priority: Record<DiscoveryQueryFamily, number> = {
-      nightlife: 0,
-      culture: 1,
-      family: 2,
-      outdoor: 3,
-    };
-    append([...supplemental].sort((left, right) => priority[left.family] - priority[right.family]));
+    append(supplemental);
   }
   return output.slice(0, maximum);
+}
+
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function rotate<T>(values: readonly T[], offset: number): T[] {
+  if (!values.length) return [];
+  const normalized = ((offset % values.length) + values.length) % values.length;
+  return [...values.slice(normalized), ...values.slice(0, normalized)];
+}
+
+function weeklySequence(date: Date): number {
+  return Math.floor(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 604_800_000,
+  );
 }
 
 function addUtcDays(date: Date, days: number): Date {

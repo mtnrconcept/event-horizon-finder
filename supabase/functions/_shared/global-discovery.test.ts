@@ -82,7 +82,7 @@ test("largest-city selection is deterministic and does not mutate its input", ()
   assert.deepEqual(cities, snapshot);
 });
 
-test("French discovery builds the four requested day/month query families", () => {
+test("French discovery combines daily, rotating monthly and annual coverage", () => {
   const queries = buildLocalizedDiscoveryQueries({
     cityName: "  Genève ",
     countryName: "Suisse",
@@ -90,31 +90,18 @@ test("French discovery builds the four requested day/month query families", () =
     locale: "fr_CH",
   });
 
-  assert.deepEqual(
-    queries.map(({ family, query, dateScope }) => ({ family, query, dateScope })),
-    [
-      {
-        family: "nightlife",
-        query: "Agenda soirées Genève, Suisse 27 juillet 2026",
-        dateScope: "day",
-      },
-      {
-        family: "family",
-        query: "Agenda sorties en famille à Genève, Suisse juillet 2026",
-        dateScope: "month",
-      },
-      {
-        family: "outdoor",
-        query: "Activités de plein air à Genève, Suisse juillet 2026",
-        dateScope: "month",
-      },
-      {
-        family: "culture",
-        query: "Agenda culturel Genève, Suisse juillet 2026",
-        dateScope: "month",
-      },
-    ],
-  );
+  assert.equal(queries.length, 10);
+  assert.deepEqual(queries[0], {
+    family: "general",
+    query: "Agenda événements Genève, Suisse 27 juillet 2026",
+    locale: "fr-CH",
+    dateScope: "day",
+    dateKey: "2026-07-27",
+    monthKey: "2026-07",
+  });
+  assert.equal(queries.filter((query) => query.dateScope === "month").length, 8);
+  assert.deepEqual(queries.at(-1)?.family, "festivals");
+  assert.deepEqual(queries.at(-1)?.dateScope, "year");
   assert.ok(queries.every((query) => query.locale === "fr-CH"));
   assert.ok(queries.every((query) => query.dateKey === "2026-07-27"));
   assert.ok(queries.every((query) => query.monthKey === "2026-07"));
@@ -127,25 +114,25 @@ test("unsupported query locales fall back to English templates", () => {
     locale: "sw-KE",
   });
   assert.equal(queries[0].locale, "en");
-  assert.equal(queries[0].query, "Nightlife events Nairobi July 27 2026");
+  assert.equal(queries[0].query, "Events calendar Nairobi 27 July 2026");
   assert.throws(
     () => buildLocalizedDiscoveryQueries({ cityName: " ", date: "2026-07-27" }),
     /discovery_city_required/,
   );
 });
 
-test("a weekly window covers every nightlife date and every touched month", () => {
+test("a weekly window covers every date without biasing the plan toward nightlife", () => {
   const queries = buildLocalizedDiscoveryQueries({
     cityName: "Genève",
     countryName: "Suisse",
     date: "2026-07-27",
     locale: "fr-CH",
-    nightlifeDays: 7,
+    dailyGeneralDays: 7,
   });
 
-  assert.equal(queries.filter((query) => query.family === "nightlife").length, 7);
+  assert.equal(queries.filter((query) => query.family === "general").length, 7);
   assert.deepEqual(
-    queries.filter((query) => query.family === "nightlife").map((query) => query.dateKey),
+    queries.filter((query) => query.family === "general").map((query) => query.dateKey),
     [
       "2026-07-27",
       "2026-07-28",
@@ -156,44 +143,57 @@ test("a weekly window covers every nightlife date and every touched month", () =
       "2026-08-02",
     ],
   );
-  assert.equal(queries.length, 13);
-  assert.deepEqual(
-    [
-      ...new Set(
-        queries.filter((query) => query.dateScope === "month").map((query) => query.monthKey),
-      ),
-    ],
-    ["2026-07", "2026-08"],
-  );
+  assert.equal(queries.length, 16);
+  assert.equal(queries.filter((query) => query.dateScope === "month").length, 8);
+  assert.equal(queries.filter((query) => query.family === "nightlife").length <= 1, true);
+  assert.equal(queries.filter((query) => query.dateScope === "year").length, 1);
   assert.throws(
     () =>
       buildLocalizedDiscoveryQueries({
         cityName: "Genève",
         date: "2026-07-27",
-        nightlifeDays: 32,
+        dailyGeneralDays: 32,
       }),
-    /discovery_nightlife_days_invalid/,
+    /discovery_daily_general_days_invalid/,
   );
 });
 
-test("multilingual discovery keeps the weekly primary locale and supplements local languages", () => {
+test("multilingual discovery rotates one local language and the monthly category lanes", () => {
   const queries = buildMultilingualDiscoveryQueries({
     cityName: "Genève",
     countryName: "Switzerland",
     date: "2026-07-20",
     locales: ["de-CH", "fr-CH", "it-CH"],
-    primaryNightlifeDays: 7,
+    primaryDailyGeneralDays: 7,
     maxQueries: 16,
+    rotationKey: "geneva-city-id",
   });
   assert.equal(queries.length, 16);
-  assert.equal(queries.filter((query) => query.locale === "de-CH").length, 10);
-  assert.deepEqual(
-    queries.filter((query) => query.locale === "fr-CH").map((query) => query.family),
-    ["nightlife", "culture", "family", "outdoor"],
+  assert.equal(new Set(queries.map((query) => query.locale)).size, 1);
+  assert.equal(queries.filter((query) => query.family === "general").length, 7);
+  assert.equal(new Set(queries.map((query) => query.family)).size >= 10, true);
+
+  const nextWeek = buildMultilingualDiscoveryQueries({
+    cityName: "Genève",
+    countryName: "Switzerland",
+    date: "2026-07-27",
+    locales: ["de-CH", "fr-CH", "it-CH"],
+    primaryDailyGeneralDays: 7,
+    maxQueries: 16,
+    rotationKey: "geneva-city-id",
+  });
+  assert.notEqual(nextWeek[0].locale, queries[0].locale);
+  assert.notDeepEqual(
+    nextWeek.filter((query) => query.dateScope === "month").map((query) => query.family),
+    queries.filter((query) => query.dateScope === "month").map((query) => query.family),
   );
-  assert.deepEqual(
-    queries.filter((query) => query.locale === "it-CH").map((query) => query.family),
-    ["nightlife", "culture"],
+  assert.equal(
+    new Set(
+      [...queries, ...nextWeek]
+        .filter((query) => query.dateScope === "month")
+        .map((query) => query.family),
+    ).size,
+    11,
   );
 });
 
