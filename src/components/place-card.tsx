@@ -1,5 +1,6 @@
 import { Accessibility, Clock3, Landmark, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { placeDisplayDescription } from "@/lib/place-description";
 import {
   placeCategoryColor,
   placeCategoryLabel,
@@ -8,10 +9,8 @@ import {
   type PlaceOfInterest,
 } from "@/lib/place-discovery";
 
-function excerpt(value: string | null, maximum = 180): string | null {
-  if (!value) return null;
+function excerpt(value: string, maximum = 180): string {
   const clean = value.replace(/\s+/g, " ").trim();
-  if (!clean) return null;
   return clean.length > maximum ? `${clean.slice(0, maximum - 1).trimEnd()}…` : clean;
 }
 
@@ -26,7 +25,7 @@ export function PlaceCard({
   compact?: boolean;
   imagePriority?: boolean;
 }) {
-  const description = excerpt(place.description) ?? excerpt(place.address, 140);
+  const description = excerpt(placeDisplayDescription(place));
   const categoryColor = placeCategoryColor(place.category);
   const free = placeIsFree(place);
   const accessible = placeIsAccessible(place);
@@ -36,12 +35,16 @@ export function PlaceCard({
       type="button"
       onClick={() => onSelect(place)}
       className={`group w-full overflow-hidden rounded-3xl border bg-surface text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/70 hover:shadow-lg ${
-        compact ? "grid grid-cols-[6.75rem_minmax(0,1fr)]" : "grid sm:grid-cols-[10rem_minmax(0,1fr)]"
+        compact
+          ? "grid grid-cols-[6.75rem_minmax(0,1fr)]"
+          : "grid sm:grid-cols-[10rem_minmax(0,1fr)]"
       }`}
     >
       <div
         className={`relative overflow-hidden ${compact ? "min-h-36" : "min-h-44"}`}
-        style={{ background: `linear-gradient(145deg, ${categoryColor}33, ${categoryColor}99)` }}
+        style={{
+          background: `linear-gradient(145deg, ${categoryColor}33, ${categoryColor}99)`,
+        }}
       >
         <div className="absolute inset-0 grid place-items-center text-white/90">
           <Landmark className={compact ? "h-9 w-9" : "h-12 w-12"} aria-hidden="true" />
@@ -56,9 +59,7 @@ export function PlaceCard({
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/5" />
-        <Badge
-          className="absolute bottom-2 left-2 border-white/30 bg-black/55 text-[10px] text-white backdrop-blur"
-        >
+        <Badge className="absolute bottom-2 left-2 border-white/30 bg-black/55 text-[10px] text-white backdrop-blur">
           {placeCategoryLabel(place.category)}
         </Badge>
       </div>
@@ -75,11 +76,13 @@ export function PlaceCard({
         <h3 className={`mt-2 font-black leading-tight ${compact ? "text-base" : "text-lg"}`}>
           {place.name}
         </h3>
-        {description && (
-          <p className={`mt-1.5 text-muted-foreground ${compact ? "line-clamp-3 text-xs" : "line-clamp-3 text-sm"}`}>
-            {description}
-          </p>
-        )}
+        <p
+          className={`mt-1.5 text-muted-foreground ${
+            compact ? "line-clamp-3 text-xs" : "line-clamp-3 text-sm"
+          }`}
+        >
+          {description}
+        </p>
         <div className="mt-3 grid gap-1 text-[11px] text-muted-foreground">
           {place.address && (
             <span className="flex min-w-0 items-center gap-1.5">
@@ -94,7 +97,9 @@ export function PlaceCard({
             </span>
           )}
         </div>
-        <span className="mt-3 inline-flex text-xs font-black text-primary">Voir la fiche du lieu</span>
+        <span className="mt-3 inline-flex text-xs font-black text-primary">
+          Voir la fiche du lieu
+        </span>
       </div>
     </button>
   );
