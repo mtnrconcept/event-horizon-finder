@@ -71,7 +71,7 @@ function commonsLicenseAllowed(value: string | null): boolean {
 }
 
 async function searchWikimediaCommons(candidate: SourceVenueCandidate): Promise<SourceVenueMedia[]> {
-  const query = `intitle:\"${candidate.name.replaceAll('"', "")}\" ${candidate.city ?? ""}`.trim();
+  const query = `intitle:"${candidate.name.replaceAll('"', "")}" ${candidate.city ?? ""}`.trim();
   const url = new URL("https://commons.wikimedia.org/w/api.php");
   url.searchParams.set("action", "query");
   url.searchParams.set("generator", "search");
