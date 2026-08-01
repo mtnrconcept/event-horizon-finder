@@ -11,33 +11,487 @@ function replaceOnce(before, after, label) {
   source = source.replace(before, after);
 }
 
+function insertBefore(anchor, addition, label) {
+  replaceOnce(anchor, `${addition}\n${anchor}`, label);
+}
+
+function replaceAllExact(before, after, expectedCount, label) {
+  const occurrences = source.split(before).length - 1;
+  if (occurrences !== expectedCount) {
+    throw new Error(`Expected ${expectedCount} ${label} fragments, found ${occurrences}`);
+  }
+  source = source.replaceAll(before, after);
+}
+
+const eventCardImport = 'import { EventCard, EventCardSkeleton } from "@/components/event-card";';
 replaceOnce(
-  `import { useTranslation } from "@/lib/i18n";`,
-  `import { useTranslation } from "@/lib/i18n";\nimport { supabase } from "@/integrations/supabase/client";`,
-  "Supabase import",
+  eventCardImport,
+  [
+    eventCardImport,
+    'import { PlaceDetailDialog } from "@/components/place-detail-dialog";',
+    'import { PlaceSearchResults } from "@/components/place-search-results";',
+    'import { usePlaceMapDiscovery } from "@/hooks/usePlaceMapDiscovery";',
+    'import { usePlaceMapLayer } from "@/hooks/usePlaceMapLayer";',
+    'import type { PlaceOfInterest } from "@/lib/place-discovery";',
+  ].join("\n"),
+  "place experience imports",
+);
+
+const placeSelectionState = [
+  '  const [eventSelectionError, setEventSelectionError] = useState<string | null>(null);',
+  '  const [selectedPlace, setSelectedPlace] = useState<PlaceOfInterest | null>(null);',
+  '  const [placeSelectionOpen, setPlaceSelectionOpen] = useState(false);',
+  '  const openPlaceSelection = useCallback((place: PlaceOfInterest) => {',
+  '    setEventSelectionOpen(false);',
+  '    setClusterSelectionOpen(false);',
+  '    setSelectedPlace(place);',
+  '    setPlaceSelectionOpen(true);',
+  '  }, []);',
+  '  const closePlaceSelection = useCallback(() => {',
+  '    setPlaceSelectionOpen(false);',
+  '    setSelectedPlace(null);',
+  '  }, []);',
+].join("\n");
+replaceOnce(
+  '  const [eventSelectionError, setEventSelectionError] = useState<string | null>(null);',
+  placeSelectionState,
+  "place selection state",
+);
+
+const placeDiscoveryBlock = [
+  '  const mapReady = mapInstance !== null && readyMap === mapInstance;',
+  '  const placeModeEnabled = advancedFilters.contentMode !== "events";',
+  '  const eventModeEnabled = advancedFilters.contentMode !== "places";',
+  '  const placeDiscovery = usePlaceMapDiscovery({',
+  '    enabled: placeModeEnabled,',
+  '    listEnabled: placeModeEnabled && (!isMobile || listRequested),',
+  '    bounds: viewportBounds,',
+  '    zoom: viewportZoom,',
+  '    categories: advancedFilters.placeCategories,',
+  '    query: deferredQuery,',
+  '    accessibleOnly: advancedFilters.accessibleOnly,',
+  '    freeOnly: advancedFilters.freePlacesOnly,',
+  '    hasHoursOnly: advancedFilters.openNowOnly,',
+  '  });',
+  '  usePlaceMapLayer({',
+  '    map: mapInstance,',
+  '    ready: Boolean(mapReady && readyStyle?.map === mapInstance),',
+  '    styleRevision: readyStyle?.revision ?? 0,',
+  '    enabled: placeModeEnabled,',
+  '    pinBatch: placeDiscovery.pinBatch,',
+  '    onSelect: openPlaceSelection,',
+  '  });',
+  '  useEffect(() => {',
+  '    setShowEvents(eventModeEnabled);',
+  '    if (!placeModeEnabled) closePlaceSelection();',
+  '  }, [closePlaceSelection, eventModeEnabled, placeModeEnabled]);',
+  '  const { from, to } = useMemo(() => computeRange(range), [range]);',
+].join("\n");
+replaceOnce(
+  [
+    '  const mapReady = mapInstance !== null && readyMap === mapInstance;',
+    '  const { from, to } = useMemo(() => computeRange(range), [range]);',
+  ].join("\n"),
+  placeDiscoveryBlock,
+  "place map discovery hooks",
+);
+
+const oldMapDiscoveryParams = [
+  '  const mapDiscoveryParams = useMemo(',
+  '    () =>',
+  '      viewportBounds',
+  '        ? {',
+  '            bounds: viewportBounds,',
+  '            zoom: viewportZoom,',
+  '            categorySlugs: selectedCategorySlugs,',
+  '            query: deferredQuery,',
+  '            from,',
+  '            to,',
+  '            ...advancedDiscoveryFilters,',
+  '          }',
+  '        : null,',
+  '    [',
+  '      advancedDiscoveryFilters,',
+  '      deferredQuery,',
+  '      from,',
+  '      selectedCategorySlugs,',
+  '      to,',
+  '      viewportBounds,',
+  '      viewportZoom,',
+  '    ],',
+  '  );',
+].join("\n");
+const newMapDiscoveryParams = oldMapDiscoveryParams
+  .replace('      viewportBounds', '      eventModeEnabled && viewportBounds')
+  .replace('      deferredQuery,\n      from,', '      deferredQuery,\n      eventModeEnabled,\n      from,');
+replaceOnce(oldMapDiscoveryParams, newMapDiscoveryParams, "event-only map discovery parameters");
+
+replaceOnce(
+  [
+    '  const totalEventCount = mapStats.total_count;',
+    '  const loadedPointCount = compactPins.length;',
+    '  const statsLoading = loading;',
+  ].join("\n"),
+  [
+    '  const totalEventCount = mapStats.total_count;',
+    '  const totalPlaceCount = placeDiscovery.pinBatch.totalCount;',
+    '  const totalResultCount =',
+    '    (eventModeEnabled ? totalEventCount : 0) + (placeModeEnabled ? totalPlaceCount : 0);',
+    '  const loadedPointCount = compactPins.length;',
+    '  const loadedPlacePointCount = placeDiscovery.pinBatch.pins.length;',
+    '  const statsLoading = loading;',
+    '  const resultLoading =',
+    '    (eventModeEnabled && loading) || (placeModeEnabled && placeDiscovery.pinsLoading);',
+  ].join("\n"),
+  "combined map result counts",
 );
 
 replaceOnce(
-  `type GeolocationStatus = "requesting" | "ready" | "denied" | "unavailable" | "error";`,
-  `type PlaceOfInterestMapRow = {\n  id: string;\n  name: string;\n  category: string;\n  subcategory: string | null;\n  description: string | null;\n  address: string | null;\n  website: string | null;\n  source_url: string | null;\n  opening_hours: string | null;\n  fee: string | null;\n  wheelchair: string | null;\n  latitude: number;\n  longitude: number;\n};\n\ntype GeolocationStatus = "requesting" | "ready" | "denied" | "unavailable" | "error";`,
-  "POI row type",
+  [
+    '  useEffect(() => {',
+    '    if (!mapDiscoveryParams) return;',
+    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);',
+  ].join("\n"),
+  [
+    '  useEffect(() => {',
+    '    if (!mapDiscoveryParams) {',
+    '      setCompactPinBatch(EMPTY_MAP_PIN_BATCH);',
+    '      pinLoadingRef.current = false;',
+    '      terminalClusterReloadPendingRef.current = false;',
+    '      retryMapPinsWhenOnlineRef.current = false;',
+    '      setLoading(false);',
+    '      setError(null);',
+    '      return;',
+    '    }',
+    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);',
+  ].join("\n"),
+  "event pin cleanup in places-only mode",
 );
 
 replaceOnce(
-  `  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);\n  const hoverRequestRef = useRef(0);`,
-  `  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);\n  const hoverRequestRef = useRef(0);\n  const placeMarkersRef = useRef<maplibregl.Marker[]>([]);\n  const placeRequestVersionRef = useRef(0);`,
-  "POI marker refs",
+  [
+    '  useEffect(() => {',
+    '    if (!mapDiscoveryParams || !listRequested) return;',
+    '',
+    '    let current = true;',
+  ].join("\n"),
+  [
+    '  useEffect(() => {',
+    '    if (!mapDiscoveryParams || !listRequested) {',
+    '      if (!mapDiscoveryParams) {',
+    '        setEvents([]);',
+    '        setMobileListHasMore(false);',
+    '        setMobileListError(null);',
+    '      }',
+    '      return;',
+    '    }',
+    '',
+    '    let current = true;',
+  ].join("\n"),
+  "event list cleanup in places-only mode",
 );
 
-const poiLoadingEffect = `  const mapReady = mapInstance !== null && readyMap === mapInstance;\n\n  useEffect(() => {\n    const displayPlaces = advancedFilters.contentMode !== "events";\n    setShowEvents(advancedFilters.contentMode !== "places");\n    placeRequestVersionRef.current += 1;\n    const requestVersion = placeRequestVersionRef.current;\n    for (const marker of placeMarkersRef.current) marker.remove();\n    placeMarkersRef.current = [];\n    if (!displayPlaces || !readyMap || !viewportBounds) return;\n\n    const timer = window.setTimeout(() => {\n      let request = (supabase as any)\n        .from("places_of_interest")\n        .select("id,name,category,subcategory,description,address,website,source_url,opening_hours,fee,wheelchair,latitude,longitude")\n        .eq("is_public", true)\n        .gte("latitude", viewportBounds.south)\n        .lte("latitude", viewportBounds.north)\n        .gte("longitude", viewportBounds.west)\n        .lte("longitude", viewportBounds.east)\n        .order("quality_score", { ascending: false })\n        .limit(isMobileRef.current ? 180 : 400);\n\n      if (advancedFilters.placeCategories.length) {\n        request = request.in("category", advancedFilters.placeCategories);\n      }\n      if (advancedFilters.accessibleOnly) {\n        request = request.in("wheelchair", ["yes", "limited", "designated"]);\n      }\n      if (advancedFilters.openNowOnly) {\n        request = request.not("opening_hours", "is", null);\n      }\n      if (advancedFilters.freePlacesOnly) {\n        request = request.or("fee.eq.no,fee.eq.0,fee.ilike.free");\n      }\n      if (deferredQuery.length >= 2) {\n        const safePlaceQuery = deferredQuery.replace(/[%_]/g, "");\n        request = request.ilike("name", "%" + safePlaceQuery + "%");\n      }\n\n      void request.then(({ data, error }: { data: PlaceOfInterestMapRow[] | null; error: { message?: string } | null }) => {\n        if (requestVersion !== placeRequestVersionRef.current || !readyMap || error) return;\n        const markers = (data ?? []).flatMap((place) => {\n          if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return [];\n          const element = document.createElement("button");\n          element.type = "button";\n          element.className = "grid h-8 w-8 place-items-center rounded-full border-2 border-white bg-emerald-600 text-sm shadow-lg";\n          element.title = place.name;\n          element.setAttribute("aria-label", place.name);\n          element.textContent = "◆";\n\n          const popupContent = document.createElement("article");\n          popupContent.className = "grid max-w-64 gap-1 p-1 text-sm";\n          const title = document.createElement("strong");\n          title.textContent = place.name;\n          popupContent.append(title);\n          const details = [\n            place.address,\n            place.opening_hours,\n            place.fee ? "Tarif : " + place.fee : null,\n          ].filter((detail): detail is string => Boolean(detail));\n          for (const detail of details) {\n            const line = document.createElement("span");\n            line.textContent = detail;\n            popupContent.append(line);\n          }\n          const externalUrl = place.website ?? place.source_url;\n          if (externalUrl) {\n            const link = document.createElement("a");\n            link.href = externalUrl;\n            link.target = "_blank";\n            link.rel = "noopener noreferrer";\n            link.textContent = "Voir le lieu";\n            link.className = "font-bold text-primary underline";\n            popupContent.append(link);\n          }\n          const popup = new maplibregl.Popup({ offset: 18, closeButton: true }).setDOMContent(popupContent);\n          return [new maplibregl.Marker({ element, anchor: "center" }).setLngLat([place.longitude, place.latitude]).setPopup(popup).addTo(readyMap)];\n        });\n        if (requestVersion !== placeRequestVersionRef.current) {\n          for (const marker of markers) marker.remove();\n          return;\n        }\n        placeMarkersRef.current = markers;\n      });\n    }, 280);\n\n    return () => {\n      window.clearTimeout(timer);\n      placeRequestVersionRef.current += 1;\n      for (const marker of placeMarkersRef.current) marker.remove();\n      placeMarkersRef.current = [];\n    };\n  }, [\n    advancedFilters.accessibleOnly,\n    advancedFilters.contentMode,\n    advancedFilters.freePlacesOnly,\n    advancedFilters.openNowOnly,\n    advancedFilters.placeCategories,\n    deferredQuery,\n    readyMap,\n    viewportBounds,\n  ]);\n\n  const { from, to } = useMemo(() => computeRange(range), [range]);`;
+replaceOnce(
+  [
+    '      if (!occurrenceId) return;',
+    '',
+    '      if (selectedOccurrenceIdRef.current !== occurrenceId) {',
+  ].join("\n"),
+  [
+    '      if (!occurrenceId) return;',
+    '      closePlaceSelection();',
+    '',
+    '      if (selectedOccurrenceIdRef.current !== occurrenceId) {',
+  ].join("\n"),
+  "close place detail when an event opens",
+);
 
 replaceOnce(
-  `  const mapReady = mapInstance !== null && readyMap === mapInstance;\n  const { from, to } = useMemo(() => computeRange(range), [range]);`,
-  poiLoadingEffect,
-  "POI loading effect",
+  '    [abortEventDetail, closeClusterSelection, eventsByOccurrenceId, resolveEventDetail, tr],',
+  '    [abortEventDetail, closeClusterSelection, closePlaceSelection, eventsByOccurrenceId, resolveEventDetail, tr],',
+  "event selection dependencies",
+);
+
+insertBefore(
+  '  const toggleCategory = (slug: string) => {',
+  [
+    '  const togglePlacesLayer = () => {',
+    '    setAdvancedFilters((current) => ({',
+    '      ...current,',
+    '      contentMode: current.contentMode === "events" ? "all" : "events",',
+    '    }));',
+    '  };',
+    '',
+  ].join("\n"),
+  "place layer toggle",
+);
+
+replaceOnce(
+  '        resultCount={statsLoading ? null : totalEventCount}',
+  '        resultCount={resultLoading ? null : totalResultCount}',
+  "mobile combined result count",
+);
+
+replaceOnce(
+  [
+    '              {loading',
+    '                ? tr("Actualisation des événements de la zone visible…")',
+    '                : tr("{count} événements dans la zone visible", {',
+    '                    count: formatNumber(totalEventCount),',
+    '                  })}',
+  ].join("\n"),
+  [
+    '              {resultLoading',
+    '                ? tr("Actualisation des résultats de la zone visible…")',
+    '                : tr("{count} résultats dans la zone visible", {',
+    '                    count: formatNumber(totalResultCount),',
+    '                  })}',
+  ].join("\n"),
+  "mobile combined search status",
+);
+
+const mobileEventDialog = [
+  '            <SelectedMapEventDialog',
+  '              open={eventSelectionOpen}',
+  '              event={selectedMapEvent}',
+  '              detail={selectedMapEventDetail}',
+  '              loading={eventSelectionLoading}',
+  '              error={eventSelectionError}',
+  '              onOpenChange={(nextOpen) => {',
+  '                if (!nextOpen) closeEventSelection();',
+  '              }}',
+  '              onRetry={() => eventSelectionRetryRef.current?.()}',
+  '            />',
+].join("\n");
+replaceOnce(
+  mobileEventDialog,
+  [
+    mobileEventDialog,
+    '            <PlaceDetailDialog',
+    '              open={placeSelectionOpen}',
+    '              place={selectedPlace}',
+    '              onOpenChange={(nextOpen) => {',
+    '                if (!nextOpen) closePlaceSelection();',
+    '              }}',
+    '            />',
+  ].join("\n"),
+  "mobile place detail dialog",
+);
+
+replaceOnce(
+  '                    count: statsLoading ? "…" : formatNumber(totalEventCount),',
+  '                    count: resultLoading ? "…" : formatNumber(totalResultCount),',
+  "mobile list combined title count",
+);
+replaceOnce(
+  '                  shown: COUNT_FORMATTER.format(mobileListEvents.length),',
+  '                  shown: COUNT_FORMATTER.format(mobileListEvents.length + placeDiscovery.places.length),',
+  "mobile list combined shown count",
+);
+replaceOnce(
+  '                  loaded: COUNT_FORMATTER.format(loadedPointCount),',
+  '                  loaded: COUNT_FORMATTER.format(loadedPointCount + loadedPlacePointCount),',
+  "mobile list combined loaded count",
+);
+
+const placeListSection = [
+  '            {placeModeEnabled && (',
+  '              <div className={eventModeEnabled ? "mb-5 border-b pb-5" : ""}>',
+  '                <PlaceSearchResults',
+  '                  places={placeDiscovery.places}',
+  '                  totalCount={placeDiscovery.listTotalCount || totalPlaceCount}',
+  '                  loading={placeDiscovery.listLoading}',
+  '                  loadingMore={placeDiscovery.listLoadingMore}',
+  '                  error={placeDiscovery.listError}',
+  '                  hasMore={placeDiscovery.listHasMore}',
+  '                  onRetry={placeDiscovery.retryList}',
+  '                  onLoadMore={placeDiscovery.loadMore}',
+  '                  onSelect={openPlaceSelection}',
+  '                  compact',
+  '                  showEmpty={advancedFilters.contentMode === "places"}',
+  '                />',
+  '              </div>',
+  '            )}',
+  '',
+].join("\n");
+insertBefore(
+  '            {(loading || mobileListLoading) && events.length === 0 ? (',
+  placeListSection,
+  "mobile place result list",
+);
+replaceOnce(
+  '            {(loading || mobileListLoading) && events.length === 0 ? (',
+  '            {eventModeEnabled && ((loading || mobileListLoading) && events.length === 0 ? (',
+  "wrap mobile event list by content mode",
+);
+replaceOnce(
+  [
+    '            )}',
+    '',
+    '            {hasMoreMobileEvents && (',
+  ].join("\n"),
+  [
+    '            ))}',
+    '',
+    '            {eventModeEnabled && hasMoreMobileEvents && (',
+  ].join("\n"),
+  "wrap mobile event pagination by content mode",
+);
+
+replaceAllExact(
+  [
+    '                <LayerToggle',
+    '                  active={showEvents}',
+    '                  icon={CalendarDays}',
+    '                  label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}',
+    '                  onClick={() => setShowEvents((value) => !value)}',
+    '                />',
+  ].join("\n"),
+  [
+    '                <LayerToggle',
+    '                  active={showEvents}',
+    '                  icon={CalendarDays}',
+    '                  label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}',
+    '                  onClick={() => setShowEvents((value) => !value)}',
+    '                />',
+    '                <LayerToggle',
+    '                  active={placeModeEnabled}',
+    '                  icon={MapPin}',
+    '                  label={`Lieux (${placeDiscovery.pinsLoading ? "…" : COUNT_FORMATTER.format(totalPlaceCount)})`}',
+    '                  onClick={togglePlacesLayer}',
+    '                />',
+  ].join("\n"),
+  1,
+  "mobile layer toggle",
+);
+
+replaceOnce(
+  [
+    '          <LayerToggle',
+    '            active={showEvents}',
+    '            icon={CalendarDays}',
+    '            label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}',
+    '            onClick={() => setShowEvents((value) => !value)}',
+    '          />',
+  ].join("\n"),
+  [
+    '          <LayerToggle',
+    '            active={showEvents}',
+    '            icon={CalendarDays}',
+    '            label={`Événements (${statsLoading ? "…" : COUNT_FORMATTER.format(totalEventCount)})`}',
+    '            onClick={() => setShowEvents((value) => !value)}',
+    '          />',
+    '          <LayerToggle',
+    '            active={placeModeEnabled}',
+    '            icon={MapPin}',
+    '            label={`Lieux (${placeDiscovery.pinsLoading ? "…" : COUNT_FORMATTER.format(totalPlaceCount)})`}',
+    '            onClick={togglePlacesLayer}',
+    '          />',
+  ].join("\n"),
+  "desktop place layer toggle",
+);
+
+source = source.replaceAll(
+  "Les événements s’actualisent automatiquement après chaque déplacement ou zoom.",
+  "Les événements et les lieux s’actualisent automatiquement après chaque déplacement ou zoom.",
+);
+source = source.replaceAll(
+  "Déplace ou zoome la carte pour actualiser les événements.",
+  "Déplace ou zoome la carte pour actualiser les résultats.",
+);
+
+replaceOnce(
+  [
+    '              {loading',
+    '                ? tr("Actualisation des événements de la zone visible…")',
+    '                : `${COUNT_FORMATTER.format(totalEventCount)} événements visibles · ${COUNT_FORMATTER.format(mapStats.free_count)} gratuits`}',
+  ].join("\n"),
+  [
+    '              {resultLoading',
+    '                ? tr("Actualisation des résultats de la zone visible…")',
+    '                : `${COUNT_FORMATTER.format(totalResultCount)} résultats visibles`}',
+  ].join("\n"),
+  "desktop combined result status",
+);
+replaceOnce(
+  [
+    '                {tr("{count} points d’événements chargés sur la carte", {',
+    '                  count: COUNT_FORMATTER.format(loadedPointCount),',
+    '                })}',
+  ].join("\n"),
+  [
+    '                {tr("{count} points chargés sur la carte", {',
+    '                  count: COUNT_FORMATTER.format(loadedPointCount + loadedPlacePointCount),',
+    '                })}',
+  ].join("\n"),
+  "desktop combined loaded point count",
+);
+
+const desktopPlaceResults = [
+  '        {placeModeEnabled && (',
+  '          <div className="mt-4 border-t pt-4">',
+  '            <PlaceSearchResults',
+  '              places={placeDiscovery.places}',
+  '              totalCount={placeDiscovery.listTotalCount || totalPlaceCount}',
+  '              loading={placeDiscovery.listLoading}',
+  '              loadingMore={placeDiscovery.listLoadingMore}',
+  '              error={placeDiscovery.listError}',
+  '              hasMore={placeDiscovery.listHasMore}',
+  '              onRetry={placeDiscovery.retryList}',
+  '              onLoadMore={placeDiscovery.loadMore}',
+  '              onSelect={openPlaceSelection}',
+  '              compact',
+  '              showEmpty={advancedFilters.contentMode === "places"}',
+  '            />',
+  '          </div>',
+  '        )}',
+  '',
+].join("\n");
+insertBefore(
+  '        {mapUnavailable && events.length > 0 && (',
+  desktopPlaceResults,
+  "desktop place result list",
+);
+
+const desktopEventDialog = [
+  '      <SelectedMapEventDialog',
+  '        open={eventSelectionOpen}',
+  '        event={selectedMapEvent}',
+  '        detail={selectedMapEventDetail}',
+  '        loading={eventSelectionLoading}',
+  '        error={eventSelectionError}',
+  '        onOpenChange={(nextOpen) => {',
+  '          if (!nextOpen) closeEventSelection();',
+  '        }}',
+  '        onRetry={() => eventSelectionRetryRef.current?.()}',
+  '      />',
+].join("\n");
+replaceOnce(
+  desktopEventDialog,
+  [
+    desktopEventDialog,
+    '      <PlaceDetailDialog',
+    '        open={placeSelectionOpen}',
+    '        place={selectedPlace}',
+    '        onOpenChange={(nextOpen) => {',
+    '          if (!nextOpen) closePlaceSelection();',
+    '        }}',
+    '      />',
+  ].join("\n"),
+  "desktop place detail dialog",
 );
 
 await writeFile(mapPath, source);
 
-const testSource = `import assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\nimport test from "node:test";\nconst map = await readFile(new URL("../src/routes/map.tsx", import.meta.url), "utf8");\ntest("places are fetched only in visible bounds", () => { assert.match(map, /from\\("places_of_interest"\\)/); assert.match(map, /gte\\("latitude", viewportBounds\\.south\\)/); assert.match(map, /limit\\(isMobileRef\\.current \? 180 : 400\\)/); });\ntest("place filters affect the query", () => { assert.match(map, /advancedFilters\\.placeCategories/); assert.match(map, /advancedFilters\\.accessibleOnly/); assert.match(map, /advancedFilters\\.freePlacesOnly/); });\ntest("places mode removes event pins", () => { assert.match(map, /setShowEvents\\(advancedFilters\\.contentMode !== "places"\\)/); });\n`;
+const testSource = [
+  'import assert from "node:assert/strict";',
+  'import { readFile } from "node:fs/promises";',
+  'import test from "node:test";',
+  'const map = await readFile(new URL("../src/routes/map.tsx", import.meta.url), "utf8");',
+  'test("places use the shared cluster layer", () => { assert.match(map, /usePlaceMapLayer/); assert.match(map, /pinBatch: placeDiscovery\\.pinBatch/); });',
+  'test("places open detailed cards", () => { assert.match(map, /PlaceDetailDialog/); assert.match(map, /selectedPlace/); });',
+  'test("places appear in mobile and desktop result lists", () => { assert.ok((map.match(/<PlaceSearchResults/g) ?? []).length >= 2); });',
+  'test("places-only mode avoids event map requests", () => { assert.match(map, /eventModeEnabled && viewportBounds/); });',
+  "",
+].join("\n");
 await writeFile(testPath, testSource);
