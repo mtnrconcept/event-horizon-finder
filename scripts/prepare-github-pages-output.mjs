@@ -2,8 +2,10 @@ import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const outputDirectory = ".github-pages-site";
-const basePath = `/${(process.env.GITHUB_PAGES_BASE_PATH ?? "/event-horizon-finder/")
-  .replace(/^\/+|\/+$/g, "")}/`;
+const basePath = `/${(process.env.GITHUB_PAGES_BASE_PATH ?? "/event-horizon-finder/").replace(
+  /^\/+|\/+$/g,
+  "",
+)}/`;
 const candidates = [".output/public", "dist/client", "dist", "build/client"];
 
 async function exists(path) {

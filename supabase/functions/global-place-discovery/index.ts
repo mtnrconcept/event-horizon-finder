@@ -38,8 +38,7 @@ const REQUEST_TIMEOUT_MS = 26_000;
 const CITY_EXECUTION_BUDGET_MS = 92_000;
 const MAX_RESPONSE_BYTES = 8_000_000;
 const MAX_PLACES_PER_CITY = 2_500;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const QUERY_GROUPS: QueryGroup[] = [
   {
@@ -78,7 +77,12 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+function boundedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed)
     ? Math.min(maximum, Math.max(minimum, Math.trunc(parsed)))
@@ -87,7 +91,11 @@ function boundedInteger(value: unknown, fallback: number, minimum: number, maxim
 
 function parseCityIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item): item is string => typeof item === "string" && UUID_PATTERN.test(item)))].slice(0, 10);
+  return [
+    ...new Set(
+      value.filter((item): item is string => typeof item === "string" && UUID_PATTERN.test(item)),
+    ),
+  ].slice(0, 10);
 }
 
 function slugify(value: string): string {
@@ -144,7 +152,10 @@ function first(tags: Record<string, string>, ...keys: string[]): string | null {
   return null;
 }
 
-function categoryFor(tags: Record<string, string>): { category: string; subcategory: string | null } {
+function categoryFor(tags: Record<string, string>): {
+  category: string;
+  subcategory: string | null;
+} {
   if (tags.leisure === "skate_park") {
     return { category: "sports-outdoors", subcategory: "skate-park" };
   }
@@ -330,7 +341,10 @@ async function fetchPlaces(city: CityTarget): Promise<{
 
   if (!completedGroups.length) {
     throw new Error(
-      `overpass_all_groups_failed:${failedGroups.map((item) => item.error).join(";").slice(0, 900)}`,
+      `overpass_all_groups_failed:${failedGroups
+        .map((item) => item.error)
+        .join(";")
+        .slice(0, 900)}`,
     );
   }
 
@@ -354,7 +368,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   const secret = Deno.env.get("GLOBAL_SCRAPER_SECRET")?.trim();
   const provided = req.headers.get("x-global-scraper-secret")?.trim();
-  if (!secret || secret.length < 32 || provided !== secret) return json({ error: "unauthorized" }, 401);
+  if (!secret || secret.length < 32 || provided !== secret)
+    return json({ error: "unauthorized" }, 401);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim();
   const serviceKey =
