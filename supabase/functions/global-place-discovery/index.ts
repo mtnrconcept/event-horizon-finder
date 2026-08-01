@@ -10,7 +10,6 @@ type CityTarget = {
   longitude: number;
   population: number | null;
 };
-
 type OverpassElement = {
   type?: "node" | "way" | "relation";
   id?: number;
@@ -20,8 +19,8 @@ type OverpassElement = {
   tags?: Record<string, string>;
 };
 
-const USER_AGENT = "GlobalParty-Place-Discovery/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)";
 const DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const USER_AGENT = "GlobalParty-Place-Discovery/1.0 (+https://github.com/mtnrconcept/event-horizon-finder)";
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_RESPONSE_BYTES = 12_000_000;
 
@@ -36,9 +35,9 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, Math.trunc(parsed))) : fallback;
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.trunc(parsed))) : fallback;
 }
 
 function slugify(value: string): string {
@@ -60,38 +59,16 @@ function radiusForPopulation(population: number | null): number {
 }
 
 function buildOverpassQuery(city: CityTarget): string {
-  const radius = radiusForPopulation(city.population);
-  const around = `(around:${radius},${city.latitude},${city.longitude})`;
+  const around = `(around:${radiusForPopulation(city.population)},${city.latitude},${city.longitude})`;
   return `[out:json][timeout:40];(
-    nwr["tourism"~"^(attraction|museum|gallery|viewpoint|zoo|aquarium|theme_park|artwork|information)$"]${around};
-    nwr["historic"]${around};
-    nwr["leisure"~"^(park|garden|nature_reserve|water_park|marina|sports_centre|stadium|pitch|playground|skate_park)$"]${around};
-    nwr["natural"~"^(cave_entrance|waterfall|peak|beach|spring|cliff)$"]${around};
-    nwr["amenity"~"^(arts_centre|theatre|cinema|library|marketplace|community_centre)$"]${around};
-    nwr["man_made"~"^(tower|lighthouse|observatory|water_tower)$"]${around};
-    nwr["place_of_worship"]${around};
-  );out center tags;`;
-}
-
-function categoryFor(tags: Record<string, string>): { category: string; subcategory: string | null } {
-  if (tags.leisure === "skate_park") return { category: "sports-outdoors", subcategory: "skate-park" };
-  if (tags.leisure === "park" || tags.leisure === "garden") return { category: "nature", subcategory: tags.leisure };
-  if (tags.leisure === "nature_reserve" || tags.natural) return { category: "nature", subcategory: tags.leisure ?? tags.natural };
-  if (tags.tourism === "museum" || tags.tourism === "gallery") return { category: "culture", subcategory: tags.tourism };
-  if (tags.historic) return { category: "culture", subcategory: `historic-${tags.historic}` };
-  if (tags.amenity === "theatre" || tags.amenity === "cinema" || tags.amenity === "arts_centre") {
-    return { category: "culture", subcategory: tags.amenity };
-  }
-  if (tags.tourism === "zoo" || tags.tourism === "aquarium" || tags.tourism === "theme_park") {
-    return { category: "family", subcategory: tags.tourism };
-  }
-  if (tags.leisure === "playground" || tags.leisure === "water_park") return { category: "family", subcategory: tags.leisure };
-  if (tags.leisure === "sports_centre" || tags.leisure === "stadium" || tags.leisure === "pitch") {
-    return { category: "sports-outdoors", subcategory: tags.leisure };
-  }
-  if (tags.amenity === "marketplace") return { category: "food-drink", subcategory: "market" };
-  if (tags.amenity === "place_of_worship" || tags.place_of_worship) return { category: "culture", subcategory: "religious-site" };
-  return { category: "attraction", subcategory: tags.tourism ?? tags.man_made ?? null };
+ nwr["tourism"~"^(attraction|museum|gallery|viewpoint|zoo|aquarium|theme_park|artwork|information)$"]${around};
+ nwr["historic"]${around};
+ nwr["leisure"~"^(park|garden|nature_reserve|water_park|marina|sports_centre|stadium|pitch|playground|skate_park)$"]${around};
+ nwr["natural"~"^(cave_entrance|waterfall|peak|beach|spring|cliff)$"]${around};
+ nwr["amenity"~"^(arts_centre|theatre|cinema|library|marketplace|community_centre)$"]${around};
+ nwr["man_made"~"^(tower|lighthouse|observatory|water_tower)$"]${around};
+ nwr["place_of_worship"]${around};
+);out center tags;`;
 }
 
 function first(tags: Record<string, string>, ...keys: string[]): string | null {
@@ -102,11 +79,25 @@ function first(tags: Record<string, string>, ...keys: string[]): string | null {
   return null;
 }
 
-function qualityScore(tags: Record<string, string>, name: string): number {
-  let score = 35;
-  if (name) score += 20;
+function categoryFor(tags: Record<string, string>): { category: string; subcategory: string | null } {
+  if (tags.leisure === "skate_park") return { category: "sports-outdoors", subcategory: "skate-park" };
+  if (["park", "garden", "nature_reserve"].includes(tags.leisure)) return { category: "nature", subcategory: tags.leisure };
+  if (tags.natural) return { category: "nature", subcategory: tags.natural };
+  if (["museum", "gallery"].includes(tags.tourism)) return { category: "culture", subcategory: tags.tourism };
+  if (tags.historic) return { category: "culture", subcategory: `historic-${tags.historic}` };
+  if (["theatre", "cinema", "arts_centre", "library"].includes(tags.amenity)) return { category: "culture", subcategory: tags.amenity };
+  if (["zoo", "aquarium", "theme_park"].includes(tags.tourism)) return { category: "family", subcategory: tags.tourism };
+  if (["playground", "water_park"].includes(tags.leisure)) return { category: "family", subcategory: tags.leisure };
+  if (["sports_centre", "stadium", "pitch"].includes(tags.leisure)) return { category: "sports-outdoors", subcategory: tags.leisure };
+  if (tags.amenity === "marketplace") return { category: "food-drink", subcategory: "market" };
+  if (tags.place_of_worship) return { category: "culture", subcategory: "religious-site" };
+  return { category: "attraction", subcategory: tags.tourism ?? tags.man_made ?? null };
+}
+
+function qualityScore(tags: Record<string, string>): number {
+  let score = 55;
   if (first(tags, "website", "contact:website", "wikipedia", "wikidata")) score += 15;
-  if (first(tags, "opening_hours")) score += 10;
+  if (tags.opening_hours) score += 10;
   if (first(tags, "description", "description:fr", "description:en")) score += 8;
   if (first(tags, "image", "wikimedia_commons")) score += 7;
   if (first(tags, "addr:street", "addr:full")) score += 5;
@@ -119,13 +110,17 @@ function normalizeElement(element: OverpassElement, city: CityTarget): JsonObjec
   const latitude = element.lat ?? element.center?.lat;
   const longitude = element.lon ?? element.center?.lon;
   if (!name || !element.type || !Number.isFinite(element.id) || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  const addressParts = [tags["addr:housenumber"], tags["addr:street"], tags["addr:postcode"], tags["addr:city"]]
+    .filter(Boolean)
+    .join(" ");
+  const address = first(tags, "addr:full") ?? (addressParts || null);
   const classification = categoryFor(tags);
-  const address = first(tags, "addr:full") ?? [tags["addr:housenumber"], tags["addr:street"], tags["addr:postcode"], tags["addr:city"]].filter(Boolean).join(" ") || null;
-  const sourceUrl = `https://www.openstreetmap.org/${element.type}/${element.id}`;
+
   return {
     source_type: element.type,
     source_id: element.id,
-    source_url: sourceUrl,
+    source_url: `https://www.openstreetmap.org/${element.type}/${element.id}`,
     name,
     slug: `${slugify(name)}-${element.type}-${element.id}`,
     category: classification.category,
@@ -140,17 +135,9 @@ function normalizeElement(element: OverpassElement, city: CityTarget): JsonObjec
     wheelchair: first(tags, "wheelchair"),
     latitude,
     longitude,
-    quality_score: qualityScore(tags, name),
+    quality_score: qualityScore(tags),
     tags: { ...tags, discovery_city: city.city_name, country_code: city.country_code },
   };
-}
-
-async function responseJsonLimited(response: Response): Promise<unknown> {
-  const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > MAX_RESPONSE_BYTES) throw new Error("overpass_response_too_large");
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) throw new Error("overpass_response_too_large");
-  return JSON.parse(text);
 }
 
 async function fetchPlaces(city: CityTarget): Promise<JsonObject[]> {
@@ -169,7 +156,11 @@ async function fetchPlaces(city: CityTarget): Promise<JsonObject[]> {
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`overpass_http_${response.status}`);
-    const payload = (await responseJsonLimited(response)) as { elements?: OverpassElement[] };
+    const length = Number(response.headers.get("content-length") ?? 0);
+    if (length > MAX_RESPONSE_BYTES) throw new Error("overpass_response_too_large");
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) throw new Error("overpass_response_too_large");
+    const payload = JSON.parse(text) as { elements?: OverpassElement[] };
     const seen = new Set<string>();
     return (payload.elements ?? [])
       .map((element) => normalizeElement(element, city))
@@ -199,7 +190,11 @@ Deno.serve(async (req) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   let body: JsonObject = {};
-  try { body = (await req.json()) as JsonObject; } catch { body = {}; }
+  try {
+    body = (await req.json()) as JsonObject;
+  } catch {
+    body = {};
+  }
   const limit = boundedInteger(body.limit, 3, 1, 10);
   const { data: cities, error: claimError } = await admin.rpc("claim_cities_for_place_discovery", { _limit: limit });
   if (claimError) return json({ error: "city_claim_failed", detail: claimError.message }, 500);
@@ -222,5 +217,10 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: true, claimed: results.length, completed: results.filter((item) => item.ok).length, results });
+  return json({
+    ok: true,
+    claimed: results.length,
+    completed: results.filter((item) => item.ok).length,
+    results,
+  });
 });
