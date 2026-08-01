@@ -153,10 +153,7 @@ function ensurePlaceSourceAndLayers(
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       layout: {
-        "text-field": [
-          "to-string",
-          ["coalesce", ["get", "place_total"], ["get", "point_count"]],
-        ],
+        "text-field": ["to-string", ["coalesce", ["get", "place_total"], ["get", "point_count"]]],
         "text-size": 12,
         "text-font": ["Noto Sans Bold"],
         "text-allow-overlap": true,
@@ -174,11 +171,7 @@ function ensurePlaceSourceAndLayers(
       id: MAP_PLACE_SERVER_CLUSTER_HALO_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -202,11 +195,7 @@ function ensurePlaceSourceAndLayers(
       id: MAP_PLACE_SERVER_CLUSTER_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -232,11 +221,7 @@ function ensurePlaceSourceAndLayers(
       id: MAP_PLACE_SERVER_CLUSTER_COUNT_ID,
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "cluster"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
       layout: {
         "text-field": ["to-string", ["get", "place_count"]],
         "text-size": 12,
@@ -256,11 +241,7 @@ function ensurePlaceSourceAndLayers(
       id: MAP_PLACE_POINT_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "place"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 7, 15, 9],
         "circle-color": [
@@ -293,11 +274,7 @@ function ensurePlaceSourceAndLayers(
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
       minzoom: 13.5,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "entity_kind"], "place"],
-      ],
+      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
       layout: {
         "text-field": ["get", "name"],
         "text-size": 11,
@@ -357,7 +334,25 @@ export function usePlaceMapLayer({
   useEffect(() => {
     if (!map || !ready || !map.isStyleLoaded()) return;
     const nextData = enabled ? collection : EMPTY_COLLECTION;
-    ensurePlaceSourceAndLayers(map, nextData, pinBatch.clustered);
+    let frame = 0;
+    const applySourceUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (!map.getCanvas().isConnected || !map.isStyleLoaded()) return;
+        ensurePlaceSourceAndLayers(map, nextData, pinBatch.clustered);
+      });
+    };
+
+    if (map.isMoving() || map.isZooming() || map.isRotating()) {
+      map.once("moveend", applySourceUpdate);
+    } else {
+      applySourceUpdate();
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      map.off("moveend", applySourceUpdate);
+    };
   }, [collection, enabled, map, pinBatch.clustered, ready, styleRevision]);
 
   useEffect(() => {

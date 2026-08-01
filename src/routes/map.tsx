@@ -166,7 +166,7 @@ export const Route = createFileRoute("/map")({
 
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 320;
 
 const RASTER_FALLBACK_STYLE: StyleSpecification = {
   version: 8,
@@ -275,7 +275,9 @@ function hideBasemapPoiLayers(map: maplibregl.Map) {
   for (const layer of map.getStyle().layers ?? []) {
     if (/^(?:eventa-map-)/.test(layer.id)) continue;
     if (/(?:^|[-_])(?:poi|transit|airport|station|ferry)(?:[-_]|$)/i.test(layer.id)) {
-      map.setLayoutProperty(layer.id, "visibility", "none");
+      if (map.getLayoutProperty(layer.id, "visibility") !== "none") {
+        map.setLayoutProperty(layer.id, "visibility", "none");
+      }
     }
   }
 }
@@ -2350,13 +2352,13 @@ function MapPage() {
     };
 
     captureViewport();
+    // `zoomend` is always followed by `moveend`; listening to both creates
+    // duplicate timers and duplicate viewport requests on every pinch gesture.
     map.on("moveend", scheduleViewportCapture);
-    map.on("zoomend", scheduleViewportCapture);
     map.on("resize", scheduleViewportCapture);
     return () => {
       if (refreshTimer != null) window.clearTimeout(refreshTimer);
       map.off("moveend", scheduleViewportCapture);
-      map.off("zoomend", scheduleViewportCapture);
       map.off("resize", scheduleViewportCapture);
     };
   }, [mapInstance, mapReady]);
@@ -2581,7 +2583,29 @@ function MapPage() {
   useEffect(() => {
     const map = mapInstance;
     if (!map || !mapReady || readyStyle?.map !== map) return;
-    syncClusterLayers(map, eventMapPoints, compactPinBatch.clustered);
+
+    let frame = 0;
+    const applySourceUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (!map.getCanvas().isConnected || !map.isStyleLoaded()) return;
+        syncClusterLayers(map, eventMapPoints, compactPinBatch.clustered);
+      });
+    };
+
+    // Parsing a large GeoJSON payload or rebuilding a clustered source during
+    // a touch gesture blocks MapLibre's render thread. Keep the previous pins
+    // visible and apply the new batch only after camera movement has settled.
+    if (map.isMoving() || map.isZooming() || map.isRotating()) {
+      map.once("moveend", applySourceUpdate);
+    } else {
+      applySourceUpdate();
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      map.off("moveend", applySourceUpdate);
+    };
   }, [compactPinBatch.clustered, eventMapPoints, mapInstance, mapReady, readyStyle]);
 
   useEffect(() => {

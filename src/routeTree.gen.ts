@@ -27,6 +27,7 @@ import { Route as AgendaRouteImport } from './routes/agenda'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrganizerIndexRouteImport } from './routes/organizer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as VenueSlugRouteImport } from './routes/venue.$slug'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as OrganizerNewRouteImport } from './routes/organizer/new'
 import { Route as OrganizerBillingRouteImport } from './routes/organizer/billing'
@@ -124,6 +125,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VenueSlugRoute = VenueSlugRouteImport.update({
+  id: '/venue/$slug',
+  path: '/venue/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdRoute = PostIdRouteImport.update({
   id: '/post/$id',
   path: '/post/$id',
@@ -178,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/organizer/billing': typeof OrganizerBillingRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
+  '/venue/$slug': typeof VenueSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/organizer/': typeof OrganizerIndexRoute
 }
@@ -204,6 +211,7 @@ export interface FileRoutesByTo {
   '/organizer/billing': typeof OrganizerBillingRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
+  '/venue/$slug': typeof VenueSlugRoute
   '/admin': typeof AdminIndexRoute
   '/organizer': typeof OrganizerIndexRoute
 }
@@ -231,6 +239,7 @@ export interface FileRoutesById {
   '/organizer/billing': typeof OrganizerBillingRoute
   '/organizer/new': typeof OrganizerNewRoute
   '/post/$id': typeof PostIdRoute
+  '/venue/$slug': typeof VenueSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/organizer/': typeof OrganizerIndexRoute
 }
@@ -259,6 +268,7 @@ export interface FileRouteTypes {
     | '/organizer/billing'
     | '/organizer/new'
     | '/post/$id'
+    | '/venue/$slug'
     | '/admin/'
     | '/organizer/'
   fileRoutesByTo: FileRoutesByTo
@@ -285,6 +295,7 @@ export interface FileRouteTypes {
     | '/organizer/billing'
     | '/organizer/new'
     | '/post/$id'
+    | '/venue/$slug'
     | '/admin'
     | '/organizer'
   id:
@@ -311,6 +322,7 @@ export interface FileRouteTypes {
     | '/organizer/billing'
     | '/organizer/new'
     | '/post/$id'
+    | '/venue/$slug'
     | '/admin/'
     | '/organizer/'
   fileRoutesById: FileRoutesById
@@ -338,6 +350,7 @@ export interface RootRouteChildren {
   OrganizerBillingRoute: typeof OrganizerBillingRoute
   OrganizerNewRoute: typeof OrganizerNewRoute
   PostIdRoute: typeof PostIdRoute
+  VenueSlugRoute: typeof VenueSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   OrganizerIndexRoute: typeof OrganizerIndexRoute
 }
@@ -470,6 +483,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/venue/$slug': {
+      id: '/venue/$slug'
+      path: '/venue/$slug'
+      fullPath: '/venue/$slug'
+      preLoaderRoute: typeof VenueSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id': {
       id: '/post/$id'
       path: '/post/$id'
@@ -538,6 +558,7 @@ const rootRouteChildren: RootRouteChildren = {
   OrganizerBillingRoute: OrganizerBillingRoute,
   OrganizerNewRoute: OrganizerNewRoute,
   PostIdRoute: PostIdRoute,
+  VenueSlugRoute: VenueSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   OrganizerIndexRoute: OrganizerIndexRoute,
 }
