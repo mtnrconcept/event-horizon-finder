@@ -1,0 +1,3 @@
+{
+  "buildCommand": "node scripts/apply-progressive-basemap.mjs && npm run build:vercel"
+}
