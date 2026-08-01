@@ -8,7 +8,10 @@ const detail = await readFile(
   new URL("../src/components/place-detail-dialog.tsx", import.meta.url),
   "utf8",
 );
-const patch = await readFile(new URL("../scripts/apply-poi-map-layer.mjs", import.meta.url), "utf8");
+const patch = await readFile(
+  new URL("../scripts/apply-poi-map-layer.mjs", import.meta.url),
+  "utf8",
+);
 
 test("places cluster on both server and client projections", () => {
   assert.match(layer, /clusterProperties/);
@@ -17,9 +20,9 @@ test("places cluster on both server and client projections", () => {
   assert.match(layer, /getClusterExpansionZoom/);
 });
 
-test("place cards and details include descriptions", () => {
-  assert.match(card, /place\.description/);
-  assert.match(detail, /place\.description/);
+test("place cards and details include useful descriptions", () => {
+  assert.match(card, /placeDisplayDescription/);
+  assert.match(detail, /placeDisplayDescription/);
   assert.match(detail, /Adresse et localisation/);
   assert.match(detail, /Horaires et accès/);
 });
