@@ -23,8 +23,9 @@
     "test:performance": "node --test tests/service-worker-safety.test.ts tests/performance-monitor-contract.test.ts tests/home-performance-contract.test.ts",
     "test:payments-ai": "bun test tests/ad-payment-ai-api.test.ts",
     "test:monetization": "node --test tests/organizer-monetization-contract.test.ts",
+    "test:ladecadanse": "node --test supabase/functions/ladecadanse-discovery/parser.test.ts tests/ladecadanse-ui-contract.test.ts",
     "check:bundle": "node scripts/check-bundle-budget.mjs",
-    "check": "npm run lint && npm run check:routes && npm run typecheck && npm run test:map && npm run test:taxonomy && npm run test:mcp && npm run test:i18n && npm run test:translations && npm run test:performance && npm run test:payments-ai && npm run test:monetization && npm run build && npm run check:bundle",
+    "check": "npm run lint && npm run check:routes && npm run typecheck && npm run test:map && npm run test:taxonomy && npm run test:mcp && npm run test:i18n && npm run test:translations && npm run test:performance && npm run test:payments-ai && npm run test:monetization && npm run test:ladecadanse && npm run build && npm run check:bundle",
     "format": "prettier --write ."
   },
   "dependencies": {
