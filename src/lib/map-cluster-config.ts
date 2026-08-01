@@ -7,6 +7,61 @@ export const EVENT_CLUSTER_TERMINAL_ZOOM = EVENT_CLUSTER_MAX_ZOOM + 1;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = EVENT_CLUSTER_TERMINAL_ZOOM;
 export const CLUSTER_SELECTION_PAGE_SIZE = 24;
 
+export function bumpMapSourceRevision<T extends object>(
+  revisions: WeakMap<T, number>,
+  sourceOwner: T,
+): number {
+  const revision = (revisions.get(sourceOwner) ?? 0) + 1;
+  revisions.set(sourceOwner, revision);
+  return revision;
+}
+
+export function beginMapSourceUpdate<T extends object>(
+  revisions: WeakMap<T, number>,
+  pendingRevisions: WeakMap<T, number>,
+  sourceOwner: T,
+): number {
+  const revision = bumpMapSourceRevision(revisions, sourceOwner);
+  pendingRevisions.set(sourceOwner, revision);
+  return revision;
+}
+
+export function completeMapSourceUpdate<T extends object>(
+  revisions: WeakMap<T, number>,
+  pendingRevisions: WeakMap<T, number>,
+  sourceOwner: T,
+  expectedRevision: number,
+): boolean {
+  if (
+    !isMapSourceRevisionCurrent(revisions, sourceOwner, expectedRevision) ||
+    pendingRevisions.get(sourceOwner) !== expectedRevision
+  ) {
+    return false;
+  }
+  pendingRevisions.delete(sourceOwner);
+  return true;
+}
+
+export function isMapSourceRevisionReady<T extends object>(
+  revisions: WeakMap<T, number>,
+  pendingRevisions: WeakMap<T, number>,
+  sourceOwner: T,
+  expectedRevision: number,
+): boolean {
+  return (
+    isMapSourceRevisionCurrent(revisions, sourceOwner, expectedRevision) &&
+    pendingRevisions.get(sourceOwner) !== expectedRevision
+  );
+}
+
+export function isMapSourceRevisionCurrent<T extends object>(
+  revisions: WeakMap<T, number>,
+  sourceOwner: T,
+  expectedRevision: number,
+): boolean {
+  return (revisions.get(sourceOwner) ?? 0) === expectedRevision;
+}
+
 export function shouldClusterMapPointsInClient(serverClustered: boolean): boolean {
   return !serverClustered;
 }
