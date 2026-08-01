@@ -38,7 +38,10 @@ export default tseslint.config(
   },
   eslintPluginPrettier,
   {
-    files: ["scripts/apply-poi-map-layer.mjs"],
+    files: [
+      "scripts/apply-poi-map-layer.mjs",
+      "supabase/functions/global-place-discovery/index.ts",
+    ],
     rules: {
       "prettier/prettier": "off",
     },
