@@ -167,6 +167,8 @@ export const Route = createFileRoute("/map")({
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
 const MAP_VIEWPORT_REFRESH_DELAY_MS = 320;
+const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;
+const MAP_REVEAL_TIMEOUT_MS = 2_000;
 
 const RASTER_FALLBACK_STYLE: StyleSpecification = {
   version: 8,
@@ -2211,23 +2213,35 @@ function MapPage() {
       return;
     }
     let primaryStyleLoaded = false;
+    let rasterFallbackApplied = false;
+    let primaryStyleErrorCount = 0;
     const markMapReady = () => {
       setReadyMap(map);
     };
-    const fallbackTimer = window.setTimeout(() => {
-      if (primaryStyleLoaded) return;
+    const applyRasterFallback = () => {
+      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      rasterFallbackApplied = true;
       map.setStyle(RASTER_FALLBACK_STYLE);
-    }, 8_000);
-    // A raster provider can be slow or blocked while the WebGL canvas is
-    // already usable. Do not let the loading veil hide the map indefinitely.
+    };
+    const fallbackTimer = window.setTimeout(applyRasterFallback, MAP_PRIMARY_STYLE_TIMEOUT_MS);
+    const handleMapError = () => {
+      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryStyleErrorCount += 1;
+      if (primaryStyleErrorCount >= 3) applyRasterFallback();
+    };
+    // Prefer the vector style on every device. The former mobile-only public
+    // raster path could leave a fully interactive but blank grey canvas when
+    // that tile host was throttled. Raster remains a bounded fallback only.
     const revealTimer = window.setTimeout(() => {
       map.resize();
       setReadyMap(map);
-    }, 2_500);
+    }, MAP_REVEAL_TIMEOUT_MS);
     map.once("render", markMapReady);
     map.on("load", markMapReady);
+    map.on("error", handleMapError);
     map.on("style.load", () => {
-      primaryStyleLoaded = true;
+      if (!rasterFallbackApplied) primaryStyleLoaded = true;
+      if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
       setReadyStyle((current) => ({
         map,
         revision: current?.map === map ? current.revision + 1 : 1,
@@ -2282,6 +2296,7 @@ function MapPage() {
     return () => {
       const center = map.getCenter();
       lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
+      map.off("error", handleMapError);
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
       window.cancelAnimationFrame(firstResizeFrame);

@@ -24,7 +24,7 @@ if (!source.includes("booking_url:")) {
   );
 }
 
-if (!source.includes("enrichPlacesFromPublicSources(normalizedPlaces")) {
+if (!source.includes("const places = await enrichPlacesFromPublicSources(")) {
   replaceOnce(
     '  const places = allElements\n    .map((element) => normalizeElement(element, city))',
     '  const normalizedPlaces = allElements\n    .map((element) => normalizeElement(element, city))',
