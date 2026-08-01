@@ -5,7 +5,7 @@ declare
   venue_result record;
   event_result record;
   upcoming jsonb;
-  test_external_id text := '9223372036854775000';
+  test_external_id text := '900000000000000001';
   test_event_external_id text := '9223372036854775';
   test_venue_name text := 'GlobalParty La Décadanse Smoke Venue';
   test_event_title text := 'GlobalParty La Décadanse Smoke Event';
