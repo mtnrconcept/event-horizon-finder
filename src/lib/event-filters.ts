@@ -31,12 +31,26 @@ export const MUSIC_GENRES = [
   ["gospel", "Gospel"],
 ] as const;
 
+export const PLACE_CATEGORIES = [
+  ["attraction", "Attractions et monuments", "🏛️"],
+  ["culture", "Musées, art et patrimoine", "🎨"],
+  ["nature", "Parcs, jardins et nature", "🌿"],
+  ["family", "Famille et loisirs", "🎡"],
+  ["sports-outdoors", "Sports et plein air", "🛹"],
+  ["food-drink", "Marchés et gastronomie", "🧺"],
+] as const;
+
 export const GENRE_LABELS = Object.fromEntries(MUSIC_GENRES) as Record<string, string>;
 
 export type PriceMode = "all" | "free" | "under-20" | "under-40" | "over-40" | "known";
 export type CapacityMode = "all" | "intimate" | "club" | "large" | "festival" | "unknown";
+export type DiscoveryContentMode = "events" | "places" | "all";
 
 export interface AdvancedEventFilters {
+  contentMode: DiscoveryContentMode;
+  placeCategories: string[];
+  openNowOnly: boolean;
+  freePlacesOnly: boolean;
   priceMode: PriceMode;
   capacityMode: CapacityMode;
   genres: string[];
@@ -48,6 +62,10 @@ export interface AdvancedEventFilters {
 }
 
 export const DEFAULT_ADVANCED_FILTERS: AdvancedEventFilters = {
+  contentMode: "events",
+  placeCategories: [],
+  openNowOnly: false,
+  freePlacesOnly: false,
   priceMode: "all",
   capacityMode: "all",
   genres: [],
@@ -86,6 +104,10 @@ export function toDiscoveryFilters(filters: AdvancedEventFilters, filterValues?:
   };
 
   return {
+    contentMode: filters.contentMode,
+    placeCategories: filters.placeCategories.length ? [...new Set(filters.placeCategories)] : null,
+    openNowOnly: filters.openNowOnly,
+    freePlacesOnly: filters.freePlacesOnly,
     ...price,
     ...capacity,
     genres: (filterValues ?? [...filters.genres, ...filters.subcategories]).length
@@ -100,6 +122,10 @@ export function toDiscoveryFilters(filters: AdvancedEventFilters, filterValues?:
 
 export function countAdvancedFilters(filters: AdvancedEventFilters) {
   return (
+    Number(filters.contentMode !== "events") +
+    filters.placeCategories.length +
+    Number(filters.openNowOnly) +
+    Number(filters.freePlacesOnly) +
     Number(filters.priceMode !== "all") +
     Number(filters.capacityMode !== "all") +
     filters.genres.length +
