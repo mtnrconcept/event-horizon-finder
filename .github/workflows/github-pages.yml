@@ -76,8 +76,24 @@ jobs:
             tests/today-default-fullscreen-intro.test.ts \
             public/sw.js
 
-      - name: Run complete quality gate
-        run: bun run check
+      - name: Validate generated Pages application
+        run: |
+          bun run lint
+          bun run check:routes
+          bun run typecheck
+          node --test \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/today-default-fullscreen-intro.test.ts
+          bun run test:taxonomy
+          bun run test:mcp
+          bun run test:i18n
+          bun run test:translations
+          bun run test:performance
+          bun run test:payments-ai
+          bun run test:monetization
+          bun run build
+          bun run check:bundle
 
       - name: Prepare Pages artifact
         run: node scripts/prepare-github-pages-output.mjs
