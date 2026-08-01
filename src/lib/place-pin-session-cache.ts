@@ -1,5 +1,5 @@
-import type { PlaceMapPinBatch } from "@/lib/place-discovery";
-import { normalizeMapViewportBounds, type MapViewportBounds } from "@/lib/map-viewport";
+import type { PlaceMapPinBatch } from "./place-discovery.ts";
+import { normalizeMapViewportBounds, type MapViewportBounds } from "./map-viewport.ts";
 
 const PLACE_PIN_CACHE_TTL_MS = 90_000;
 const PLACE_PIN_CACHE_LIMIT = 20;
@@ -22,9 +22,7 @@ function normalizeLongitude(value: number): number {
 }
 
 function longitudeSpan(bounds: MapViewportBounds): number {
-  return bounds.west <= bounds.east
-    ? bounds.east - bounds.west
-    : 360 - bounds.west + bounds.east;
+  return bounds.west <= bounds.east ? bounds.east - bounds.west : 360 - bounds.west + bounds.east;
 }
 
 function longitudeSegments(bounds: MapViewportBounds): Array<[number, number]> {
@@ -93,10 +91,7 @@ function cacheKey(filterKey: string, zoom: number): string {
   return `${filterKey}|${placePinCacheMode(zoom)}`;
 }
 
-function projectBatch(
-  batch: PlaceMapPinBatch,
-  viewport: MapViewportBounds,
-): PlaceMapPinBatch {
+function projectBatch(batch: PlaceMapPinBatch, viewport: MapViewportBounds): PlaceMapPinBatch {
   if (batch.clustered) return batch;
   const pins = batch.pins.filter((pin) => pinInsideBounds(pin, viewport));
   return {

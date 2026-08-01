@@ -153,24 +153,24 @@ const queriesSource = await readFile(new URL("../src/lib/queries.ts", import.met
 
 test("the vector basemap is the primary mobile and desktop style", () => {
   assert.match(mapSource, /style: PRIMARY_MAP_STYLE/);
-  assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\n        center/);
+  assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\\n        center/);
 });
 
 test("raster fallback remains bounded and reacts to repeated style errors", () => {
   assert.match(mapSource, /MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500/);
   assert.match(mapSource, /primaryStyleErrorCount >= 3/);
-  assert.match(mapSource, /map\.setStyle\(RASTER_FALLBACK_STYLE\)/);
-  assert.match(mapSource, /map\.off\("error", handleMapError\)/);
+  assert.match(mapSource, /map\\.setStyle\\(RASTER_FALLBACK_STYLE\\)/);
+  assert.match(mapSource, /map\\.off\\("error", handleMapError\\)/);
 });
 
 test("the safety reveal does not keep a working canvas covered", () => {
   assert.match(mapSource, /MAP_REVEAL_TIMEOUT_MS = 2_000/);
-  assert.match(mapSource, /map\.once\("render", markMapReady\)/);
+  assert.match(mapSource, /map\\.once\\("render", markMapReady\\)/);
 });
 
 test("the deployed map keeps every rolling RPC fallback", () => {
   assert.match(queriesSource, /discover_map_pins_in_bounds_v6/);
-  assert.match(queriesSource, /\["v5", "v4", "v3", "v2"\]/);
+  assert.match(queriesSource, /\\["v5", "v4", "v3", "v2"\\]/);
 });
 `;
 await writeFile(testPath, testSource);
