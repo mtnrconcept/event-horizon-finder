@@ -59,6 +59,8 @@ jobs:
             vite.config.ts \
             src/router.tsx \
             src/lib/deployment-paths.ts \
+            src/lib/event-filters.ts \
+            src/lib/i18n.tsx \
             src/lib/monetization.ts \
             src/lib/ad-queries.ts \
             src/integrations/supabase/client.ts \
