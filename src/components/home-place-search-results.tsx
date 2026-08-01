@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlaceDetailDialog } from "@/components/place-detail-dialog";
 import { PlaceSearchResults } from "@/components/place-search-results";
+import { useTranslation } from "@/lib/i18n";
 import {
   discoverPlacesForHome,
   PLACE_LIST_PAGE_SIZE,
@@ -28,6 +29,7 @@ export function HomePlaceSearchResults({
   freeOnly: boolean;
   hasHoursOnly: boolean;
 }) {
+  const { tr } = useTranslation();
   const [places, setPlaces] = useState<PlaceOfInterest[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -74,13 +76,13 @@ export function HomePlaceSearchResults({
       .catch((cause) => {
         if (controller.signal.aborted) return;
         setPlaces([]);
-        setError(cause instanceof Error ? cause.message : "Impossible de charger les lieux.");
+        setError(cause instanceof Error ? cause.message : tr("Impossible de charger les lieux."));
       })
       .finally(() => {
         if (!controller.signal.aborted && requestVersion === requestVersionRef.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [enabled, params, reloadKey]);
+  }, [enabled, params, reloadKey, tr]);
 
   const loadMore = useCallback(async () => {
     if (!enabled || loading || loadingMore || !hasMore) return;
@@ -99,16 +101,16 @@ export function HomePlaceSearchResults({
       setTotalCount(batch.totalCount);
       setHasMore(batch.hasMore);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Impossible de charger plus de lieux.");
+      setError(cause instanceof Error ? cause.message : tr("Impossible de charger plus de lieux."));
     } finally {
       setLoadingMore(false);
     }
-  }, [enabled, hasMore, loading, loadingMore, params, places.length]);
+  }, [enabled, hasMore, loading, loadingMore, params, places.length, tr]);
 
   if (!enabled) return null;
 
   return (
-    <section className="mb-8" aria-label="Lieux correspondant à la recherche">
+    <section className="mb-8" aria-label={tr("Lieux correspondant à la recherche")}>
       <PlaceSearchResults
         places={places}
         totalCount={totalCount}
