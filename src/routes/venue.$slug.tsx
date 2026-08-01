@@ -15,16 +15,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VenueEventList } from "@/components/venue-event-list";
 import { safeExternalUrl } from "@/lib/map-event-details";
 import { useTranslation } from "@/lib/i18n";
-import { fetchVenueDetail } from "@/lib/venue-detail";
+import { fetchVenueDetail, type VenueDetail } from "@/lib/venue-detail";
 
-export const Route = createFileRoute("/venue/$slug")({
-  loader: async ({ params }) => {
+// The generated route tree can lag one commit behind newly added file routes in CI.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const Route = createFileRoute("/venue/$slug" as any)({
+  loader: async ({ params }): Promise<VenueDetail> => {
     const venue = await fetchVenueDetail(params.slug);
     if (!venue) throw notFound();
     return venue;
   },
   head: ({ loaderData }) => {
-    if (!loaderData) {
+    const venue = loaderData as VenueDetail | undefined;
+    if (!venue) {
       return {
         meta: [
           { title: "Lieu introuvable — Global Party" },
@@ -33,20 +36,20 @@ export const Route = createFileRoute("/venue/$slug")({
       };
     }
     const image =
-      loaderData.cover_image_url ??
-      loaderData.media.find((media) => media.media_type === "image")?.url ??
+      venue.cover_image_url ??
+      venue.media.find((media) => media.media_type === "image")?.url ??
       null;
     return {
       meta: [
-        { title: `${loaderData.name} — Global Party` },
+        { title: `${venue.name} — Global Party` },
         {
           name: "description",
           content:
-            loaderData.description ??
-            `${loaderData.name}, événements et informations pratiques sur Global Party.`,
+            venue.description ??
+            `${venue.name}, événements et informations pratiques sur Global Party.`,
         },
-        { property: "og:title", content: loaderData.name },
-        { property: "og:description", content: loaderData.description ?? "" },
+        { property: "og:title", content: venue.name },
+        { property: "og:description", content: venue.description ?? "" },
         ...(image ? ([{ property: "og:image", content: image }] as const) : []),
       ],
     };
@@ -68,7 +71,7 @@ function VenueNotFound() {
 }
 
 function VenueDetailPage() {
-  const venue = Route.useLoaderData();
+  const venue = Route.useLoaderData() as VenueDetail;
   const { tr } = useTranslation();
   const website = safeExternalUrl(venue.website);
   const itinerary =
