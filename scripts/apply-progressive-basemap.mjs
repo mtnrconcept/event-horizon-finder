@@ -4,49 +4,173 @@ const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
 const testPath = new URL("../tests/map-basemap-loading.test.ts", import.meta.url);
 const queriesPath = new URL("../src/lib/queries.ts", import.meta.url);
 
-let source = await readFile(mapPath, "utf8");
-
-const replacements = [
-  [
-    "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;\n",
-    "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;\nconst MAP_PRIMARY_STYLE_PROBE_TIMEOUT_MS = 1_500;\nconst MAP_REVEAL_TIMEOUT_MS = 5_000;\n",
-  ],
-  ["        style: PRIMARY_MAP_STYLE,\n", "        style: RASTER_FALLBACK_STYLE,\n"],
-  [
-    `    let primaryStyleLoaded = false;\n    const markMapReady = () => {\n      setReadyMap(map);\n    };\n    const fallbackTimer = window.setTimeout(() => {\n      if (primaryStyleLoaded) return;\n      map.setStyle(RASTER_FALLBACK_STYLE);\n    }, 8_000);\n    // A raster provider can be slow or blocked while the WebGL canvas is\n    // already usable. Do not let the loading veil hide the map indefinitely.\n    const revealTimer = window.setTimeout(() => {\n      map.resize();\n      setReadyMap(map);\n    }, 2_500);\n`,
-    `    let preferredStyleApplied = false;\n    const markMapReady = () => {\n      setReadyMap(map);\n    };\n    const preferredStyleController = new AbortController();\n    const preferredStyleTimer = window.setTimeout(\n      () => preferredStyleController.abort(),\n      MAP_PRIMARY_STYLE_PROBE_TIMEOUT_MS,\n    );\n    void fetch(PRIMARY_MAP_STYLE, {\n      signal: preferredStyleController.signal,\n      cache: "force-cache",\n      mode: "cors",\n    })\n      .then((response) => {\n        if (!response.ok) throw new Error(\`Map style probe failed: \${response.status}\`);\n        return response.json();\n      })\n      .then((style: StyleSpecification) => {\n        if (preferredStyleController.signal.aborted || preferredStyleApplied) return;\n        preferredStyleApplied = true;\n        map.setStyle(style);\n      })\n      .catch(() => undefined)\n      .finally(() => window.clearTimeout(preferredStyleTimer));\n    const revealTimer = window.setTimeout(() => {\n      map.resize();\n      setReadyMap(map);\n    }, MAP_REVEAL_TIMEOUT_MS);\n`,
-  ],
-  [
-    `    map.once("render", markMapReady);\n    map.on("load", markMapReady);\n`,
-    `    map.once("idle", markMapReady);\n`,
-  ],
-  [
-    `    map.on("style.load", () => {\n      primaryStyleLoaded = true;\n`,
-    `    map.on("style.load", () => {\n`,
-  ],
-  [
-    `      window.clearTimeout(fallbackTimer);\n      window.clearTimeout(revealTimer);\n`,
-    `      preferredStyleController.abort();\n      window.clearTimeout(preferredStyleTimer);\n      window.clearTimeout(revealTimer);\n`,
-  ],
-];
-
-for (const [before, after] of replacements) {
+function replaceOnce(source, before, after, label) {
   if (!source.includes(before)) {
-    throw new Error(`Expected map source fragment was not found:\n${before.slice(0, 160)}`);
+    throw new Error(`Expected ${label} fragment was not found`);
   }
-  source = source.replace(before, after);
+  return source.replace(before, after);
 }
 
+let source = await readFile(mapPath, "utf8");
+source = replaceOnce(
+  source,
+  "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;\n",
+  [
+    "const MAP_VIEWPORT_REFRESH_DELAY_MS = 220;",
+    "const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;",
+    "const MAP_REVEAL_TIMEOUT_MS = 2_000;",
+    "",
+  ].join("\n"),
+  "map loading constants",
+);
+
+const originalLoadingBlock = `    let primaryStyleLoaded = false;
+    const markMapReady = () => {
+      setReadyMap(map);
+    };
+    const fallbackTimer = window.setTimeout(() => {
+      if (primaryStyleLoaded) return;
+      map.setStyle(RASTER_FALLBACK_STYLE);
+    }, 8_000);
+    // A raster provider can be slow or blocked while the WebGL canvas is
+    // already usable. Do not let the loading veil hide the map indefinitely.
+    const revealTimer = window.setTimeout(() => {
+      map.resize();
+      setReadyMap(map);
+    }, 2_500);
+    map.once("render", markMapReady);
+    map.on("load", markMapReady);
+    map.on("style.load", () => {
+      primaryStyleLoaded = true;
+`;
+const resilientLoadingBlock = `    let primaryStyleLoaded = false;
+    let rasterFallbackApplied = false;
+    let primaryStyleErrorCount = 0;
+    const markMapReady = () => {
+      setReadyMap(map);
+    };
+    const applyRasterFallback = () => {
+      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      rasterFallbackApplied = true;
+      map.setStyle(RASTER_FALLBACK_STYLE);
+    };
+    const fallbackTimer = window.setTimeout(
+      applyRasterFallback,
+      MAP_PRIMARY_STYLE_TIMEOUT_MS,
+    );
+    const handleMapError = () => {
+      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryStyleErrorCount += 1;
+      if (primaryStyleErrorCount >= 3) applyRasterFallback();
+    };
+    // Prefer the vector style on every device. The former mobile-only public
+    // raster path could leave a fully interactive but blank grey canvas when
+    // that tile host was throttled. Raster remains a bounded fallback only.
+    const revealTimer = window.setTimeout(() => {
+      map.resize();
+      setReadyMap(map);
+    }, MAP_REVEAL_TIMEOUT_MS);
+    map.once("render", markMapReady);
+    map.on("load", markMapReady);
+    map.on("error", handleMapError);
+    map.on("style.load", () => {
+      if (!rasterFallbackApplied) primaryStyleLoaded = true;
+      if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
+`;
+source = replaceOnce(
+  source,
+  originalLoadingBlock,
+  resilientLoadingBlock,
+  "progressive basemap loading",
+);
+source = replaceOnce(
+  source,
+  `      window.clearTimeout(fallbackTimer);
+      window.clearTimeout(revealTimer);
+`,
+  `      map.off("error", handleMapError);
+      window.clearTimeout(fallbackTimer);
+      window.clearTimeout(revealTimer);
+`,
+  "basemap cleanup",
+);
 await writeFile(mapPath, source);
 
 let queries = await readFile(queriesPath, "utf8");
-const queryNeedle = `      // database types include v5.\n      // eslint-disable-next-line @typescript-eslint/no-explicit-any\n      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v5", args).retry(false);\n      let { data, error } = await (signal ? request.abortSignal(signal) : request);\n      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {\n        // Keep the map available during the short migration/frontend overlap.\n        // eslint-disable-next-line @typescript-eslint/no-explicit-any\n        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v4", args).retry(false);`;
-const queryReplacement = `      // database types include v6.\n      // eslint-disable-next-line @typescript-eslint/no-explicit-any\n      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v6", args).retry(false);\n      let { data, error } = await (signal ? request.abortSignal(signal) : request);\n      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {\n        // Keep the map available during the short migration/frontend overlap.\n        // eslint-disable-next-line @typescript-eslint/no-explicit-any\n        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v5", args).retry(false);`;
-if (!queries.includes(queryNeedle)) {
-  throw new Error("Expected v5 map query fragment was not found");
-}
-queries = queries.replace(queryNeedle, queryReplacement);
+const originalQueryChain = `      // database types include v5.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v5", args).retry(false);
+      let { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Keep the map available during the short migration/frontend overlap.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v4", args).retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Preserve compatibility with installations that have not received v4 yet.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v3", args).retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
+      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
+        // Preserve compatibility with installations that have not received v3 yet.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const legacyFallback = (supabase as any)
+          .rpc("discover_map_pins_in_bounds_v2", args)
+          .retry(false);
+        ({ data, error } = await (signal ? legacyFallback.abortSignal(signal) : legacyFallback));
+      }
+`;
+const upgradedQueryChain = `      // Keep the cast at the additive RPC rollout boundary until generated
+      // database types include v6.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v6", args).retry(false);
+      let { data, error } = await (signal ? request.abortSignal(signal) : request);
+      for (const fallbackVersion of ["v5", "v4", "v3", "v2"] as const) {
+        if (!error || !["42883", "PGRST202"].includes(error.code ?? "")) break;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any)
+          .rpc(\`discover_map_pins_in_bounds_\${fallbackVersion}\`, args)
+          .retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
+`;
+queries = replaceOnce(
+  queries,
+  originalQueryChain,
+  upgradedQueryChain,
+  "complete v6 map pin fallback chain",
+);
 await writeFile(queriesPath, queries);
 
-const testSource = `import assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\nimport test from "node:test";\n\nconst mapSource = await readFile(new URL("../src/routes/map.tsx", import.meta.url), "utf8");\nconst queriesSource = await readFile(new URL("../src/lib/queries.ts", import.meta.url), "utf8");\n\ntest("the map renders the raster fallback immediately", () => {\n  assert.match(mapSource, /style: RASTER_FALLBACK_STYLE/);\n  assert.doesNotMatch(mapSource, /style: PRIMARY_MAP_STYLE/);\n});\n\ntest("the preferred vector style is only applied after a bounded probe", () => {\n  assert.match(mapSource, /MAP_PRIMARY_STYLE_PROBE_TIMEOUT_MS = 1_500/);\n  assert.match(mapSource, /fetch\\(PRIMARY_MAP_STYLE/);\n  assert.match(mapSource, /preferredStyleController\\.abort\\(\\)/);\n  assert.match(mapSource, /map\\.setStyle\\(style\\)/);\n});\n\ntest("pins remain covered until the basemap is idle", () => {\n  assert.match(mapSource, /map\\.once\\(\"idle\", markMapReady\\)/);\n  assert.doesNotMatch(mapSource, /map\\.once\\(\"render\", markMapReady\\)/);\n  assert.doesNotMatch(mapSource, /map\\.on\\(\"load\", markMapReady\\)/);\n});\n\ntest("the safety reveal is delayed long enough for mobile tiles", () => {\n  assert.match(mapSource, /MAP_REVEAL_TIMEOUT_MS = 5_000/);\n});\n\ntest("the deployed map uses the wider v6 cluster projection", () => {\n  assert.match(queriesSource, /rpc\\(\"discover_map_pins_in_bounds_v6\"/);\n  assert.match(queriesSource, /rpc\\(\"discover_map_pins_in_bounds_v5\"/);\n});\n`;
+const testSource = `import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const mapSource = await readFile(new URL("../src/routes/map.tsx", import.meta.url), "utf8");
+const queriesSource = await readFile(new URL("../src/lib/queries.ts", import.meta.url), "utf8");
+
+test("the vector basemap is the primary mobile and desktop style", () => {
+  assert.match(mapSource, /style: PRIMARY_MAP_STYLE/);
+  assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\n        center/);
+});
+
+test("raster fallback remains bounded and reacts to repeated style errors", () => {
+  assert.match(mapSource, /MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500/);
+  assert.match(mapSource, /primaryStyleErrorCount >= 3/);
+  assert.match(mapSource, /map\.setStyle\(RASTER_FALLBACK_STYLE\)/);
+  assert.match(mapSource, /map\.off\("error", handleMapError\)/);
+});
+
+test("the safety reveal does not keep a working canvas covered", () => {
+  assert.match(mapSource, /MAP_REVEAL_TIMEOUT_MS = 2_000/);
+  assert.match(mapSource, /map\.once\("render", markMapReady\)/);
+});
+
+test("the deployed map keeps every rolling RPC fallback", () => {
+  assert.match(queriesSource, /discover_map_pins_in_bounds_v6/);
+  assert.match(queriesSource, /\["v5", "v4", "v3", "v2"\]/);
+});
+`;
 await writeFile(testPath, testSource);

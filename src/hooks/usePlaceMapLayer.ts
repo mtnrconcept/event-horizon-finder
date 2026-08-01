@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
+import maplibregl, {
+  type GeoJSONSource,
+  type MapGeoJSONFeature,
+  type MapMouseEvent,
+} from "maplibre-gl";
 import {
   buildPlaceFeatureCollection,
   PLACE_SERVER_CLUSTER_MAX_ZOOM,
@@ -22,6 +26,20 @@ export const MAP_PLACE_LABEL_ID = "global-party-place-label";
 
 const PLACE_CLUSTER_RADIUS = 108;
 const PLACE_CLUSTER_MAX_ZOOM = 14;
+const PLACE_CLUSTER_ANIMATION_MS = 320;
+const PLACE_CLUSTER_LOCK_TIMEOUT_MS = 1_500;
+
+const MAP_PLACE_LAYER_IDS = [
+  MAP_PLACE_LABEL_ID,
+  MAP_PLACE_POINT_ID,
+  MAP_PLACE_CLIENT_CLUSTER_COUNT_ID,
+  MAP_PLACE_CLIENT_CLUSTER_ID,
+  MAP_PLACE_CLIENT_CLUSTER_HALO_ID,
+  MAP_PLACE_SERVER_CLUSTER_COUNT_ID,
+  MAP_PLACE_SERVER_CLUSTER_ID,
+  MAP_PLACE_SERVER_CLUSTER_HALO_ID,
+] as const;
+const MAP_PLACE_SOURCE_CLIENT_CLUSTERING = new WeakMap<maplibregl.Map, boolean>();
 
 const EMPTY_COLLECTION: PlaceFeatureCollection = {
   type: "FeatureCollection",
@@ -34,19 +52,49 @@ function placeCount(properties: Record<string, unknown> | null | undefined): num
   return Number.isFinite(value) ? Math.max(1, Math.round(value)) : 1;
 }
 
-function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureCollection) {
-  if (!map.getSource(MAP_PLACE_SOURCE_ID)) {
+function removePlaceSourceAndLayers(map: maplibregl.Map) {
+  for (const layerId of MAP_PLACE_LAYER_IDS) {
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+  }
+  if (map.getSource(MAP_PLACE_SOURCE_ID)) map.removeSource(MAP_PLACE_SOURCE_ID);
+}
+
+function ensurePlaceSourceAndLayers(
+  map: maplibregl.Map,
+  data: PlaceFeatureCollection,
+  serverClustered: boolean,
+) {
+  const clientClustered = !serverClustered;
+  const previousClientClustered = MAP_PLACE_SOURCE_CLIENT_CLUSTERING.get(map);
+  let source = map.getSource(MAP_PLACE_SOURCE_ID) as GeoJSONSource | undefined;
+
+  // A GeoJSON source cannot change its clustering mode after creation. Server
+  // aggregates must remain untouched, while individual pins may use MapLibre's
+  // client clustering between zoom 12 and 14.
+  if (source && previousClientClustered !== clientClustered) {
+    removePlaceSourceAndLayers(map);
+    source = undefined;
+  }
+
+  if (source) {
+    source.setData(data);
+  } else {
     map.addSource(MAP_PLACE_SOURCE_ID, {
       type: "geojson",
       data,
-      cluster: true,
+      cluster: clientClustered,
       clusterRadius: PLACE_CLUSTER_RADIUS,
       clusterMaxZoom: PLACE_CLUSTER_MAX_ZOOM,
-      clusterProperties: {
-        place_total: ["+", ["get", "place_count"]],
-      },
+      ...(clientClustered
+        ? {
+            clusterProperties: {
+              place_total: ["+", ["get", "place_count"]],
+            },
+          }
+        : {}),
     });
   }
+  MAP_PLACE_SOURCE_CLIENT_CLUSTERING.set(map, clientClustered);
 
   if (!map.getLayer(MAP_PLACE_CLIENT_CLUSTER_HALO_ID)) {
     map.addLayer({
@@ -105,7 +153,10 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       source: MAP_PLACE_SOURCE_ID,
       filter: ["has", "point_count"],
       layout: {
-        "text-field": ["to-string", ["coalesce", ["get", "place_total"], ["get", "point_count"]]],
+        "text-field": [
+          "to-string",
+          ["coalesce", ["get", "place_total"], ["get", "point_count"]],
+        ],
         "text-size": 12,
         "text-font": ["Noto Sans Bold"],
         "text-allow-overlap": true,
@@ -123,7 +174,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_HALO_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -147,7 +202,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       paint: {
         "circle-radius": [
           "interpolate",
@@ -173,7 +232,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_SERVER_CLUSTER_COUNT_ID,
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "cluster"]],
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "cluster"],
+      ],
       layout: {
         "text-field": ["to-string", ["get", "place_count"]],
         "text-size": 12,
@@ -193,7 +256,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       id: MAP_PLACE_POINT_ID,
       type: "circle",
       source: MAP_PLACE_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "place"],
+      ],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 7, 15, 9],
         "circle-color": [
@@ -226,7 +293,11 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       type: "symbol",
       source: MAP_PLACE_SOURCE_ID,
       minzoom: 13.5,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "entity_kind"], "place"]],
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["==", ["get", "entity_kind"], "place"],
+      ],
       layout: {
         "text-field": ["get", "name"],
         "text-size": 11,
@@ -242,6 +313,23 @@ function ensurePlaceSourceAndLayers(map: maplibregl.Map, data: PlaceFeatureColle
       },
     });
   }
+}
+
+function firstFeatureForLayer(
+  features: MapGeoJSONFeature[],
+  layerId: string,
+): MapGeoJSONFeature | null {
+  return features.find((feature) => feature.layer.id === layerId) ?? null;
+}
+
+function featureCoordinates(feature: MapGeoJSONFeature): [number, number] | null {
+  if (feature.geometry.type !== "Point") return null;
+  const [longitude, latitude] = feature.geometry.coordinates;
+  const parsedLongitude = Number(longitude);
+  const parsedLatitude = Number(latitude);
+  return Number.isFinite(parsedLongitude) && Number.isFinite(parsedLatitude)
+    ? [parsedLongitude, parsedLatitude]
+    : null;
 }
 
 export interface UsePlaceMapLayerInput {
@@ -262,71 +350,18 @@ export function usePlaceMapLayer({
   onSelect,
 }: UsePlaceMapLayerInput) {
   const onSelectRef = useRef(onSelect);
+  const clusterClickLockedRef = useRef(false);
   onSelectRef.current = onSelect;
   const collection = useMemo(() => buildPlaceFeatureCollection(pinBatch), [pinBatch]);
 
   useEffect(() => {
     if (!map || !ready || !map.isStyleLoaded()) return;
     const nextData = enabled ? collection : EMPTY_COLLECTION;
-    ensurePlaceSourceAndLayers(map, nextData);
-    const source = map.getSource(MAP_PLACE_SOURCE_ID) as GeoJSONSource | undefined;
-    source?.setData(nextData);
-  }, [collection, enabled, map, ready, styleRevision]);
+    ensurePlaceSourceAndLayers(map, nextData, pinBatch.clustered);
+  }, [collection, enabled, map, pinBatch.clustered, ready, styleRevision]);
 
   useEffect(() => {
     if (!map || !ready || !enabled || !map.isStyleLoaded()) return;
-
-    const setPointer = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
-    const resetPointer = () => {
-      map.getCanvas().style.cursor = "";
-    };
-
-    const openClientCluster = async (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
-      if (!feature || feature.geometry.type !== "Point") return;
-      const clusterId = Number(feature.properties?.cluster_id);
-      if (!Number.isFinite(clusterId)) return;
-      const source = map.getSource(MAP_PLACE_SOURCE_ID) as GeoJSONSource | undefined;
-      if (!source) return;
-      try {
-        const expansionZoom = await source.getClusterExpansionZoom(clusterId);
-        const [longitude, latitude] = feature.geometry.coordinates;
-        map.easeTo({
-          center: [Number(longitude), Number(latitude)],
-          zoom: Math.min(18, Math.max(map.getZoom() + 1, expansionZoom)),
-          duration: 420,
-        });
-      } catch {
-        // The next viewport refresh will retry with fresh source data.
-      }
-    };
-
-    const openServerCluster = (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
-      if (!feature || feature.geometry.type !== "Point") return;
-      const [longitude, latitude] = feature.geometry.coordinates;
-      map.easeTo({
-        center: [Number(longitude), Number(latitude)],
-        zoom: Math.min(PLACE_SERVER_CLUSTER_MAX_ZOOM + 0.5, Math.max(map.getZoom() + 2, 5)),
-        duration: 420,
-      });
-    };
-
-    const openPlace = (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
-      if (!feature) return;
-      const place = placeFromFeatureProperties(
-        feature.properties as Partial<PlaceFeatureProperties> | undefined,
-      );
-      if (place) onSelectRef.current(place);
-    };
-
-    map.on("click", MAP_PLACE_CLIENT_CLUSTER_ID, openClientCluster);
-    map.on("click", MAP_PLACE_SERVER_CLUSTER_ID, openServerCluster);
-    map.on("click", MAP_PLACE_POINT_ID, openPlace);
-    map.on("click", MAP_PLACE_LABEL_ID, openPlace);
 
     const interactiveLayers = [
       MAP_PLACE_CLIENT_CLUSTER_ID,
@@ -334,16 +369,110 @@ export function usePlaceMapLayer({
       MAP_PLACE_POINT_ID,
       MAP_PLACE_LABEL_ID,
     ] as const;
-    interactiveLayers.forEach((layerId) => map.on("mouseenter", layerId, setPointer));
-    interactiveLayers.forEach((layerId) => map.on("mouseleave", layerId, resetPointer));
+    const activeInteractiveLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
+    if (!activeInteractiveLayers.length) return;
+
+    let unlockTimer: number | null = null;
+    const unlockClusterClick = () => {
+      if (unlockTimer != null) window.clearTimeout(unlockTimer);
+      unlockTimer = null;
+      map.off("moveend", unlockClusterClick);
+      clusterClickLockedRef.current = false;
+    };
+    const beginClusterExpansion = (event: MapMouseEvent) => {
+      event.preventDefault();
+      event.originalEvent.preventDefault();
+      event.originalEvent.stopPropagation();
+      if (clusterClickLockedRef.current) return false;
+      clusterClickLockedRef.current = true;
+      map.once("moveend", unlockClusterClick);
+      unlockTimer = window.setTimeout(unlockClusterClick, PLACE_CLUSTER_LOCK_TIMEOUT_MS);
+      return true;
+    };
+    const stopPlaceClick = (event: MapMouseEvent) => {
+      event.preventDefault();
+      event.originalEvent.preventDefault();
+      event.originalEvent.stopPropagation();
+    };
+    const setPointer = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const resetPointer = () => {
+      map.getCanvas().style.cursor = "";
+    };
+
+    const handleMapClick = async (event: MapMouseEvent) => {
+      const renderedLayers = activeInteractiveLayers.filter((layerId) => map.getLayer(layerId));
+      if (!renderedLayers.length) return;
+      const features = map.queryRenderedFeatures(event.point, { layers: renderedLayers });
+      if (!features.length) return;
+
+      const clientCluster = firstFeatureForLayer(features, MAP_PLACE_CLIENT_CLUSTER_ID);
+      if (clientCluster) {
+        if (!beginClusterExpansion(event)) return;
+        const clusterId = Number(clientCluster.properties?.cluster_id);
+        const coordinates = featureCoordinates(clientCluster);
+        const source = map.getSource(MAP_PLACE_SOURCE_ID) as GeoJSONSource | undefined;
+        if (!Number.isFinite(clusterId) || !coordinates || !source) {
+          unlockClusterClick();
+          return;
+        }
+        try {
+          const expansionZoom = await source.getClusterExpansionZoom(clusterId);
+          map.stop();
+          map.easeTo({
+            center: coordinates,
+            zoom: Math.min(18, Math.max(map.getZoom() + 1.5, expansionZoom + 0.35)),
+            duration: PLACE_CLUSTER_ANIMATION_MS,
+            essential: true,
+          });
+        } catch {
+          unlockClusterClick();
+        }
+        return;
+      }
+
+      const serverCluster = firstFeatureForLayer(features, MAP_PLACE_SERVER_CLUSTER_ID);
+      if (serverCluster) {
+        if (!beginClusterExpansion(event)) return;
+        const coordinates = featureCoordinates(serverCluster);
+        if (!coordinates) {
+          unlockClusterClick();
+          return;
+        }
+        // Cross the server aggregation threshold in a single interaction. The
+        // next response contains compact individual pins, which MapLibre may
+        // then progressively cluster until zoom 14.
+        map.stop();
+        map.easeTo({
+          center: coordinates,
+          zoom: PLACE_SERVER_CLUSTER_MAX_ZOOM + 0.25,
+          duration: PLACE_CLUSTER_ANIMATION_MS,
+          essential: true,
+        });
+        return;
+      }
+
+      const placeFeature =
+        firstFeatureForLayer(features, MAP_PLACE_POINT_ID) ??
+        firstFeatureForLayer(features, MAP_PLACE_LABEL_ID);
+      if (!placeFeature) return;
+      stopPlaceClick(event);
+      const place = placeFromFeatureProperties(
+        placeFeature.properties as Partial<PlaceFeatureProperties> | undefined,
+      );
+      if (place) onSelectRef.current(place);
+    };
+
+    map.on("click", handleMapClick);
+    activeInteractiveLayers.forEach((layerId) => map.on("mouseenter", layerId, setPointer));
+    activeInteractiveLayers.forEach((layerId) => map.on("mouseleave", layerId, resetPointer));
 
     return () => {
-      map.off("click", MAP_PLACE_CLIENT_CLUSTER_ID, openClientCluster);
-      map.off("click", MAP_PLACE_SERVER_CLUSTER_ID, openServerCluster);
-      map.off("click", MAP_PLACE_POINT_ID, openPlace);
-      map.off("click", MAP_PLACE_LABEL_ID, openPlace);
-      interactiveLayers.forEach((layerId) => map.off("mouseenter", layerId, setPointer));
-      interactiveLayers.forEach((layerId) => map.off("mouseleave", layerId, resetPointer));
+      map.off("click", handleMapClick);
+      activeInteractiveLayers.forEach((layerId) => map.off("mouseenter", layerId, setPointer));
+      activeInteractiveLayers.forEach((layerId) => map.off("mouseleave", layerId, resetPointer));
+      unlockClusterClick();
       resetPointer();
     };
   }, [enabled, map, ready, styleRevision]);

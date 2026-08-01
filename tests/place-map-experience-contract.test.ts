@@ -13,11 +13,19 @@ const patch = await readFile(
   "utf8",
 );
 
-test("places cluster on both server and client projections", () => {
-  assert.match(layer, /clusterProperties/);
+test("places use server or client clustering, never both at once", () => {
+  assert.match(layer, /const clientClustered = !serverClustered/);
+  assert.match(layer, /previousClientClustered !== clientClustered/);
   assert.match(layer, /MAP_PLACE_CLIENT_CLUSTER_ID/);
   assert.match(layer, /MAP_PLACE_SERVER_CLUSTER_ID/);
   assert.match(layer, /getClusterExpansionZoom/);
+});
+
+test("one deterministic click handles clusters, pins and overlapping labels", () => {
+  assert.match(layer, /queryRenderedFeatures/);
+  assert.match(layer, /firstFeatureForLayer/);
+  assert.match(layer, /map\.on\("click", handleMapClick\)/);
+  assert.match(layer, /PLACE_SERVER_CLUSTER_MAX_ZOOM \+ 0\.25/);
 });
 
 test("place cards and details include useful descriptions", () => {
