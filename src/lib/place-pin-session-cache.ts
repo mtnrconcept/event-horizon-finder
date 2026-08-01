@@ -47,6 +47,10 @@ function boundsContain(container: MapViewportBounds, target: MapViewportBounds):
   );
 }
 
+function boundsMatch(left: MapViewportBounds, right: MapViewportBounds): boolean {
+  return boundsContain(left, right) && boundsContain(right, left);
+}
+
 function longitudeInBounds(longitude: number, bounds: MapViewportBounds): boolean {
   return bounds.west <= bounds.east
     ? longitude >= bounds.west && longitude <= bounds.east
@@ -97,9 +101,7 @@ function projectBatch(
   const pins = batch.pins.filter((pin) => pinInsideBounds(pin, viewport));
   return {
     pins,
-    totalCount: batch.truncated
-      ? pins.reduce((sum, pin) => sum + pin.count, 0)
-      : pins.reduce((sum, pin) => sum + pin.count, 0),
+    totalCount: pins.reduce((sum, pin) => sum + pin.count, 0),
     clustered: false,
     truncated: batch.truncated,
   };
@@ -124,6 +126,10 @@ export function readSessionPlacePins(
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry.key !== key || !boundsContain(entry.bounds, normalized)) continue;
+    // Server clusters encode a grid calculated from the requested viewport.
+    // Reusing them for a smaller or shifted viewport would produce incorrect
+    // counts and cluster centres.
+    if (entry.batch.clustered && !boundsMatch(entry.bounds, normalized)) continue;
     entries.splice(index, 1);
     entries.push(entry);
     return projectBatch(entry.batch, normalized);
