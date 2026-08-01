@@ -37,4 +37,10 @@ export default tseslint.config(
     },
   },
   eslintPluginPrettier,
+  {
+    files: ["scripts/apply-poi-map-layer.mjs"],
+    rules: {
+      "prettier/prettier": "off",
+    },
+  },
 );
