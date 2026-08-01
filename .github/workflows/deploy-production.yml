@@ -87,12 +87,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Apply generated map patches
+        run: |
+          node --check scripts/apply-progressive-basemap.mjs
+          node --check scripts/apply-today-default-fullscreen-intro.mjs
+          node --check scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node --check scripts/apply-poi-map-layer.mjs
+          node scripts/apply-progressive-basemap.mjs
+          node scripts/apply-today-default-fullscreen-intro.mjs
+          node scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node scripts/apply-poi-map-layer.mjs
+
       - name: Build Cloudflare Worker bundle
         env:
           NITRO_PRESET: cloudflare_module
-        run: |
-          node scripts/build-vercel.mjs --patch-only
-          bun run build
+        run: bun run build
 
       - name: Verify Cloudflare build output
         run: |
