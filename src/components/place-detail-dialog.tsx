@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { safeExternalUrl } from "@/lib/map-event-details";
+import { placeDisplayDescription } from "@/lib/place-description";
 import {
   placeCategoryColor,
   placeCategoryLabel,
@@ -63,6 +64,7 @@ export function PlaceDetailDialog({
     : null;
   const accessible = place ? placeIsAccessible(place) : false;
   const free = place ? placeIsFree(place) : false;
+  const description = place ? placeDisplayDescription(place) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,11 +115,9 @@ export function PlaceDetailDialog({
               <DialogTitle className="mt-3 pr-8 text-2xl font-black leading-tight sm:text-3xl">
                 {place.name}
               </DialogTitle>
-              {place.description && (
-                <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground sm:text-base">
-                  {place.description}
-                </p>
-              )}
+              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-muted-foreground sm:text-base">
+                {description}
+              </p>
 
               <div className="mt-5 flex flex-wrap gap-2">
                 {itineraryUrl && (
