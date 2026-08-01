@@ -75,11 +75,13 @@ export function EventFilterPanel({
       <fieldset className="rounded-2xl border bg-background/45 p-3">
         <legend className="px-1 text-xs font-semibold">{tr("Type de contenu")}</legend>
         <div className="mt-2 grid grid-cols-3 gap-1.5">
-          {([
-            ["events", tr("Événements")],
-            ["places", tr("Lieux à visiter")],
-            ["all", tr("Tout")],
-          ] as const).map(([mode, label]) => {
+          {(
+            [
+              ["events", tr("Événements")],
+              ["places", tr("Lieux à visiter")],
+              ["all", tr("Tout")],
+            ] as const
+          ).map(([mode, label]) => {
             const active = value.contentMode === mode;
             return (
               <button
@@ -279,7 +281,9 @@ export function EventFilterPanel({
       {showPlaces && !showEvents && (
         <div className="flex items-center gap-2 rounded-2xl border border-dashed p-3 text-xs text-muted-foreground">
           <Landmark className="h-4 w-4 shrink-0 text-primary" />
-          {tr("Les lieux se regroupent automatiquement sur la carte et s’ouvrent dans une fiche détaillée.")}
+          {tr(
+            "Les lieux se regroupent automatiquement sur la carte et s’ouvrent dans une fiche détaillée.",
+          )}
         </div>
       )}
     </div>
