@@ -240,9 +240,7 @@ export async function discoverPlacePinsInBounds(
     async () => {
       // Generated database types intentionally lag behind additive migrations.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any)
-        .rpc("discover_place_pins_in_bounds_v1", args)
-        .retry(false);
+      const request = (supabase as any).rpc("discover_place_pins_in_bounds_v1", args).retry(false);
       const { data, error } = await (signal ? request.abortSignal(signal) : request);
       if (error) throw error;
       return parsePinBatch(data);
@@ -260,9 +258,7 @@ export async function discoverPlacesInBounds(
     async () => {
       // Generated database types intentionally lag behind additive migrations.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any)
-        .rpc("discover_places_in_bounds_v1", args)
-        .retry(false);
+      const request = (supabase as any).rpc("discover_places_in_bounds_v1", args).retry(false);
       const { data, error } = await (signal ? request.abortSignal(signal) : request);
       if (error) throw error;
       return parseListBatch(data);
