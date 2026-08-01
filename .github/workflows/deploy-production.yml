@@ -87,10 +87,50 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Preview pending database migrations
-        run: supabase db push --dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          standard_log="$(mktemp)"
+
+          if supabase db push --dry-run 2>&1 | tee "$standard_log"; then
+            echo "SUPABASE_DB_PUSH_FLAGS=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          mapfile -t historical_migrations < <(
+            grep -oE 'supabase/migrations/[0-9]{14}_[A-Za-z0-9._-]+\.sql' "$standard_log" \
+              | sort -u
+          )
+
+          if (( ${#historical_migrations[@]} == 0 )); then
+            echo "The standard migration preview failed for an unexpected reason." >&2
+            exit 1
+          fi
+
+          for migration in "${historical_migrations[@]}"; do
+            case "$migration" in
+              supabase/migrations/20260801161900_prepare_ladecadanse_catalog_compatibility.sql|\
+              supabase/migrations/20260801162000_ladecadanse_complete_venue_catalog.sql)
+                ;;
+              *)
+                echo "Refusing --include-all because an unreviewed historical migration is pending: $migration" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "Only reviewed La Décadanse compatibility migrations are out of order."
+          supabase db push --dry-run --include-all
+          echo "SUPABASE_DB_PUSH_FLAGS=--include-all" >> "$GITHUB_ENV"
 
       - name: Apply pending database migrations
-        run: supabase db push
+        shell: bash
+        run: |
+          if [ "${SUPABASE_DB_PUSH_FLAGS:-}" = "--include-all" ]; then
+            supabase db push --include-all
+          else
+            supabase db push
+          fi
 
       - name: Deploy repository Edge Functions
         run: supabase functions deploy
