@@ -19,7 +19,7 @@ if (!mapSource.includes("MAP_ADAPTIVE_GLOBE_MAX_ZOOM")) {
       "const MAP_REVEAL_TIMEOUT_MS = 2_000;",
       "const MAP_ADAPTIVE_GLOBE_MAX_ZOOM = 5.5;",
       "const MAP_3D_BUILDING_MIN_ZOOM = 15;",
-      "const MAP_3D_BUILDING_LAYER_ID = \"global-party-3d-buildings\";",
+      'const MAP_3D_BUILDING_LAYER_ID = "global-party-3d-buildings";',
       "",
     ].join("\n"),
     "adaptive map constants",
@@ -56,7 +56,14 @@ function ensureAdaptiveBuildingLayer(map: maplibregl.Map, enabled: boolean) {
       typeof layer["source-layer"] === "string" &&
       /building/i.test(layer["source-layer"]),
   );
-  if (!buildingLayer || typeof buildingLayer.source !== "string") return;
+  if (
+    !buildingLayer ||
+    !("source" in buildingLayer) ||
+    typeof buildingLayer.source !== "string" ||
+    !("source-layer" in buildingLayer) ||
+    typeof buildingLayer["source-layer"] !== "string"
+  )
+    return;
   const sourceLayer = buildingLayer["source-layer"];
   if (typeof sourceLayer !== "string") return;
 
@@ -232,29 +239,29 @@ const places = await readFile(new URL("../src/hooks/usePlaceMapLayer.ts", import
 const clusters = await readFile(new URL("../src/lib/map-cluster-config.ts", import.meta.url), "utf8");
 
 test("the map uses adaptive globe rather than a permanently expensive 3D scene", () => {
-  assert.match(map, /MAP_ADAPTIVE_GLOBE_MAX_ZOOM = 5\.5/);
-  assert.match(map, /map\.setProjection\(\{ type: targetProjection \}\)/);
-  assert.match(map, /targetProjection[\s\S]*\? "globe" : "mercator"/);
+  assert.match(map, /MAP_ADAPTIVE_GLOBE_MAX_ZOOM = 5\\.5/);
+  assert.match(map, /map\\.setProjection\\(\\{ type: targetProjection \\}\\)/);
+  assert.match(map, /targetProjection[\\s\\S]*\\? "globe" : "mercator"/);
 });
 
 test("3D buildings reuse the loaded vector source and stay desktop-only", () => {
   assert.match(map, /MAP_3D_BUILDING_MIN_ZOOM = 15/);
   assert.match(map, /type: "fill-extrusion"/);
-  assert.match(map, /allow3DBuildings = !isMobileRef\.current/);
-  assert.doesNotMatch(map, /tiles\.openfreemap\.org\/planet/);
+  assert.match(map, /allow3DBuildings = !isMobileRef\\.current/);
+  assert.doesNotMatch(map, /tiles\\.openfreemap\\.org\\/planet/);
 });
 
 test("slow devices avoid antialiasing, pitch and decorative map effects", () => {
   assert.match(map, /prefersReducedMapEffects/);
   assert.match(map, /hardwareConcurrency/);
   assert.match(map, /deviceMemory/);
-  assert.match(map, /canvasContextAttributes: \{ antialias: allow3DBuildings \}/);
+  assert.match(map, /canvasContextAttributes: \\{ antialias: allow3DBuildings \\}/);
 });
 
 test("point sources cap worker tile generation and reduce buffer work", () => {
   assert.match(places, /maxzoom: 16/);
   assert.match(places, /buffer: 64/);
-  assert.match(places, /tolerance: 0\.75/);
+  assert.match(places, /tolerance: 0\\.75/);
   assert.match(clusters, /EVENT_SOURCE_MAX_ZOOM = 16/);
 });
 `;
