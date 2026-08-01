@@ -74,6 +74,9 @@ jobs:
       - name: ESLint
         run: bun run lint
 
+      - name: Production build and route generation
+        run: bun run build
+
       - name: TypeScript
         run: bun run typecheck
 
@@ -87,9 +90,6 @@ jobs:
           bun run test:i18n
           bun run test:translations
           bun run test:performance
-
-      - name: Production build
-        run: bun run build
 
       - name: Bundle budget
         run: bun run check:bundle
