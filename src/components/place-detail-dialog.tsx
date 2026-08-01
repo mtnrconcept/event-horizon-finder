@@ -10,12 +10,7 @@ import {
   Navigation,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { safeExternalUrl } from "@/lib/map-event-details";
 import { placeDisplayDescription } from "@/lib/place-description";
 import {
@@ -160,16 +155,14 @@ export function PlaceDetailDialog({
                       <dt className="text-xs font-black uppercase text-muted-foreground">
                         {tr("Horaires")}
                       </dt>
-                      <dd className="mt-1">
-                        {place.opening_hours ?? tr("À vérifier sur place")}
-                      </dd>
+                      <dd className="mt-1">{place.opening_hours ?? tr("À vérifier sur place")}</dd>
                     </div>
                     <div>
                       <dt className="text-xs font-black uppercase text-muted-foreground">
                         {tr("Tarif")}
                       </dt>
                       <dd className="mt-1">
-                        {free ? tr("Gratuit") : place.fee ?? tr("Non renseigné")}
+                        {free ? tr("Gratuit") : (place.fee ?? tr("Non renseigné"))}
                       </dd>
                     </div>
                     <div>
