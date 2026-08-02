@@ -43,7 +43,13 @@ jobs:
           node scripts/apply-progressive-basemap.mjs
           node scripts/apply-today-default-fullscreen-intro.mjs
           node scripts/apply-map-mobile-performance-and-poi-filters.mjs
-          node scripts/apply-poi-map-layer.mjs
+          if ! grep -q 'placeDiscovery\.pinBatch\.totalCount' src/routes/map.tsx || \
+             ! grep -q 'PlaceDetailDialog' src/routes/map.tsx || \
+             ! grep -q 'usePlaceMapLayer' src/routes/map.tsx; then
+            node scripts/apply-poi-map-layer.mjs
+          else
+            echo 'POI runtime is already materialized; skipping text applicator.'
+          fi
           node scripts/apply-home-place-search.mjs
           node scripts/apply-map-consistency-performance.mjs
           node scripts/apply-adaptive-map-rendering.mjs
@@ -66,7 +72,7 @@ jobs:
       - name: Add source parity guard
         run: |
           cat > scripts/check-map-source-parity.mjs <<'EOF'
-          import { mkdtemp, cp, rm } from 'node:fs/promises';
+          import { mkdtemp, cp, readFile, rm } from 'node:fs/promises';
           import { tmpdir } from 'node:os';
           import { join } from 'node:path';
           import { spawnSync } from 'node:child_process';
@@ -86,7 +92,18 @@ jobs:
             'apply-adaptive-map-rendering.mjs',
             'apply-place-scraper-enrichment.mjs',
           ];
+          const poiMarkers = [
+            'placeDiscovery.pinBatch.totalCount',
+            'PlaceDetailDialog',
+            'usePlaceMapLayer',
+          ];
           for (const script of scripts) {
+            if (script === 'apply-poi-map-layer.mjs') {
+              const mapSource = await readFile(join(temp, 'src/routes/map.tsx'), 'utf8');
+              if (poiMarkers.every((marker) => mapSource.includes(marker))) {
+                continue;
+              }
+            }
             const result = spawnSync(process.execPath, [join(temp, 'scripts', script)], {
               cwd: temp,
               stdio: 'inherit',
