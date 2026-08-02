@@ -149,12 +149,12 @@ replaceOnce(
 replaceOnce(
   [
     '  useEffect(() => {',
-    '    if (!mapDiscoveryParams) return;',
-    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);',
+    '    if (!mapPinDiscoveryParams) return;',
+    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapPinDiscoveryParams.bounds);',
   ].join("\n"),
   [
     '  useEffect(() => {',
-    '    if (!mapDiscoveryParams) {',
+    '    if (!mapPinDiscoveryParams) {',
     '      setCompactPinBatch(EMPTY_MAP_PIN_BATCH);',
     '      pinLoadingRef.current = false;',
     '      terminalClusterReloadPendingRef.current = false;',
@@ -163,7 +163,7 @@ replaceOnce(
     '      setError(null);',
     '      return;',
     '    }',
-    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);',
+    '    const cachedPins = readSessionMapPins(mapPinCacheKey, mapPinDiscoveryParams.bounds);',
   ].join("\n"),
   "event pin cleanup in places-only mode",
 );

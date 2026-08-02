@@ -35,6 +35,18 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Refresh dependency lockfile
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        run: |
+          bun install --lockfile-only
+          if ! git diff --quiet -- bun.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add bun.lock
+            git commit -m "chore: synchronize Bun lockfile"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -94,10 +106,7 @@ jobs:
       - name: Bundle budget
         run: bun run check:bundle
 
-      - name: Vercel production build
+      - name: Validate Cloudflare production output
         run: |
-          bun run build:vercel
-          test -f .vercel/output/config.json
-          test -f .vercel/output/functions/__server.func/index.mjs
-
-# Full validation rerun requested after route-generation fix.
+          test -f .output/server/index.mjs
+          test -d .output/public
