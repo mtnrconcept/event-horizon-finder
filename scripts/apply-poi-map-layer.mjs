@@ -4,6 +4,19 @@ const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
 const testPath = new URL("../tests/poi-map-layer.test.ts", import.meta.url);
 let source = await readFile(mapPath, "utf8");
 
+const committedPoiRuntimeMarkers = [
+  "usePlaceMapDiscovery",
+  "usePlaceMapLayer",
+  "PlaceSearchResults",
+  "PlaceDetailDialog",
+  "placeDiscovery.pinBatch",
+];
+
+if (committedPoiRuntimeMarkers.every((marker) => source.includes(marker))) {
+  console.log("POI runtime is already committed; skipping obsolete text applicator.");
+  process.exit(0);
+}
+
 function replaceOnce(before, after, label) {
   if (source.includes(after)) return;
   if (!source.includes(before)) {
