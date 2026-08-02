@@ -22,6 +22,7 @@ const batch: CompactMapPinBatch = {
   totalCount: 2,
   freeCount: 1,
   clustered: false,
+  clusterMode: "client",
   truncated: false,
 };
 
@@ -139,7 +140,7 @@ test("does not spatially pad low-zoom aggregate requests", async () => {
     zoom: 4,
     fetchPins: async (bounds) => {
       requestedBounds = bounds;
-      return { ...batch, clustered: true };
+      return { ...batch, clustered: true, clusterMode: "grid" };
     },
   });
 
@@ -152,7 +153,7 @@ test("does not reuse low-zoom aggregates for a different viewport", async () => 
   let calls = 0;
   const fetchPins = async () => {
     calls += 1;
-    return { ...batch, clustered: true };
+    return { ...batch, clustered: true, clusterMode: "grid" };
   };
 
   await loadSessionMapPins({
@@ -169,6 +170,25 @@ test("does not reuse low-zoom aggregates for a different viewport", async () => 
   });
 
   assert.equal(calls, 2);
+});
+
+test("reuses terminal location groups across nearby high-zoom movements", async () => {
+  clearSessionMapPinCache();
+  let calls = 0;
+  const fetchPins = async () => {
+    calls += 1;
+    return { ...batch, clustered: true, clusterMode: "location" as const };
+  };
+
+  await loadSessionMapPins({ cacheKey: "locations", viewport: geneva, zoom: 15, fetchPins });
+  await loadSessionMapPins({
+    cacheKey: "locations",
+    viewport: { west: 6.02, south: 46.12, east: 6.24, north: 46.28 },
+    zoom: 15,
+    fetchPins,
+  });
+
+  assert.equal(calls, 1);
 });
 
 test("aborts stale map requests and removes them from the in-flight registry", async () => {

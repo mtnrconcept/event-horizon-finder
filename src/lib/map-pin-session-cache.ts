@@ -127,7 +127,10 @@ export function readSessionMapPins(
   const exactBounds =
     mapViewportContainsBounds(viewport, region.bounds) &&
     mapViewportContainsBounds(region.bounds, viewport);
-  if (region.batch.clustered && !exactBounds) return null;
+  // Grid aggregates are clipped by the requested viewport, so their counts
+  // are only valid for the exact bounds. Terminal location groups are stable
+  // by rounded coordinate and can safely reuse the high-zoom spatial buffer.
+  if (region.batch.clusterMode === "grid" && !exactBounds) return null;
   region.lastUsed = ++cacheClock;
   touchFilterBucket(cacheKey, regions);
   if (exactBounds) return region.batch;
@@ -194,6 +197,7 @@ export async function loadSessionMapPins({
       totalCount: 0,
       freeCount: 0,
       clustered: zoom < MAP_SERVER_CLUSTER_MAX_ZOOM,
+      clusterMode: zoom < MAP_SERVER_CLUSTER_MAX_ZOOM ? "grid" : "client",
       truncated: false,
     }),
   };

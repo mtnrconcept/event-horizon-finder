@@ -177,6 +177,7 @@ jobs:
             tests/map-filter-consistency.test.ts \
             tests/map-mobile-performance-poi-filters.test.ts \
             tests/map-adaptive-rendering.test.ts \
+            tests/map-location-projection.test.ts \
             tests/poi-map-layer.test.ts \
             tests/place-discovery.test.ts \
             tests/place-pin-session-cache.test.ts \

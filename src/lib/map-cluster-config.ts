@@ -1,4 +1,5 @@
 import type { ExpressionSpecification } from "maplibre-gl";
+import type { MapViewportBounds } from "./map-viewport.ts";
 
 export const EVENT_CLUSTER_RADIUS = 120;
 export const EVENT_CLUSTER_MAX_ZOOM = 14;
@@ -6,6 +7,34 @@ export const EVENT_SOURCE_MAX_ZOOM = 22;
 export const EVENT_CLUSTER_TERMINAL_ZOOM = EVENT_CLUSTER_MAX_ZOOM + 1;
 export const EVENT_CLUSTER_EXPANSION_MAX_ZOOM = EVENT_CLUSTER_TERMINAL_ZOOM;
 export const CLUSTER_SELECTION_PAGE_SIZE = 24;
+export const LOCATION_CLUSTER_SELECTION_PADDING = 0.00001;
+
+function roundLocationBound(value: number): number {
+  return Number(value.toFixed(6));
+}
+
+export function locationClusterSelectionBounds(
+  longitude: number,
+  latitude: number,
+): MapViewportBounds | null {
+  if (
+    !Number.isFinite(longitude) ||
+    !Number.isFinite(latitude) ||
+    longitude < -180 ||
+    longitude > 180 ||
+    latitude < -90 ||
+    latitude > 90
+  ) {
+    return null;
+  }
+
+  return {
+    west: roundLocationBound(Math.max(-180, longitude - LOCATION_CLUSTER_SELECTION_PADDING)),
+    south: roundLocationBound(Math.max(-90, latitude - LOCATION_CLUSTER_SELECTION_PADDING)),
+    east: roundLocationBound(Math.min(180, longitude + LOCATION_CLUSTER_SELECTION_PADDING)),
+    north: roundLocationBound(Math.min(90, latitude + LOCATION_CLUSTER_SELECTION_PADDING)),
+  };
+}
 
 export function bumpMapSourceRevision<T extends object>(
   revisions: WeakMap<T, number>,

@@ -209,11 +209,11 @@ const originalQueryChain = `      // Keep the cast at the additive RPC rollout b
       }
 `;
 const upgradedQueryChain = `      // Keep the cast at the additive RPC rollout boundary until generated
-      // database types include v6.
+      // database types include v7.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v6", args).retry(false);
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v7", args).retry(false);
       let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      for (const fallbackVersion of ["v5", "v4", "v3", "v2"] as const) {
+      for (const fallbackVersion of ["v6", "v5", "v4", "v3", "v2"] as const) {
         if (!error || !["42883", "PGRST202"].includes(error.code ?? "")) break;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fallback = (supabase as any)
@@ -222,12 +222,12 @@ const upgradedQueryChain = `      // Keep the cast at the additive RPC rollout b
         ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
       }
 `;
-if (!queries.includes('rpc("discover_map_pins_in_bounds_v6"')) {
+if (!queries.includes('rpc("discover_map_pins_in_bounds_v7"')) {
   queries = replaceOnce(
     queries,
     originalQueryChain,
     upgradedQueryChain,
-    "complete v6 map pin fallback chain",
+    "complete v7 map pin fallback chain",
   );
 }
 await writeFile(queriesPath, queries);
@@ -252,7 +252,7 @@ test("the progressive map applicator is safe after interaction tuning", () => {
   );
   assert.match(
     applicatorSource,
-    /if \\(!queries\\.includes\\('rpc\\("discover_map_pins_in_bounds_v6"'\\)\\)/,
+    /if \\(!queries\\.includes\\('rpc\\("discover_map_pins_in_bounds_v7"'\\)\\)/,
   );
 });
 
@@ -282,8 +282,8 @@ test("the safety reveal does not keep a working canvas covered", () => {
 });
 
 test("the deployed map keeps every rolling RPC fallback", () => {
-  assert.match(queriesSource, /discover_map_pins_in_bounds_v6/);
-  assert.match(queriesSource, /\\["v5", "v4", "v3", "v2"\\]/);
+  assert.match(queriesSource, /discover_map_pins_in_bounds_v7/);
+  assert.match(queriesSource, /\\["v6", "v5", "v4", "v3", "v2"\\]/);
 });
 `;
 await writeFile(testPath, testSource);
