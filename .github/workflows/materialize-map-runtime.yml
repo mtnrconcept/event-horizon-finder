@@ -50,7 +50,7 @@ jobs:
           node scripts/apply-place-scraper-enrichment.mjs
 
       - name: Format generated source
-        run: bunx prettier --write src scripts tests .github/workflows/deploy-production.yml
+        run: bunx prettier --write src scripts tests supabase/functions .github/workflows/deploy-production.yml
 
       - name: Remove deployment-time mutations
         run: |
@@ -73,7 +73,7 @@ jobs:
 
           const root = process.cwd();
           const temp = await mkdtemp(join(tmpdir(), 'map-parity-'));
-          const paths = ['src', 'scripts', 'tests'];
+          const paths = ['src', 'scripts', 'tests', 'supabase'];
           for (const path of paths) await cp(join(root, path), join(temp, path), { recursive: true });
           const scripts = [
             'apply-place-scraper-enrichment.mjs',
@@ -87,18 +87,29 @@ jobs:
             'apply-place-scraper-enrichment.mjs',
           ];
           for (const script of scripts) {
-            const result = spawnSync(process.execPath, [join(temp, 'scripts', script)], { cwd: temp, stdio: 'inherit' });
+            const result = spawnSync(process.execPath, [join(temp, 'scripts', script)], {
+              cwd: temp,
+              stdio: 'inherit',
+            });
             if (result.status !== 0) process.exit(result.status ?? 1);
           }
-          const diff = spawnSync('diff', ['-ru', join(root, 'src'), join(temp, 'src')], { encoding: 'utf8' });
-          const testDiff = spawnSync('diff', ['-ru', join(root, 'tests'), join(temp, 'tests')], { encoding: 'utf8' });
+          const comparedPaths = ['src', 'tests', 'supabase/functions'];
+          const differences = [];
+          for (const path of comparedPaths) {
+            const result = spawnSync('diff', ['-ru', join(root, path), join(temp, path)], {
+              encoding: 'utf8',
+            });
+            if (result.status === 1) differences.push(result.stdout || '');
+            else if ((result.status ?? 0) > 1) {
+              await rm(temp, { recursive: true, force: true });
+              throw new Error(`Unable to compare generated runtime path: ${path}`);
+            }
+          }
           await rm(temp, { recursive: true, force: true });
-          if (diff.status === 1 || testDiff.status === 1) {
-            process.stderr.write(diff.stdout || '');
-            process.stderr.write(testDiff.stdout || '');
+          if (differences.length) {
+            process.stderr.write(differences.join('\n'));
             throw new Error('Map applicators still mutate committed runtime sources');
           }
-          if ((diff.status ?? 0) > 1 || (testDiff.status ?? 0) > 1) throw new Error('Unable to compare generated runtime');
           EOF
 
       - name: Wire parity guard into quality workflows
@@ -132,6 +143,6 @@ jobs:
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src scripts tests .github/workflows
+          git add src scripts tests supabase/functions .github/workflows
           git commit -m 'refactor(map): commit generated runtime and remove deploy mutations'
           git push origin HEAD:refactor/map-source-parity
