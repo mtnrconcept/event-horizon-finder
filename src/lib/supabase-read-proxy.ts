@@ -26,6 +26,13 @@ const MAP_READ_RELATION_NAMES = new Set([
   "ticket_offers",
 ]);
 
+export function isMapReadProxyRequest(method: string, pathname: string): boolean {
+  const normalizedMethod = method.trim().toUpperCase();
+  if (normalizedMethod !== "POST") return false;
+  const match = /^\/rest\/v1\/rpc\/([^/?]+)$/.exec(pathname);
+  return Boolean(match?.[1] && MAP_READ_RPC_NAMES.has(match[1]));
+}
+
 function decodeJwtPayload(value: string): Record<string, unknown> | null {
   const encoded = value.split(".")[1];
   if (!encoded) return null;
@@ -57,10 +64,7 @@ export function isAllowedSupabaseReadProxyRequest(method: string, pathname: stri
     const relationMatch = /^\/rest\/v1\/([^/?]+)$/.exec(pathname);
     return Boolean(relationMatch?.[1] && MAP_READ_RELATION_NAMES.has(relationMatch[1]));
   }
-  if (normalizedMethod !== "POST") return false;
-
-  const match = /^\/rest\/v1\/rpc\/([^/?]+)$/.exec(pathname);
-  return Boolean(match?.[1] && MAP_READ_RPC_NAMES.has(match[1]));
+  return isMapReadProxyRequest(normalizedMethod, pathname);
 }
 
 export function normalizeSupabaseReadProxyTarget(target: string): string | null {

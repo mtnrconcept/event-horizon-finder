@@ -17,7 +17,6 @@ import { BrandArrival } from "@/components/brand/brand-arrival";
 import { OnlineStatus } from "@/components/online-status";
 import { PerformanceMonitor } from "@/components/performance-monitor";
 import { PwaRuntime } from "@/components/pwa-runtime";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LanguageProvider, useTranslation } from "@/lib/i18n";
 
 import appCss from "../styles.css?url";
@@ -137,7 +136,6 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <PwaRuntime />
       <PerformanceMonitor />
-      <SpeedInsights />
       {pathname === "/" && <BrandArrival />}
       <ClientJourneyTracker />
       <DesktopHeader />

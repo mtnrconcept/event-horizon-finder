@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 import {
   isAllowedSupabaseReadProxyRequest,
+  isMapReadProxyRequest,
   SUPABASE_READ_PROXY_ROUTE,
   SUPABASE_READ_PROXY_TARGET_HEADER,
 } from "@/lib/supabase-read-proxy";
@@ -12,6 +13,7 @@ import {
 // race against the same query repeated through the Worker proxy.
 const SUPABASE_DIRECT_TIMEOUT_MS = 8_000;
 const SUPABASE_DIRECT_CIRCUIT_MS = 60_000;
+const MAP_PROXY_TIMEOUT_MS = 4_500;
 const PROXY_FORWARDED_HEADERS = [
   "accept",
   "authorization",
@@ -52,6 +54,41 @@ async function createProxyRequest(request: Request, proxyOrigin: string): Promis
   });
 }
 
+async function fetchMapViaProxy(
+  request: Request,
+  proxyOrigin: string,
+  fetcher: typeof fetch,
+): Promise<Response> {
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(request.signal.reason);
+  if (request.signal.aborted) forwardAbort();
+  else request.signal.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Map proxy timed out", "TimeoutError")),
+    MAP_PROXY_TIMEOUT_MS,
+  );
+
+  try {
+    const proxied = await createProxyRequest(request, proxyOrigin);
+    return await fetcher(new Request(proxied, { signal: controller.signal }));
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    // A map gesture must fail once and release the render thread. Returning a
+    // structured response prevents Supabase's generic retry path from turning
+    // a DNS outage into several overlapping requests.
+    return Response.json(
+      {
+        code: "SUPABASE_MAP_TRANSPORT_UNAVAILABLE",
+        message: "Map data is temporarily unavailable",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  } finally {
+    clearTimeout(timeout);
+    request.signal.removeEventListener("abort", forwardAbort);
+  }
+}
+
 export function createSupabaseFetch(
   supabaseKey: string,
   {
@@ -88,6 +125,14 @@ export function createSupabaseFetch(
       proxyOrigin && isAllowedSupabaseReadProxyRequest(request.method, target.pathname),
     );
     if (!canUseReadProxy) return fetcher(request);
+
+    // Map gestures can generate a new viewport every few hundred
+    // milliseconds. Prefer the same-origin relay for those read-only RPCs so
+    // a visitor with a broken Supabase DNS path creates one bounded request,
+    // not a direct request followed by a second fallback request.
+    if (isMapReadProxyRequest(request.method, target.pathname)) {
+      return fetchMapViaProxy(request, proxyOrigin!, fetcher);
+    }
 
     if (now() < directUnavailableUntil) {
       return fetcher(await createProxyRequest(request, proxyOrigin!));

@@ -92,8 +92,10 @@ import {
 import {
   mapViewportBoundsKey,
   normalizeMapViewportBounds,
+  stabilizeMapClusterViewport,
   type MapViewportBounds,
 } from "@/lib/map-viewport";
+import { mapAssetProxyUrl } from "@/lib/map-asset-proxy";
 import {
   MAP_EVENT_PAGE_SIZE,
   MAP_INITIAL_GEOLOCATION_OPTIONS,
@@ -167,7 +169,7 @@ export const Route = createFileRoute("/map")({
 
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 320;
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 560;
 const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;
 const MAP_REVEAL_TIMEOUT_MS = 2_000;
 
@@ -220,6 +222,11 @@ const EMPTY_MAP_PIN_BATCH: CompactMapPinBatch = {
   clusterMode: "client",
   truncated: false,
 };
+
+function transformMapAssetRequest(url: string) {
+  const proxied = mapAssetProxyUrl(url);
+  return proxied ? { url: proxied } : undefined;
+}
 
 type MapEventDetailCacheEntry = {
   detail: MapOccurrenceDetail;
@@ -2204,7 +2211,8 @@ function MapPage() {
     try {
       map = new maplibregl.Map({
         container: activeMapContainer,
-        style: PRIMARY_MAP_STYLE,
+        style: mapAssetProxyUrl(PRIMARY_MAP_STYLE) ?? PRIMARY_MAP_STYLE,
+        transformRequest: transformMapAssetRequest,
         center: initialCamera.center,
         zoom: initialCamera.zoom,
         clickTolerance: 8,
@@ -2434,6 +2442,16 @@ function MapPage() {
       viewportZoom,
     ],
   );
+  const mapPinDiscoveryParams = useMemo(
+    () =>
+      mapDiscoveryParams
+        ? {
+            ...mapDiscoveryParams,
+            bounds: stabilizeMapClusterViewport(mapDiscoveryParams.bounds, mapDiscoveryParams.zoom),
+          }
+        : null,
+    [mapDiscoveryParams],
+  );
 
   const mapStats = useMemo(
     () => ({
@@ -2466,8 +2484,8 @@ function MapPage() {
   }, [mapPinCacheKey]);
 
   useEffect(() => {
-    if (!mapDiscoveryParams) return;
-    const cachedPins = readSessionMapPins(mapPinCacheKey, mapDiscoveryParams.bounds);
+    if (!mapPinDiscoveryParams) return;
+    const cachedPins = readSessionMapPins(mapPinCacheKey, mapPinDiscoveryParams.bounds);
     if (cachedPins !== null) {
       setCompactPinBatch(cachedPins);
       pinLoadingRef.current = false;
@@ -2487,11 +2505,11 @@ function MapPage() {
 
     void loadSessionMapPins({
       cacheKey: mapPinCacheKey,
-      viewport: mapDiscoveryParams.bounds,
-      zoom: mapDiscoveryParams.zoom,
+      viewport: mapPinDiscoveryParams.bounds,
+      zoom: mapPinDiscoveryParams.zoom,
       signal: controller.signal,
       fetchPins: (bounds, signal) =>
-        discoverMapPinsInBounds({ ...mapDiscoveryParams, bounds }, signal),
+        discoverMapPinsInBounds({ ...mapPinDiscoveryParams, bounds }, signal),
     })
       .then((nextPins) => {
         if (!current || requestVersion !== requestVersionRef.current) return;
@@ -2516,7 +2534,7 @@ function MapPage() {
       current = false;
       controller.abort();
     };
-  }, [mapDiscoveryParams, mapPinCacheKey, reloadKey]);
+  }, [mapPinDiscoveryParams, mapPinCacheKey, reloadKey]);
 
   useEffect(() => {
     const retryWhenOnline = () => {
