@@ -5,6 +5,7 @@ import {
   isCoordinateInMapViewport,
   mapViewportBoundsKey,
   normalizeMapViewportBounds,
+  stabilizeMapClusterViewport,
 } from "../src/lib/map-viewport.ts";
 
 test("normalizes ordinary MapLibre bounds with a stable precision", () => {
@@ -53,4 +54,16 @@ test("rejects invalid or inverted latitude ranges", () => {
     normalizeMapViewportBounds({ west: Number.NaN, south: 46, east: 7, north: 47 }),
     null,
   );
+});
+
+test("stabilizes low zoom cluster requests into a covering world-aligned cell", () => {
+  const input = { west: 6.01, south: 46.11, east: 6.26, north: 46.3 };
+  const stabilized = stabilizeMapClusterViewport(input, 4.8);
+
+  assert.ok(stabilized.west <= input.west);
+  assert.ok(stabilized.south <= input.south);
+  assert.ok(stabilized.east >= input.east);
+  assert.ok(stabilized.north >= input.north);
+  assert.notDeepEqual(stabilized, input);
+  assert.deepEqual(stabilizeMapClusterViewport(input, 14), input);
 });
