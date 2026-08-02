@@ -7,7 +7,12 @@ const adDb = supabase as unknown as SupabaseClient<any>;
 
 export type AdPlacement = "discover" | "social" | "event";
 export type CampaignStatus =
-  "draft" | "pending_payment" | "active" | "paused" | "completed" | "rejected";
+  | "draft"
+  | "pending_payment"
+  | "active"
+  | "paused"
+  | "completed"
+  | "rejected";
 
 export type OrganizerOption = {
   id: string;
