@@ -7,6 +7,7 @@ const testPath = new URL("../tests/today-default-fullscreen-intro.test.ts", impo
 
 async function replaceOnce(path, before, after, label) {
   let source = await readFile(path, "utf8");
+  if (source.includes(after)) return;
   if (!source.includes(before)) {
     throw new Error(`Expected ${label} fragment was not found`);
   }
