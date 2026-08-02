@@ -22,17 +22,22 @@ function assetResponseHeaders(upstream: Response): Headers {
   return headers;
 }
 
-function unavailableMapAsset(): Response {
+function directMapAssetFallback(target: string): Response {
   return new Response(null, {
-    status: 504,
-    headers: { "Cache-Control": "no-store" },
+    status: 307,
+    headers: {
+      "Cache-Control": "no-store",
+      Location: target,
+    },
   });
 }
 
 /**
  * Relays only known public basemap hosts through the Worker. Tile and glyph
  * assets are immutable at a coordinate URL, so edge caching removes repeated
- * external DNS/TLS work during pan and zoom gestures.
+ * external DNS/TLS work during pan and zoom gestures. If the Worker cannot
+ * reach the upstream quickly, the browser is redirected to the already
+ * allowlisted public URL so a proxy timeout never makes the map unavailable.
  */
 export async function handleMapAssetProxy(request: Request): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -66,7 +71,11 @@ export async function handleMapAssetProxy(request: Request): Promise<Response> {
       redirect: "error",
       signal: controller.signal,
     });
-    if (!upstream.ok) return new Response(null, { status: upstream.status });
+    if (!upstream.ok) {
+      return upstream.status >= 500
+        ? directMapAssetFallback(target)
+        : new Response(null, { status: upstream.status });
+    }
 
     const response = new Response(request.method === "HEAD" ? undefined : upstream.body, {
       status: upstream.status,
@@ -82,7 +91,7 @@ export async function handleMapAssetProxy(request: Request): Promise<Response> {
     }
     return response;
   } catch {
-    return unavailableMapAsset();
+    return directMapAssetFallback(target);
   } finally {
     clearTimeout(timeout);
   }
