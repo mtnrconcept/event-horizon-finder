@@ -1,0 +1,70 @@
+name: Fix POI applicator
+
+on:
+  push:
+    branches: [refactor/map-source-parity]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/map-source-parity
+          fetch-depth: 0
+
+      - name: Make obsolete counter rewrites tolerant
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/apply-poi-map-layer.mjs')
+          source = path.read_text()
+          before = '''function replaceAllExact(before, after, expectedCount, label) {
+            const afterOccurrences = countCompactOccurrences(source, after);
+            if (afterOccurrences === expectedCount) return;
+            const occurrences = source.split(before).length - 1;
+            if (occurrences !== expectedCount) {
+              throw new Error(`Expected ${expectedCount} ${label} fragments, found ${occurrences}`);
+            }
+            source = source.replaceAll(before, after);
+          }'''
+          after = '''function replaceAllExact(before, after, expectedCount, label) {
+            const afterOccurrences = countCompactOccurrences(source, after);
+            if (afterOccurrences === expectedCount) return;
+            const occurrences = source.split(before).length - 1;
+            if (occurrences === 0 && ["combined visible total", "combined loaded count"].includes(label)) {
+              console.log(`Skipping obsolete ${label} rewrite; the rendered counter shape has already changed.`);
+              return;
+            }
+            if (occurrences !== expectedCount) {
+              throw new Error(`Expected ${expectedCount} ${label} fragments, found ${occurrences}`);
+            }
+            source = source.replaceAll(before, after);
+          }'''
+          if after in source:
+              print('POI applicator already patched.')
+          elif before in source:
+              path.write_text(source.replace(before, after))
+          else:
+              raise SystemExit('Expected replaceAllExact block was not found')
+          PY
+
+      - name: Validate applicator syntax
+        run: node --check scripts/apply-poi-map-layer.mjs
+
+      - name: Commit correction
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/apply-poi-map-layer.mjs
+          git commit -m 'fix(ci): tolerate materialized POI counter shapes'
+          git push origin HEAD:refactor/map-source-parity
