@@ -5,8 +5,15 @@ import {
   type MapViewportBounds,
 } from "./map-viewport.ts";
 
-const MAX_FILTER_BUCKETS = 8;
+// The cache key carries the zoom, because the server grids differently at each
+// level. With only eight buckets, panning through a normal zoom range evicted
+// every region the user was about to come back to, so zooming out refetched
+// data that had just been discarded. Twenty buckets covers a full zoom
+// traversal plus a couple of filter changes; MAX_CACHED_PINS keeps that larger
+// window from growing without bound.
+const MAX_FILTER_BUCKETS = 20;
 const MAX_ENTRIES_PER_FILTER = 12;
+const MAX_CACHED_PINS = 60_000;
 export const MAP_SERVER_CLUSTER_MAX_ZOOM = 14;
 const DEFAULT_VIEWPORT_PADDING_RATIO = 0.35;
 
@@ -104,12 +111,28 @@ function filterMapPinBatchToViewport(
   };
 }
 
+function countCachedPins(): number {
+  let total = 0;
+  for (const regions of sessionPinCache.values()) {
+    for (const region of regions) total += region.batch.pins.length;
+  }
+  return total;
+}
+
 function touchFilterBucket(cacheKey: string, regions: CachedPinRegion[]) {
   sessionPinCache.delete(cacheKey);
   sessionPinCache.set(cacheKey, regions);
   while (sessionPinCache.size > MAX_FILTER_BUCKETS) {
     const oldestKey = sessionPinCache.keys().next().value;
     if (typeof oldestKey !== "string") break;
+    sessionPinCache.delete(oldestKey);
+  }
+  // Bucket count alone does not bound memory: a single low-zoom region can
+  // hold thousands of markers. Drop least-recently-used buckets, never the one
+  // just written, until the retained pin total is back inside the budget.
+  while (sessionPinCache.size > 1 && countCachedPins() > MAX_CACHED_PINS) {
+    const oldestKey = sessionPinCache.keys().next().value;
+    if (typeof oldestKey !== "string" || oldestKey === cacheKey) break;
     sessionPinCache.delete(oldestKey);
   }
 }

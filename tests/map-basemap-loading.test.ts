@@ -50,7 +50,8 @@ test("the safety reveal does not keep a working canvas covered", () => {
   assert.match(mapSource, /map\.once\("render", markMapReady\)/);
 });
 
-test("the deployed map keeps every rolling RPC fallback", () => {
+test("the deployed map keeps a single rollout RPC fallback", () => {
+  assert.match(queriesSource, /discover_map_pins_in_bounds_v8/);
   assert.match(queriesSource, /discover_map_pins_in_bounds_v7/);
-  assert.match(queriesSource, /\["v6", "v5", "v4", "v3", "v2"\]/);
+  assert.doesNotMatch(queriesSource, /\["v6", "v5", "v4", "v3", "v2"\]/);
 });

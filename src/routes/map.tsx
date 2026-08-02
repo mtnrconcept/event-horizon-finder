@@ -169,7 +169,10 @@ export const Route = createFileRoute("/map")({
 
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 560;
+// Trailing debounce after the gesture has already ended, so the user is
+// waiting on it with a still camera. 560ms sat on top of the request itself;
+// 200ms still collapses the burst of moveend events a pinch produces.
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 200;
 const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;
 const MAP_REVEAL_TIMEOUT_MS = 2_000;
 
@@ -2104,6 +2107,20 @@ function MapPage() {
     [],
   );
 
+  // The map instance cannot be built until a position is known, and the
+  // permission prompt is unbounded human time. Fetch the style document while
+  // the user is deciding so MapLibre finds it in the HTTP cache instead of
+  // starting a cold request the moment the gate clears.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(PRIMARY_MAP_STYLE, {
+      signal: controller.signal,
+      mode: "cors",
+      credentials: "omit",
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     let active = true;
     let hasPosition = false;
@@ -2546,7 +2563,7 @@ function MapPage() {
   }, [requestMapPinReload]);
 
   useEffect(() => {
-    if (!mapDiscoveryParams || !listRequested) return;
+    if (!mapPinDiscoveryParams || !listRequested) return;
 
     let current = true;
     const controller = new AbortController();
@@ -2557,7 +2574,7 @@ function MapPage() {
 
     void discoverMapEventsInBounds(
       {
-        ...mapDiscoveryParams,
+        ...mapPinDiscoveryParams,
         limit: MAP_EVENT_PAGE_SIZE,
         offset: 0,
       },
@@ -2584,22 +2601,29 @@ function MapPage() {
       current = false;
       controller.abort();
     };
-  }, [listRequested, mapDiscoveryParams, mobileListReloadKey]);
+  }, [listRequested, mapPinDiscoveryParams, mobileListReloadKey]);
 
   const loadMoreMobileList = () => {
     if (visibleMobileEventCount < events.length) {
       setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
       return;
     }
-    if (!mapDiscoveryParams || !mobileListHasMore || mobileListLoading || mobileListLoadingMore) {
+    if (
+      !mapPinDiscoveryParams ||
+      !mobileListHasMore ||
+      mobileListLoading ||
+      mobileListLoadingMore
+    ) {
       return;
     }
 
     const requestVersion = mobileListRequestVersionRef.current;
     setMobileListLoadingMore(true);
     setMobileListError(null);
+    // Paging must reuse the exact bounds that produced page 0, or the offsets
+    // address a different result set than the one already on screen.
     void discoverMapEventsInBounds({
-      ...mapDiscoveryParams,
+      ...mapPinDiscoveryParams,
       limit: MAP_EVENT_PAGE_SIZE,
       offset: events.length,
     })

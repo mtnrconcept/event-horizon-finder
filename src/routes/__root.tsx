@@ -95,6 +95,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      // The basemap host is only contacted once the map route mounts and, on
+      // /map, only after the location prompt resolves. Opening the connection
+      // up front takes DNS and the TLS handshake off that critical path.
+      { rel: "preconnect", href: "https://tiles.openfreemap.org", crossOrigin: "anonymous" },
+      { rel: "dns-prefetch", href: "https://tiles.openfreemap.org" },
       {
         rel: "preload",
         href: "/brand/global-party-logo.png",

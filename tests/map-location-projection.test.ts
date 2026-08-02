@@ -22,9 +22,14 @@ test("v7 keeps grid clusters until street zoom then emits one marker per locatio
   assert.doesNotMatch(migration, /delete from|truncate table|drop table/i);
 });
 
-test("the client requests v7 and retains a complete rolling fallback chain", () => {
+test("the client requests v8 and keeps exactly one rollout fallback", () => {
+  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v8"/);
   assert.match(queries, /rpc\("discover_map_pins_in_bounds_v7"/);
-  assert.match(queries, /\["v6", "v5", "v4", "v3", "v2"\]/);
+  // The chain exists only to survive a client deploy that lands before its
+  // migration. Walking older versions turned that into six serial round trips
+  // on every pin request, so the chain stays one deep.
+  assert.doesNotMatch(queries, /\["v6", "v5", "v4", "v3", "v2"\]/);
+  assert.doesNotMatch(queries, /discover_map_pins_in_bounds_v[2-6]"/);
 });
 
 test("terminal location groups are loaded in pages only after selection", () => {
