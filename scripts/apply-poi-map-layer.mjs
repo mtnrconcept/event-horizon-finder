@@ -4,6 +4,18 @@ const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
 const testPath = new URL("../tests/poi-map-layer.test.ts", import.meta.url);
 let source = await readFile(mapPath, "utf8");
 
+const committedPoiRuntimeMarkers = [
+  "usePlaceMapDiscovery",
+  "usePlaceMapLayer",
+  "PlaceSearchResults",
+  "PlaceDetailDialog",
+];
+
+if (committedPoiRuntimeMarkers.every((marker) => source.includes(marker))) {
+  console.log("POI runtime is already committed; skipping obsolete text applicator.");
+  process.exit(0);
+}
+
 function replaceOnce(before, after, label) {
   if (source.includes(after)) return;
   if (!source.includes(before)) {
@@ -30,6 +42,19 @@ function replaceAllExact(before, after, expectedCount, label) {
   const afterOccurrences = countCompactOccurrences(source, after);
   if (afterOccurrences === expectedCount) return;
   const occurrences = source.split(before).length - 1;
+  if (
+    occurrences === 0 &&
+    [
+      "combined visible total",
+      "combined loaded count",
+      "place result list integration",
+    ].includes(label)
+  ) {
+    console.log(
+      `Skipping obsolete ${label} rewrite; the rendered POI integration shape has already changed.`,
+    );
+    return;
+  }
   if (occurrences !== expectedCount) {
     throw new Error(`Expected ${expectedCount} ${label} fragments, found ${occurrences}`);
   }
