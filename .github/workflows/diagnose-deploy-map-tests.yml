@@ -1,0 +1,56 @@
+name: Diagnose deployment map tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-deploy-map-tests.yml"
+      - "scripts/**"
+      - "src/**"
+      - "tests/**"
+      - "supabase/functions/global-place-discovery/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: https://ci-placeholder.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      SITE_URL: https://preview.example.com
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Apply production map transformations
+        run: |
+          set -euo pipefail
+          node scripts/apply-place-scraper-enrichment.mjs
+          node scripts/apply-progressive-basemap.mjs
+          node scripts/apply-today-default-fullscreen-intro.mjs
+          node scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node scripts/apply-poi-map-layer.mjs
+          node scripts/apply-home-place-search.mjs
+          node scripts/apply-map-consistency-performance.mjs
+          node scripts/apply-adaptive-map-rendering.mjs
+          node scripts/apply-place-scraper-enrichment.mjs
+      - name: Run deployment map tests
+        run: |
+          node --test \
+            tests/map-basemap-loading.test.ts \
+            tests/map-filter-consistency.test.ts \
+            tests/map-mobile-performance-poi-filters.test.ts \
+            tests/map-adaptive-rendering.test.ts \
+            tests/map-location-projection.test.ts \
+            tests/poi-map-layer.test.ts \
+            tests/place-discovery.test.ts \
+            tests/place-pin-session-cache.test.ts \
+            tests/place-map-experience-contract.test.ts \
+            tests/place-enrichment-contract.test.ts
