@@ -26,7 +26,9 @@ type CachedPinRegion = {
 type InFlightPinRegion = {
   cacheKey: string;
   bounds: MapViewportBounds;
-  signal?: AbortSignal;
+  controller: AbortController;
+  consumerSignals: Set<AbortSignal>;
+  hasUnabortableConsumer: boolean;
   promise: Promise<CompactMapPinBatch>;
 };
 
@@ -178,6 +180,45 @@ export function clearSessionMapPinCache(cacheKey?: string) {
   else sessionPinCache.clear();
 }
 
+function joinInFlightMapPinRequest(
+  request: InFlightPinRegion,
+  signal?: AbortSignal,
+): Promise<CompactMapPinBatch> {
+  if (!signal) {
+    request.hasUnabortableConsumer = true;
+    return request.promise;
+  }
+  signal.throwIfAborted();
+  request.consumerSignals.add(signal);
+
+  const cleanup = () => {
+    request.consumerSignals.delete(signal);
+    if (
+      request.consumerSignals.size === 0 &&
+      !request.hasUnabortableConsumer &&
+      !request.controller.signal.aborted
+    ) {
+      request.controller.abort(
+        new DOMException("Map pin request no longer has active consumers", "AbortError"),
+      );
+    }
+  };
+
+  let handleAbort: (() => void) | null = null;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    handleAbort = () => {
+      cleanup();
+      reject(signal.reason ?? new DOMException("Map pin request aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+
+  return Promise.race([request.promise, abortPromise]).finally(() => {
+    if (handleAbort) signal.removeEventListener("abort", handleAbort);
+    cleanup();
+  });
+}
+
 export async function loadSessionMapPins({
   cacheKey,
   viewport,
@@ -197,13 +238,15 @@ export async function loadSessionMapPins({
 
   const sharedRequest = inFlightPinRegions.find(
     (request) =>
-      !signal &&
-      !request.signal?.aborted &&
+      !request.controller.signal.aborted &&
       request.cacheKey === cacheKey &&
       mapViewportContainsBounds(request.bounds, viewport),
   );
   if (sharedRequest) {
-    return filterMapPinBatchToViewport(await sharedRequest.promise, viewport);
+    return filterMapPinBatchToViewport(
+      await joinInFlightMapPinRequest(sharedRequest, signal),
+      viewport,
+    );
   }
 
   const requestBounds =
@@ -211,10 +254,13 @@ export async function loadSessionMapPins({
   const cachedExpanded = readSessionMapPins(cacheKey, requestBounds);
   if (cachedExpanded) return filterMapPinBatchToViewport(cachedExpanded, viewport);
 
+  const controller = new AbortController();
   const request: InFlightPinRegion = {
     cacheKey,
     bounds: requestBounds,
-    signal,
+    controller,
+    consumerSignals: new Set(),
+    hasUnabortableConsumer: !signal,
     promise: Promise.resolve({
       pins: [],
       totalCount: 0,
@@ -224,9 +270,9 @@ export async function loadSessionMapPins({
       truncated: false,
     }),
   };
-  request.promise = fetchPins(requestBounds, signal)
+  request.promise = fetchPins(requestBounds, controller.signal)
     .then((batch) => {
-      signal?.throwIfAborted();
+      controller.signal.throwIfAborted();
       writeSessionMapPins(cacheKey, requestBounds, batch);
       return batch;
     })
@@ -235,7 +281,7 @@ export async function loadSessionMapPins({
       if (index >= 0) inFlightPinRegions.splice(index, 1);
     });
   inFlightPinRegions.push(request);
-  return filterMapPinBatchToViewport(await request.promise, viewport);
+  return filterMapPinBatchToViewport(await joinInFlightMapPinRequest(request, signal), viewport);
 }
 
 export function getSessionMapPinCacheStats() {

@@ -209,3 +209,49 @@ test("aborts stale map requests and removes them from the in-flight registry", a
   await assert.rejects(pending, { name: "AbortError" });
   assert.equal(getSessionMapPinCacheStats().inFlight, 0);
 });
+
+test("deduplicates abortable requests while consumers remain active", async () => {
+  clearSessionMapPinCache();
+  let calls = 0;
+  let release: (() => void) | null = null;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+
+  const first = loadSessionMapPins({
+    cacheKey: "abortable-shared",
+    viewport: geneva,
+    zoom: 15,
+    signal: firstController.signal,
+    fetchPins: async (_bounds, signal) => {
+      calls += 1;
+      await gate;
+      signal?.throwIfAborted();
+      return batch;
+    },
+  });
+  const second = loadSessionMapPins({
+    cacheKey: "abortable-shared",
+    viewport: { west: 6.03, south: 46.13, east: 6.22, north: 46.27 },
+    zoom: 15,
+    signal: secondController.signal,
+    fetchPins: async () => {
+      calls += 1;
+      return batch;
+    },
+  });
+
+  firstController.abort(new DOMException("stale viewport", "AbortError"));
+  await assert.rejects(first, { name: "AbortError" });
+  release?.();
+  const result = await second;
+
+  assert.equal(calls, 1);
+  assert.deepEqual(
+    result.pins.map((pin) => pin[7]),
+    ["one"],
+  );
+  assert.equal(getSessionMapPinCacheStats().inFlight, 0);
+});
