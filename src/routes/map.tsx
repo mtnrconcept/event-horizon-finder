@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import maplibregl, {
   type GeoJSONSource,
   type MapGeoJSONFeature,
@@ -169,7 +170,14 @@ export const Route = createFileRoute("/map")({
 
 const PRIMARY_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const INITIAL_GEOLOCATION_ZOOM = 11.5;
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 560;
+// Where the map starts when no position is known yet. The permission overlay
+// covers it, so this view is never seen; the zoom is kept low so warming the
+// pipeline costs a handful of tiles rather than a screenful of the wrong city.
+const MAP_WARMUP_CAMERA = { center: [6.14, 46.2] as [number, number], zoom: 2 };
+// Trailing debounce after the gesture has already ended, so the user is
+// waiting on it with a still camera. 560ms sat on top of the request itself;
+// 200ms still collapses the burst of moveend events a pinch produces.
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 200;
 const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;
 const MAP_REVEAL_TIMEOUT_MS = 2_000;
 
@@ -558,6 +566,8 @@ function LocationPermissionGate({
   onRetry: () => void;
 }) {
   const { tr } = useTranslation();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const requesting = status === "requesting";
   const message =
     status === "denied"
@@ -570,8 +580,20 @@ function LocationPermissionGate({
           ? tr("Ta position n’a pas pu être déterminée. Vérifie le GPS et la connexion.")
           : tr("Autorise la localisation pour ouvrir la carte autour de toi.");
 
-  return (
-    <main className="grid min-h-[calc(100dvh-4rem)] place-items-center bg-[radial-gradient(circle_at_50%_15%,oklch(0.62_0.25_295_/_0.18),transparent_38%),var(--color-background)] p-5">
+  // Rendered over the map instead of in its place, so the surface underneath
+  // stays mounted and MapLibre can build while the user is still deciding.
+  //
+  // Portalled to the body for two reasons: the mobile map slot is display:none
+  // in list view, which would take an inline overlay with it, and a portal is
+  // immune to any ancestor that turns itself into a containing block for fixed
+  // positioning. Mounting is deferred one commit so the server and the first
+  // client render agree on an empty tree; portals have no SSR output.
+  if (!mounted) return null;
+  return createPortal(
+    // The gradient is a background-image; as a full-page section this used to
+    // sit on the document's own background, but an overlay needs to bring its
+    // own opaque colour or the map shows through it.
+    <main className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-background bg-[radial-gradient(circle_at_50%_15%,oklch(0.62_0.25_295_/_0.18),transparent_38%)] p-5">
       <section
         role="dialog"
         aria-modal="true"
@@ -607,7 +629,8 @@ function LocationPermissionGate({
           {tr("Ta position sert uniquement à centrer la carte et n’est pas enregistrée.")}
         </p>
       </section>
-    </main>
+    </main>,
+    document.body,
   );
 }
 
@@ -1871,6 +1894,10 @@ function MapPage() {
   const selectedOccurrenceIdRef = useRef<string | null>(null);
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const hoverRequestRef = useRef(0);
+  // Guards the one-off jump from the warmup camera to the user's position, so
+  // the watcher's later refinements never yank a camera the user has moved.
+  const userCameraAppliedRef = useRef(false);
+  const locationReady = geolocationStatus === "ready" && userLocation !== null;
   const mapReady = mapInstance !== null && readyMap === mapInstance;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
@@ -2104,6 +2131,20 @@ function MapPage() {
     [],
   );
 
+  // The map instance cannot be built until a position is known, and the
+  // permission prompt is unbounded human time. Fetch the style document while
+  // the user is deciding so MapLibre finds it in the HTTP cache instead of
+  // starting a cold request the moment the gate clears.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(PRIMARY_MAP_STYLE, {
+      signal: controller.signal,
+      mode: "cors",
+      credentials: "omit",
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     let active = true;
     let hasPosition = false;
@@ -2162,14 +2203,11 @@ function MapPage() {
   useEffect(() => {
     const activeMapContainer = mapContainer;
     const initialLocation = userLocationRef.current;
-    if (
-      !activeMapContainer ||
-      mapRef.current ||
-      geolocationStatus !== "ready" ||
-      !initialLocation
-    ) {
-      return;
-    }
+    // Deliberately not gated on the location permission. Building the map is
+    // the slowest step on this route (WebGL context, style, sprite, glyphs,
+    // workers) and none of it depends on where the user is, so it runs while
+    // the permission prompt is still open and the camera moves in afterwards.
+    if (!activeMapContainer || mapRef.current) return;
 
     if (!isRenderableMapSurfaceSize(readMapSurfaceSize(activeMapContainer))) {
       let layoutFrame = 0;
@@ -2204,10 +2242,18 @@ function MapPage() {
       return;
     }
     let map: maplibregl.Map;
-    const initialCamera = lastMapCameraRef.current ?? {
-      center: [initialLocation.longitude, initialLocation.latitude] as [number, number],
-      zoom: INITIAL_GEOLOCATION_ZOOM,
-    };
+    const initialCamera =
+      lastMapCameraRef.current ??
+      (initialLocation
+        ? {
+            center: [initialLocation.longitude, initialLocation.latitude] as [number, number],
+            zoom: INITIAL_GEOLOCATION_ZOOM,
+          }
+        : MAP_WARMUP_CAMERA);
+    // A camera restored from this session, or one already placed on a known
+    // position, is the user's own view and must not be replaced when the
+    // watcher reports a refined position later.
+    userCameraAppliedRef.current = Boolean(lastMapCameraRef.current ?? initialLocation);
     try {
       map = new maplibregl.Map({
         container: activeMapContainer,
@@ -2334,7 +2380,20 @@ function MapPage() {
         setReadyStyle((current) => (current?.map === map ? null : current));
       }
     };
-  }, [geolocationStatus, mapContainer, mapLayoutRevision]);
+  }, [mapContainer, mapLayoutRevision]);
+
+  // Declared before the viewport-capture effect so the camera is already on the
+  // user's position the first time bounds are read, instead of capturing the
+  // warmup view and spending a pin request on it.
+  useEffect(() => {
+    const map = mapInstance;
+    if (!map || !userLocation || userCameraAppliedRef.current) return;
+    userCameraAppliedRef.current = true;
+    map.jumpTo({
+      center: [userLocation.longitude, userLocation.latitude],
+      zoom: INITIAL_GEOLOCATION_ZOOM,
+    });
+  }, [mapInstance, userLocation]);
 
   useEffect(() => {
     const map = mapInstance;
@@ -2354,7 +2413,10 @@ function MapPage() {
 
   useEffect(() => {
     const map = mapInstance;
-    if (!map || !mapReady) return;
+    // The map now builds before the position is known. Holding viewport
+    // capture until it is keeps the warmup camera from spending a pin request
+    // on a viewport the user will never look at.
+    if (!map || !mapReady || !locationReady) return;
     let refreshTimer: number | null = null;
 
     const captureViewport = () => {
@@ -2393,7 +2455,7 @@ function MapPage() {
       map.off("moveend", scheduleViewportCapture);
       map.off("resize", scheduleViewportCapture);
     };
-  }, [mapInstance, mapReady]);
+  }, [locationReady, mapInstance, mapReady]);
 
   const taxonomyFilters = useMemo(
     () =>
@@ -2546,7 +2608,7 @@ function MapPage() {
   }, [requestMapPinReload]);
 
   useEffect(() => {
-    if (!mapDiscoveryParams || !listRequested) return;
+    if (!mapPinDiscoveryParams || !listRequested) return;
 
     let current = true;
     const controller = new AbortController();
@@ -2557,7 +2619,7 @@ function MapPage() {
 
     void discoverMapEventsInBounds(
       {
-        ...mapDiscoveryParams,
+        ...mapPinDiscoveryParams,
         limit: MAP_EVENT_PAGE_SIZE,
         offset: 0,
       },
@@ -2584,22 +2646,29 @@ function MapPage() {
       current = false;
       controller.abort();
     };
-  }, [listRequested, mapDiscoveryParams, mobileListReloadKey]);
+  }, [listRequested, mapPinDiscoveryParams, mobileListReloadKey]);
 
   const loadMoreMobileList = () => {
     if (visibleMobileEventCount < events.length) {
       setVisibleMobileEventCount((count) => count + MOBILE_LIST_BATCH_SIZE);
       return;
     }
-    if (!mapDiscoveryParams || !mobileListHasMore || mobileListLoading || mobileListLoadingMore) {
+    if (
+      !mapPinDiscoveryParams ||
+      !mobileListHasMore ||
+      mobileListLoading ||
+      mobileListLoadingMore
+    ) {
       return;
     }
 
     const requestVersion = mobileListRequestVersionRef.current;
     setMobileListLoadingMore(true);
     setMobileListError(null);
+    // Paging must reuse the exact bounds that produced page 0, or the offsets
+    // address a different result set than the one already on screen.
     void discoverMapEventsInBounds({
-      ...mapDiscoveryParams,
+      ...mapPinDiscoveryParams,
       limit: MAP_EVENT_PAGE_SIZE,
       offset: events.length,
     })
@@ -3267,14 +3336,14 @@ function MapPage() {
   const mobileActiveFilterCount =
     advancedCount + cats.size + Number(range !== "year") + Number(!showEvents);
 
-  if (geolocationStatus !== "ready" || !userLocation) {
-    return (
-      <LocationPermissionGate
-        status={geolocationStatus === "ready" ? "error" : geolocationStatus}
-        onRetry={() => setLocationRequestKey((key) => key + 1)}
-      />
-    );
-  }
+  // Overlay, not a replacement: the layouts below must stay mounted so the map
+  // surface exists and MapLibre can build during the permission prompt.
+  const locationGate = locationReady ? null : (
+    <LocationPermissionGate
+      status={geolocationStatus === "ready" ? "error" : geolocationStatus}
+      onRetry={() => setLocationRequestKey((key) => key + 1)}
+    />
+  );
 
   if (isMobile) {
     const hasMoreMobileEvents =
@@ -3354,6 +3423,7 @@ function MapPage() {
               }}
               onRetry={() => eventSelectionRetryRef.current?.()}
             />
+            {locationGate}
           </>
         }
         selection={mobileSelection}
@@ -3745,6 +3815,7 @@ function MapPage() {
         }}
         onRetry={() => eventSelectionRetryRef.current?.()}
       />
+      {locationGate}
     </div>
   );
 }

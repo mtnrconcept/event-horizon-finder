@@ -189,11 +189,11 @@ replaceOnce(
 replaceOnce(
   [
     '  useEffect(() => {',
-    '    if (!mapDiscoveryParams || !listRequested) return;',
+    '    if (!mapPinDiscoveryParams || !listRequested) return;',
   ].join("\n"),
   [
     '  useEffect(() => {',
-    '    if (!mapDiscoveryParams || !listRequested) {',
+    '    if (!mapPinDiscoveryParams || !listRequested) {',
     '      setEvents([]);',
     '      setMobileListLoading(false);',
     '      setMobileListLoadingMore(false);',
