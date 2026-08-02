@@ -16,8 +16,18 @@ function insertBefore(anchor, addition, label) {
   replaceOnce(anchor, `${addition}\n${anchor}`, label);
 }
 
+function compactFragment(value) {
+  return value.replace(/\s+/g, "");
+}
+
+function countCompactOccurrences(haystack, needle) {
+  const compactNeedle = compactFragment(needle);
+  if (!compactNeedle) return 0;
+  return compactFragment(haystack).split(compactNeedle).length - 1;
+}
+
 function replaceAllExact(before, after, expectedCount, label) {
-  const afterOccurrences = source.split(after).length - 1;
+  const afterOccurrences = countCompactOccurrences(source, after);
   if (afterOccurrences === expectedCount) return;
   const occurrences = source.split(before).length - 1;
   if (occurrences !== expectedCount) {
