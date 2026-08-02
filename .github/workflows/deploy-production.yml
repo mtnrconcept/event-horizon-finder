@@ -154,7 +154,6 @@ jobs:
           node --check scripts/apply-progressive-basemap.mjs
           node --check scripts/apply-today-default-fullscreen-intro.mjs
           node --check scripts/apply-map-mobile-performance-and-poi-filters.mjs
-          node --check scripts/apply-poi-map-layer.mjs
           node --check scripts/apply-home-place-search.mjs
           node --check scripts/apply-map-consistency-performance.mjs
           node --check scripts/apply-adaptive-map-rendering.mjs
@@ -162,7 +161,6 @@ jobs:
           node scripts/apply-progressive-basemap.mjs
           node scripts/apply-today-default-fullscreen-intro.mjs
           node scripts/apply-map-mobile-performance-and-poi-filters.mjs
-          node scripts/apply-poi-map-layer.mjs
           node scripts/apply-home-place-search.mjs
           node scripts/apply-map-consistency-performance.mjs
           node scripts/apply-adaptive-map-rendering.mjs
