@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 function responseHeaders(request: Request) {
   const configuredOrigin = new URL(Deno.env.get("SITE_URL") || new URL(request.url).origin).origin;
