@@ -24,11 +24,13 @@ import {
 } from "../src/lib/event-artwork.ts";
 import {
   isAllowedSupabaseReadProxyRequest,
+  isMapReadProxyRequest,
   isSafeSupabaseProxyPublishableKey,
   normalizeSupabaseReadProxyTarget,
   SUPABASE_READ_PROXY_ROUTE,
   SUPABASE_READ_PROXY_TARGET_HEADER,
 } from "../src/lib/supabase-read-proxy.ts";
+import { mapAssetProxyUrl, normalizeMapAssetTarget } from "../src/lib/map-asset-proxy.ts";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -122,7 +124,7 @@ test("the same-origin Supabase fallback is strictly read-only", () => {
   assert.equal(isSafeSupabaseProxyPublishableKey(jwt("service_role")), false);
 });
 
-test("Supabase reads fall back to the application origin after a browser network failure", async () => {
+test("non-map Supabase reads fall back to the application origin after a browser network failure", async () => {
   const requests: Request[] = [];
   const resilientFetch = createSupabaseFetch("sb_publishable_test", {
     proxyOrigin: "https://global-party.example",
@@ -138,8 +140,8 @@ test("Supabase reads fall back to the application origin after a browser network
   });
 
   const response = await resilientFetch(
-    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v5",
-    { method: "POST", body: JSON.stringify({ _zoom: 14 }) },
+    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/events?select=id",
+    { method: "GET" },
   );
 
   assert.equal(response.status, 200);
@@ -147,12 +149,12 @@ test("Supabase reads fall back to the application origin after a browser network
   assert.equal(requests[1]?.url, `https://global-party.example${SUPABASE_READ_PROXY_ROUTE}`);
   assert.equal(
     requests[1]?.headers.get(SUPABASE_READ_PROXY_TARGET_HEADER),
-    "/rest/v1/rpc/discover_map_pins_in_bounds_v5",
+    "/rest/v1/events?select=id",
   );
-  assert.equal(await requests[1]?.text(), JSON.stringify({ _zoom: 14 }));
+  assert.equal(await requests[1]?.text(), "");
 });
 
-test("a slow direct read falls back once without poisoning later direct reads", async () => {
+test("a slow non-map read falls back once without poisoning later direct reads", async () => {
   const requests: Request[] = [];
   let directCalls = 0;
   const resilientFetch = createSupabaseFetch("sb_publishable_test", {
@@ -178,10 +180,9 @@ test("a slow direct read falls back once without poisoning later direct reads", 
     },
   });
 
-  const target =
-    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v7";
-  assert.equal((await resilientFetch(target, { method: "POST", body: "{}" })).status, 200);
-  assert.equal((await resilientFetch(target, { method: "POST", body: "{}" })).status, 200);
+  const target = "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/events?select=id";
+  assert.equal((await resilientFetch(target, { method: "GET" })).status, 200);
+  assert.equal((await resilientFetch(target, { method: "GET" })).status, 200);
   assert.deepEqual(
     requests.map((request) => new URL(request.url).origin),
     [
@@ -190,6 +191,44 @@ test("a slow direct read falls back once without poisoning later direct reads", 
       "https://xtwxmdbobehovnghfkes.supabase.co",
     ],
   );
+});
+
+test("map RPCs use one bounded same-origin transport instead of direct DNS then fallback", async () => {
+  const requests: Request[] = [];
+  const resilientFetch = createSupabaseFetch("sb_publishable_test", {
+    proxyOrigin: "https://global-party.example",
+    fetcher: async (request) => {
+      const normalized = request instanceof Request ? request : new Request(request);
+      requests.push(normalized.clone());
+      throw new TypeError("network unavailable");
+    },
+  });
+
+  const response = await resilientFetch(
+    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+    { method: "POST", body: JSON.stringify({ _zoom: 14 }) },
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(
+    ((await response.json()) as { code: string }).code,
+    "SUPABASE_MAP_TRANSPORT_UNAVAILABLE",
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, `https://global-party.example${SUPABASE_READ_PROXY_ROUTE}`);
+  assert.equal(
+    requests[0]?.headers.get(SUPABASE_READ_PROXY_TARGET_HEADER),
+    "/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+  );
+  assert.equal(isMapReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v7"), true);
+});
+
+test("map assets are strictly allowlisted and rewritten to the application origin", () => {
+  const tile = "https://tiles.openfreemap.org/fonts/Open%20Sans%20Regular/0-255.pbf";
+  assert.equal(normalizeMapAssetTarget(tile), tile);
+  assert.equal(mapAssetProxyUrl(tile), `/api/map-assets?url=${encodeURIComponent(tile)}`);
+  assert.equal(normalizeMapAssetTarget("https://evil.example/tile.pbf"), null);
+  assert.equal(normalizeMapAssetTarget("http://tiles.openfreemap.org/planet"), null);
 });
 
 test("the Supabase relay never returns a truncated successful body after an abort", async () => {
@@ -277,6 +316,13 @@ test("map RPC retries are bounded, jittered, and limited to transient failures",
       status: 504,
       code: "SUPABASE_PROXY_TIMEOUT",
       message: "Supabase proxy timed out",
+    }),
+    false,
+  );
+  assert.equal(
+    isTransientMapRequestError({
+      status: 503,
+      code: "SUPABASE_MAP_TRANSPORT_UNAVAILABLE",
     }),
     false,
   );

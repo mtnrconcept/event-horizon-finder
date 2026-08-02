@@ -61,6 +61,7 @@ export function isTransientMapRequestError(error: unknown, signal?: AbortSignal)
   if (
     code === "57014" ||
     code.startsWith("SUPABASE_PROXY_") ||
+    code.startsWith("SUPABASE_MAP_TRANSPORT_") ||
     /statement timeout|canceling statement due to statement timeout/i.test(message)
   ) {
     return false;
