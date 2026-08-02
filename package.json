@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "check:routes": "node scripts/check-routes.mjs",
     "typecheck": "tsc --noEmit",
-    "test:map": "node --test tests/map-adaptive-applicator-contract.test.ts tests/map-basemap-loading.test.ts tests/map-clusters.test.ts tests/map-event-details.test.ts tests/map-loading.test.ts tests/map-pin-session-cache.test.ts tests/map-location-projection.test.ts tests/map-surface.test.ts tests/map-viewport.test.ts tests/map-interaction-performance.test.ts",
+    "test:map": "node --test tests/map-adaptive-applicator-contract.test.ts tests/map-consistency-applicator-contract.test.ts tests/map-basemap-loading.test.ts tests/map-clusters.test.ts tests/map-event-details.test.ts tests/map-loading.test.ts tests/map-pin-session-cache.test.ts tests/map-location-projection.test.ts tests/map-surface.test.ts tests/map-viewport.test.ts tests/map-interaction-performance.test.ts",
     "test:taxonomy": "node --test tests/event-search-taxonomy.test.ts",
     "test:mcp": "node --test tests/mcp-server.test.ts",
     "test:i18n": "node --test tests/i18n-coverage.test.mjs",
