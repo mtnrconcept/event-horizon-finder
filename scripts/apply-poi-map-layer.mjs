@@ -9,7 +9,6 @@ const committedPoiRuntimeMarkers = [
   "usePlaceMapLayer",
   "PlaceSearchResults",
   "PlaceDetailDialog",
-  "placeDiscovery.pinBatch",
 ];
 
 if (committedPoiRuntimeMarkers.every((marker) => source.includes(marker))) {
