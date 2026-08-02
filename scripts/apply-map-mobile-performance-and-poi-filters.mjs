@@ -1,10 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
-const testPath = new URL(
-  "../tests/map-mobile-performance-poi-filters.test.ts",
-  import.meta.url,
-);
+const testPath = new URL("../tests/map-mobile-performance-poi-filters.test.ts", import.meta.url);
 const mapSource = await readFile(mapPath, "utf8");
 
 const primaryVectorStylePattern =
