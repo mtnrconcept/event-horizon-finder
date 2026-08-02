@@ -46,9 +46,7 @@ type EventDetailRow = {
   genres: string[] | null;
   category: { slug: string; name_fr: string } | { slug: string; name_fr: string }[] | null;
   organizer:
-    | { name: string; website: string | null }
-    | { name: string; website: string | null }[]
-    | null;
+    { name: string; website: string | null } | { name: string; website: string | null }[] | null;
   venue:
     | {
         name: string;

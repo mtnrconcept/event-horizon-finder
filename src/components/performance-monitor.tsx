@@ -24,8 +24,7 @@ function ratingFor(name: MetricName, value: number): MetricRating {
 
 function navigationType() {
   const entry = performance.getEntriesByType("navigation")[0] as
-    | PerformanceNavigationTiming
-    | undefined;
+    PerformanceNavigationTiming | undefined;
   return entry?.type ?? "navigate";
 }
 

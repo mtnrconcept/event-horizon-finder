@@ -18,7 +18,7 @@ test("the progressive map applicator is safe after interaction tuning", () => {
   );
   assert.match(
     applicatorSource,
-    /if \(!queries\.includes\('rpc\("discover_map_pins_in_bounds_v6"'\)\)/,
+    /if \(!queries\.includes\('rpc\("discover_map_pins_in_bounds_v7"'\)\)/,
   );
 });
 
@@ -48,6 +48,6 @@ test("the safety reveal does not keep a working canvas covered", () => {
 });
 
 test("the deployed map keeps every rolling RPC fallback", () => {
-  assert.match(queriesSource, /discover_map_pins_in_bounds_v6/);
-  assert.match(queriesSource, /\["v5", "v4", "v3", "v2"\]/);
+  assert.match(queriesSource, /discover_map_pins_in_bounds_v7/);
+  assert.match(queriesSource, /\["v6", "v5", "v4", "v3", "v2"\]/);
 });

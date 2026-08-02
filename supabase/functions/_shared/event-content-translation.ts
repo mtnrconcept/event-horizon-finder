@@ -3,12 +3,7 @@ export type EventTranslationLocale = (typeof EVENT_TRANSLATION_LOCALES)[number];
 export type EventTranslationScope = "summary" | "full";
 
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 type Relation<T> = T | T[] | null;
 

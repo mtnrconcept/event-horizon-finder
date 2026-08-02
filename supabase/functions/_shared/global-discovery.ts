@@ -417,22 +417,17 @@ export function buildLocalizedDiscoveryQueries(
   const { context, dateKey, monthKey } = queryDateContext(date, locale, place);
   const rotation = stableHash(input.rotationKey ?? place) + weeklySequence(date) * 8;
   const monthlyFamilies = rotate(ROTATING_MONTHLY_QUERY_FAMILIES, rotation).slice(0, 8);
-  const monthlyQueries = monthlyFamilies.map(
-    (family): DiscoveryQuery => ({
-      family,
-      query:
-        family === "nightlife" ||
-        family === "family" ||
-        family === "outdoor" ||
-        family === "culture"
-          ? templates[family](context)
-          : `${CATEGORY_LABELS[templateLanguage]?.[family] ?? CATEGORY_LABELS.en[family] ?? "Events"} ${place} ${context.month} ${context.year}`,
-      locale,
-      dateScope: "month",
-      dateKey,
-      monthKey,
-    }),
-  );
+  const monthlyQueries = monthlyFamilies.map((family): DiscoveryQuery => ({
+    family,
+    query:
+      family === "nightlife" || family === "family" || family === "outdoor" || family === "culture"
+        ? templates[family](context)
+        : `${CATEGORY_LABELS[templateLanguage]?.[family] ?? CATEGORY_LABELS.en[family] ?? "Events"} ${place} ${context.month} ${context.year}`,
+    locale,
+    dateScope: "month",
+    dateKey,
+    monthKey,
+  }));
   const annualQuery: DiscoveryQuery = {
     family: "festivals",
     query: `${CATEGORY_LABELS[templateLanguage]?.festivals ?? CATEGORY_LABELS.en.festivals} ${place} ${context.year}`,

@@ -119,6 +119,7 @@ import {
   eventClusterCircleRadiusExpression,
   eventClusterCountExpression,
   eventClusterTextSizeExpression,
+  locationClusterSelectionBounds,
   shouldClusterMapPointsInClient,
   shouldOpenClusterSelection,
   shouldRequestTerminalClusterReload,
@@ -216,6 +217,7 @@ const EMPTY_MAP_PIN_BATCH: CompactMapPinBatch = {
   totalCount: 0,
   freeCount: 0,
   clustered: false,
+  clusterMode: "client",
   truncated: false,
 };
 
@@ -2800,6 +2802,122 @@ function MapPage() {
         append: false,
       });
     };
+    const loadServerLocationSelectionPage = async ({
+      bounds,
+      pointCount,
+      offset,
+      requestVersion,
+      append,
+    }: {
+      bounds: MapViewportBounds;
+      pointCount: number;
+      offset: number;
+      requestVersion: number;
+      append: boolean;
+    }) => {
+      const page = clusterLeafPageRequest(pointCount, offset, CLUSTER_SELECTION_PAGE_SIZE);
+      if (!page) {
+        setClusterSelectionHasMore(false);
+        clusterSelectionLoadMoreRef.current = null;
+        return;
+      }
+
+      if (append) setClusterSelectionLoadingMore(true);
+      else setClusterSelectionLoading(true);
+      setClusterSelectionError(null);
+      try {
+        if (!mapDiscoveryParams) throw new Error("Map discovery parameters are unavailable");
+        const locationEvents = await discoverMapEventsInBounds({
+          ...mapDiscoveryParams,
+          bounds,
+          limit: page.limit,
+          offset: page.offset,
+        });
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+        const previews = locationEvents.map(mapPreviewFromDiscoveredEvent);
+        setSelectedClusterEvents((current) => {
+          const merged = append ? [...current, ...previews] : previews;
+          return [...new Map(merged.map((preview) => [preview.occurrence_id, preview])).values()];
+        });
+        const nextOffset = page.offset + locationEvents.length;
+        const hasMore = locationEvents.length > 0 && nextOffset < pointCount;
+        setClusterSelectionHasMore(hasMore);
+        clusterSelectionLoadMoreRef.current = hasMore
+          ? () => {
+              void loadServerLocationSelectionPage({
+                bounds,
+                pointCount,
+                offset: nextOffset,
+                requestVersion,
+                append: true,
+              });
+            }
+          : null;
+        clusterSelectionRetryRef.current = null;
+
+        void localizePreviews(previews).then((localizedPreviews) => {
+          if (requestVersion !== clusterSelectionRequestRef.current) return;
+          const localizedById = new Map(
+            localizedPreviews.map((preview) => [preview.occurrence_id, preview]),
+          );
+          setSelectedClusterEvents((current) =>
+            current.map((preview) => localizedById.get(preview.occurrence_id) ?? preview),
+          );
+        });
+        if (!previews.length) {
+          setClusterSelectionError(
+            "Les événements de ce lieu n’ont pas pu être chargés. Réessaie dans un instant.",
+          );
+        }
+      } catch {
+        if (requestVersion !== clusterSelectionRequestRef.current) return;
+        clusterSelectionRetryRef.current = () => {
+          void loadServerLocationSelectionPage({
+            bounds,
+            pointCount,
+            offset: page.offset,
+            requestVersion,
+            append,
+          });
+        };
+        setClusterSelectionError(
+          "Impossible de charger les événements de ce lieu. Vérifie ta connexion puis réessaie.",
+        );
+      } finally {
+        if (requestVersion === clusterSelectionRequestRef.current) {
+          if (append) setClusterSelectionLoadingMore(false);
+          else setClusterSelectionLoading(false);
+        }
+      }
+    };
+    const loadServerLocationSelection = async (
+      longitude: number,
+      latitude: number,
+      pointCount: number,
+    ) => {
+      const bounds = locationClusterSelectionBounds(longitude, latitude);
+      if (!bounds) return;
+      const requestVersion = ++clusterSelectionRequestRef.current;
+      clusterSelectionRetryRef.current = () => {
+        void loadServerLocationSelection(longitude, latitude, pointCount);
+      };
+      clusterSelectionLoadMoreRef.current = null;
+      closeEventSelection();
+      setClusterSelectionOpen(true);
+      setClusterSelectionLoading(true);
+      setClusterSelectionLoadingMore(false);
+      setClusterSelectionHasMore(pointCount > CLUSTER_SELECTION_PAGE_SIZE);
+      setClusterSelectionError(null);
+      setClusterSelectionExpectedCount(pointCount);
+      setSelectedClusterEvents([]);
+      await loadServerLocationSelectionPage({
+        bounds,
+        pointCount,
+        offset: 0,
+        requestVersion,
+        append: false,
+      });
+    };
     const expandCluster = async (feature: MapGeoJSONFeature) => {
       if (!feature || feature.geometry.type !== "Point") return;
       const sourceRevision = MAP_EVENT_SOURCE_REVISION.get(map) ?? 0;
@@ -2822,7 +2940,7 @@ function MapPage() {
         closeClusterSelection();
         const currentZoom = map.getZoom();
         if (currentZoom >= MAP_SERVER_CLUSTER_MAX_ZOOM) {
-          void requestMapPinReload();
+          void loadServerLocationSelection(Number(longitude), Number(latitude), pointCount);
           return;
         }
         map.easeTo({
@@ -3087,9 +3205,9 @@ function MapPage() {
     mapPinCacheKey,
     mapInstance,
     mapReady,
+    mapDiscoveryParams,
     openEventSelection,
     readyStyle,
-    requestMapPinReload,
     resolveOccurrencePreviews,
     tr,
   ]);

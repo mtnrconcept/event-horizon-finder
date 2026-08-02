@@ -30,14 +30,7 @@ export type { HomeCollections };
 const MAP_OCCURRENCE_DETAIL_PAGE_SIZE = 500;
 
 export type QuickRange =
-  | "now"
-  | "tonight"
-  | "today"
-  | "tomorrow"
-  | "weekend"
-  | "week"
-  | "month"
-  | "year";
+  "now" | "tonight" | "today" | "tomorrow" | "weekend" | "week" | "month" | "year";
 
 /**
  * "Ce soir" = nuit événementielle 18h → 6h le lendemain (heure locale de l'utilisateur).
@@ -334,11 +327,11 @@ export async function discoverMapPinsInBounds(
   return runMapRequestWithRetry(
     async () => {
       // Keep the cast at the additive RPC rollout boundary until generated
-      // database types include v6.
+      // database types include v7.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v6", args).retry(false);
+      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v7", args).retry(false);
       let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      for (const fallbackVersion of ["v5", "v4", "v3", "v2"] as const) {
+      for (const fallbackVersion of ["v6", "v5", "v4", "v3", "v2"] as const) {
         if (!error || !["42883", "PGRST202"].includes(error.code ?? "")) break;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fallback = (supabase as any)

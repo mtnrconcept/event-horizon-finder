@@ -8,6 +8,7 @@ const MAP_READ_RPC_NAMES = new Set([
   "discover_map_pins_in_bounds_v4",
   "discover_map_pins_in_bounds_v5",
   "discover_map_pins_in_bounds_v6",
+  "discover_map_pins_in_bounds_v7",
   "get_map_occurrence_detail_v1",
 ]);
 

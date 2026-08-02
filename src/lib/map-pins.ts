@@ -1,4 +1,5 @@
 export type CompactMapPinKind = "event" | "cluster";
+export type MapPinClusterMode = "client" | "grid" | "location";
 
 export type CompactMapPin = readonly [
   kind: CompactMapPinKind,
@@ -18,6 +19,7 @@ export type CompactMapPinBatch = {
   totalCount: number;
   freeCount: number;
   clustered: boolean;
+  clusterMode: MapPinClusterMode;
   truncated: boolean;
 };
 
@@ -88,6 +90,7 @@ export function parseCompactMapPinBatch(data: unknown): CompactMapPinBatch {
       totalCount: pins.reduce((count, pin) => count + pin[8], 0),
       freeCount: pins.reduce((count, pin) => count + pin[9], 0),
       clustered: false,
+      clusterMode: "client",
       truncated: false,
     };
   }
@@ -108,6 +111,12 @@ export function parseCompactMapPinBatch(data: unknown): CompactMapPinBatch {
     totalCount,
     freeCount,
     clustered: response.clustered === true,
+    clusterMode:
+      response.cluster_mode === "location"
+        ? "location"
+        : response.clustered === true
+          ? "grid"
+          : "client",
     truncated: response.truncated === true,
   };
 }
