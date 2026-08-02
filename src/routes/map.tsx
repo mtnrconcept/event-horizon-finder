@@ -216,6 +216,7 @@ const MAP_EVENT_SOURCE_CLIENT_CLUSTERING = new WeakMap<maplibregl.Map, boolean>(
 const MAP_EVENT_SOURCE_REVISION = new WeakMap<maplibregl.Map, number>();
 const MAP_EVENT_SOURCE_PENDING_REVISION = new WeakMap<maplibregl.Map, number>();
 const MAP_EVENT_SOURCE_SETTLE_CLEANUP = new WeakMap<maplibregl.Map, () => void>();
+const MAP_EVENT_SOURCE_DATA_SIGNATURE = new WeakMap<maplibregl.Map, string>();
 const MOBILE_MAP_HIT_RADIUS = 24;
 const DESKTOP_MAP_HIT_RADIUS = 8;
 const CLUSTER_PREVIEW_CONCURRENCY = 4;
@@ -305,6 +306,7 @@ function syncClusterLayers(
   map: maplibregl.Map,
   eventPoints: MapPointCollection,
   serverClustered: boolean,
+  dataSignature: string,
 ) {
   hideBasemapPoiLayers(map);
   const sourceRevision = beginMapSourceUpdate(
@@ -350,6 +352,20 @@ function syncClusterLayers(
   const previousClientClustered = MAP_EVENT_SOURCE_CLIENT_CLUSTERING.get(map);
   let existingEventSource = map.getSource(MAP_EVENT_SOURCE_ID) as GeoJSONSource | undefined;
 
+  if (existingEventSource && previousClientClustered === clientClustered) {
+    const previousDataSignature = MAP_EVENT_SOURCE_DATA_SIGNATURE.get(map);
+    if (previousDataSignature === dataSignature) {
+      completeMapSourceUpdate(
+        MAP_EVENT_SOURCE_REVISION,
+        MAP_EVENT_SOURCE_PENDING_REVISION,
+        map,
+        sourceRevision,
+      );
+      cleanupSourceSettlement();
+      return;
+    }
+  }
+
   if (existingEventSource && previousClientClustered !== clientClustered) {
     for (const layerId of MAP_EVENT_LAYER_IDS) {
       if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -375,6 +391,7 @@ function syncClusterLayers(
     });
   }
   MAP_EVENT_SOURCE_CLIENT_CLUSTERING.set(map, clientClustered);
+  MAP_EVENT_SOURCE_DATA_SIGNATURE.set(map, dataSignature);
 
   registerEventCategoryImages(map);
 
@@ -1901,14 +1918,34 @@ function MapPage() {
   const mapReady = mapInstance !== null && readyMap === mapInstance;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
+  const mapPointZoom = compactPinBatch.clustered ? 0 : viewportZoom;
   const eventMapPoints = useMemo(
     () =>
       spreadCoincidentMapPoints(
         buildCompactMapPointCollection({ pins: compactPins, showEvents }),
-        compactPinBatch.clustered ? 0 : viewportZoom,
+        mapPointZoom,
         EVENT_CLUSTER_TERMINAL_ZOOM,
       ),
-    [compactPinBatch.clustered, compactPins, showEvents, viewportZoom],
+    [compactPins, mapPointZoom, showEvents],
+  );
+  const eventMapPointsSignature = useMemo(
+    () =>
+      JSON.stringify({
+        showEvents,
+        mapPointZoom: Number(mapPointZoom.toFixed(2)),
+        clustered: compactPinBatch.clustered,
+        clusterMode: compactPinBatch.clusterMode,
+        truncated: compactPinBatch.truncated,
+        pins: compactPins,
+      }),
+    [
+      compactPinBatch.clusterMode,
+      compactPinBatch.clustered,
+      compactPinBatch.truncated,
+      compactPins,
+      mapPointZoom,
+      showEvents,
+    ],
   );
   const eventsByOccurrenceId = useMemo(
     () => new Map(events.map((event) => [event.occurrence_id, event])),
@@ -2372,6 +2409,7 @@ function MapPage() {
       window.removeEventListener(BRAND_ARRIVAL_COMPLETE_EVENT, resizeMap);
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
+      MAP_EVENT_SOURCE_DATA_SIGNATURE.delete(map);
       map.remove();
       if (mapRef.current === map) {
         mapRef.current = null;
@@ -2700,7 +2738,7 @@ function MapPage() {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         if (!map.getCanvas().isConnected || !map.isStyleLoaded()) return;
-        syncClusterLayers(map, eventMapPoints, compactPinBatch.clustered);
+        syncClusterLayers(map, eventMapPoints, compactPinBatch.clustered, eventMapPointsSignature);
       });
     };
 
@@ -2717,7 +2755,14 @@ function MapPage() {
       window.cancelAnimationFrame(frame);
       map.off("moveend", applySourceUpdate);
     };
-  }, [compactPinBatch.clustered, eventMapPoints, mapInstance, mapReady, readyStyle]);
+  }, [
+    compactPinBatch.clustered,
+    eventMapPoints,
+    eventMapPointsSignature,
+    mapInstance,
+    mapReady,
+    readyStyle,
+  ]);
 
   useEffect(() => {
     const map = mapInstance;

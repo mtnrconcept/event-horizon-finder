@@ -23,3 +23,12 @@ test("event and place GeoJSON updates wait until camera movement settles", () =>
 test("basemap POI visibility is not rewritten on every pin refresh", () => {
   assert.match(mapSource, /getLayoutProperty\(layer\.id, "visibility"\) !== "none"/);
 });
+
+test("event GeoJSON source updates are skipped when the pin batch is unchanged", () => {
+  assert.match(mapSource, /MAP_EVENT_SOURCE_DATA_SIGNATURE/);
+  assert.match(mapSource, /previousDataSignature === dataSignature/);
+  assert.match(
+    mapSource,
+    /syncClusterLayers\(map, eventMapPoints, compactPinBatch\.clustered, eventMapPointsSignature\)/,
+  );
+});
