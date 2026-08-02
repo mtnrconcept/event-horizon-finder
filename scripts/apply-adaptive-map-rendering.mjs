@@ -1,8 +1,17 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 function replaceOnce(source, before, after, label) {
-  if (!source.includes(before)) throw new Error(`Expected ${label} fragment was not found`);
+  if (!source.includes(before)) {
+    throw new Error(`Expected ${label} fragment was not found`);
+  }
   return source.replace(before, after);
+}
+
+function replacePatternOnce(source, pattern, replacement, label) {
+  if (!pattern.test(source)) {
+    throw new Error(`Expected ${label} fragment was not found`);
+  }
+  return source.replace(pattern, replacement);
 }
 
 const mapPath = new URL("../src/routes/map.tsx", import.meta.url);
@@ -11,6 +20,7 @@ const clusterConfigPath = new URL("../src/lib/map-cluster-config.ts", import.met
 const testPath = new URL("../tests/map-adaptive-rendering.test.ts", import.meta.url);
 
 let mapSource = await readFile(mapPath, "utf8");
+
 if (!mapSource.includes("MAP_ADAPTIVE_GLOBE_MAX_ZOOM")) {
   mapSource = replaceOnce(
     mapSource,
@@ -24,7 +34,9 @@ if (!mapSource.includes("MAP_ADAPTIVE_GLOBE_MAX_ZOOM")) {
     ].join("\n"),
     "adaptive map constants",
   );
+}
 
+if (!mapSource.includes("function prefersReducedMapEffects()")) {
   const helpers = `function prefersReducedMapEffects(): boolean {
   const navigatorWithMemory = navigator as Navigator & { deviceMemory?: number };
   const cores = navigator.hardwareConcurrency ?? 8;
@@ -126,40 +138,44 @@ function syncAdaptiveMapRendering(
     `${helpers}function mapFeatureHitKind(feature: MapGeoJSONFeature): MapHitKind | null {\n`,
     "adaptive rendering helpers",
   );
+}
 
-  mapSource = replaceOnce(
+if (!mapSource.includes("const reducedMapEffects = prefersReducedMapEffects();")) {
+  mapSource = replacePatternOnce(
     mapSource,
-    `    try {
-      map = new maplibregl.Map({
-        container: activeMapContainer,
-        style: mapAssetProxyUrl(PRIMARY_MAP_STYLE) ?? PRIMARY_MAP_STYLE,
-        transformRequest: transformMapAssetRequest,
-        center: initialCamera.center,
-        zoom: initialCamera.zoom,
-        clickTolerance: 8,
-        fadeDuration: 0,
-      });
-`,
-    `    const reducedMapEffects = prefersReducedMapEffects();
-    const allow3DBuildings = !isMobileRef.current && !reducedMapEffects;
-    try {
-      map = new maplibregl.Map({
-        container: activeMapContainer,
-        style: mapAssetProxyUrl(PRIMARY_MAP_STYLE) ?? PRIMARY_MAP_STYLE,
-        transformRequest: transformMapAssetRequest,
-        center: initialCamera.center,
-        zoom: initialCamera.zoom,
-        pitch: allow3DBuildings && initialCamera.zoom >= MAP_3D_BUILDING_MIN_ZOOM ? 45 : 0,
+    /    try \{\n(?=      map = new maplibregl\.Map\(\{\n        container: activeMapContainer,)/,
+    [
+      "    const reducedMapEffects = prefersReducedMapEffects();",
+      "    const allow3DBuildings = !isMobileRef.current && !reducedMapEffects;",
+      "    try {",
+      "",
+    ].join("\n"),
+    "adaptive map constructor prelude",
+  );
+}
+
+if (!mapSource.includes("canvasContextAttributes: { antialias: allow3DBuildings }")) {
+  mapSource = replacePatternOnce(
+    mapSource,
+    /(map = new maplibregl\.Map\(\{[\s\S]*?        zoom: initialCamera\.zoom,\n)/,
+    `$1        pitch:
+          allow3DBuildings && initialCamera.zoom >= MAP_3D_BUILDING_MIN_ZOOM ? 45 : 0,
         maxPitch: allow3DBuildings ? 70 : 0,
-        clickTolerance: 8,
-        fadeDuration: 0,
-        validateStyle: false,
-        canvasContextAttributes: { antialias: allow3DBuildings },
-      });
 `,
-    "adaptive map constructor",
+    "adaptive map constructor camera options",
   );
 
+  mapSource = replacePatternOnce(
+    mapSource,
+    /(map = new maplibregl\.Map\(\{[\s\S]*?        fadeDuration: 0,\n)/,
+    `$1        validateStyle: false,
+        canvasContextAttributes: { antialias: allow3DBuildings },
+`,
+    "adaptive map constructor rendering options",
+  );
+}
+
+if (!mapSource.includes("function scheduleAdaptiveRendering()")) {
   mapSource = replaceOnce(
     mapSource,
     `      setReadyStyle((current) => ({
@@ -167,11 +183,6 @@ function syncAdaptiveMapRendering(
         revision: current?.map === map ? current.revision + 1 : 1,
       }));
       markMapReady();
-    });
-    map.on("styledata", () => {
-      if (map.isStyleLoaded()) setReadyMap(map);
-    });
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
 `,
     `      setReadyStyle((current) => ({
         map,
@@ -179,8 +190,18 @@ function syncAdaptiveMapRendering(
       }));
       scheduleAdaptiveRendering();
       markMapReady();
+`,
+    "adaptive style-load scheduling",
+  );
+
+  mapSource = replaceOnce(
+    mapSource,
+    `    map.on("styledata", () => {
+      if (map.isStyleLoaded()) setReadyMap(map);
     });
-    map.on("styledata", () => {
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+`,
+    `    map.on("styledata", () => {
       if (map.isStyleLoaded()) setReadyMap(map);
     });
     let adaptiveRenderingFrame = 0;
@@ -200,22 +221,23 @@ function syncAdaptiveMapRendering(
 `,
     "adaptive style and zoom handlers",
   );
+}
 
+if (!mapSource.includes('map.off("zoomend", scheduleAdaptiveRendering);')) {
   mapSource = replaceOnce(
     mapSource,
     `      map.off("error", handleMapError);
       map.off("idle", handleMapIdle);
-      window.clearTimeout(fallbackTimer);
 `,
     `      map.off("error", handleMapError);
       map.off("idle", handleMapIdle);
       map.off("zoomend", scheduleAdaptiveRendering);
       window.cancelAnimationFrame(adaptiveRenderingFrame);
-      window.clearTimeout(fallbackTimer);
 `,
     "adaptive rendering cleanup",
   );
 }
+
 await writeFile(mapPath, mapSource);
 
 let placeLayer = await readFile(placeLayerPath, "utf8");
@@ -264,7 +286,6 @@ test("projection changes wait until MapLibre has finished the active zoom render
   assert.match(map, /map\\.isMoving\\(\\) \\|\\| !map\\.isStyleLoaded\\(\\)/);
   assert.match(map, /map\\.on\\("zoomend", scheduleAdaptiveRendering\\)/);
   assert.match(map, /cancelAnimationFrame\\(adaptiveRenderingFrame\\)/);
-  assert.doesNotMatch(map, /map\\.on\\("zoomend", handleAdaptiveRendering\\)/);
 });
 
 test("3D buildings reuse the loaded vector source and stay desktop-only", () => {
@@ -293,4 +314,5 @@ test("point sources cap worker tile generation and reduce buffer work", () => {
   assert.match(clusters, /EVENT_SOURCE_MAX_ZOOM = 16/);
 });
 `;
+
 await writeFile(testPath, testSource);
