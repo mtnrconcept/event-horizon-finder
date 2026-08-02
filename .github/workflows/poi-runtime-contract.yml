@@ -1,0 +1,28 @@
+name: POI runtime contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/deploy-production.yml"
+      - ".github/workflows/poi-runtime-contract.yml"
+      - "scripts/apply-poi-map-layer.mjs"
+      - "tests/deploy-poi-runtime-contract.test.ts"
+      - "tests/poi-map-layer.test.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Verify POI deployment contract
+        run: |
+          node --check scripts/apply-poi-map-layer.mjs
+          node --test tests/deploy-poi-runtime-contract.test.ts
