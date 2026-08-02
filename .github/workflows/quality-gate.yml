@@ -3,6 +3,11 @@ name: Quality gate
 on:
   pull_request:
     branches: [main]
+  push:
+    branches:
+      - main
+      - "fix/**"
+      - "agent/**"
   workflow_dispatch:
 
 permissions:
@@ -84,16 +89,15 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Vercel production build
-        id: vercel_build
+      - name: Validate Cloudflare production output
+        id: cloudflare_output
         shell: bash
         run: |
           set +e
-          bun run build:vercel 2>&1 | tee vercel-build.log
-          code=${PIPESTATUS[0]}
+          test -f .output/server/index.mjs
+          code=$?
           if [ "$code" = "0" ]; then
-            test -f .vercel/output/config.json && \
-              test -f .vercel/output/functions/__server.func/index.mjs
+            test -d .output/public
             code=$?
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -110,7 +114,6 @@ jobs:
             mcp-tests.log
             production-build.log
             route-check.log
-            vercel-build.log
           if-no-files-found: error
           retention-days: 7
 
@@ -140,10 +143,10 @@ jobs:
           echo "TypeScript: ${{ steps.typecheck.outputs.exit_code }}"
           echo "Routes: ${{ steps.routes.outputs.exit_code }}"
           echo "MCP tests: ${{ steps.mcp.outputs.exit_code }}"
-          echo "Vercel build: ${{ steps.vercel_build.outputs.exit_code }}"
+          echo "Cloudflare output: ${{ steps.cloudflare_output.outputs.exit_code }}"
           test "${{ steps.build.outputs.exit_code }}" = "0"
           test "${{ steps.lint.outputs.exit_code }}" = "0"
           test "${{ steps.typecheck.outputs.exit_code }}" = "0"
           test "${{ steps.routes.outputs.exit_code }}" = "0"
           test "${{ steps.mcp.outputs.exit_code }}" = "0"
-          test "${{ steps.vercel_build.outputs.exit_code }}" = "0"
+          test "${{ steps.cloudflare_output.outputs.exit_code }}" = "0"
