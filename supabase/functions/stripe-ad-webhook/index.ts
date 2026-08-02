@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { verifyStripeSignature } from "../_shared/stripe-signature.ts";
 
 const AD_EVENT_TYPES = new Set([
