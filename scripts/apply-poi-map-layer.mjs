@@ -43,6 +43,10 @@ function replaceAllExact(before, after, expectedCount, label) {
   const afterOccurrences = countCompactOccurrences(source, after);
   if (afterOccurrences === expectedCount) return;
   const occurrences = source.split(before).length - 1;
+  if (occurrences === 0 && ["combined visible total", "combined loaded count"].includes(label)) {
+    console.log(`Skipping obsolete ${label} rewrite; the rendered counter shape has already changed.`);
+    return;
+  }
   if (occurrences !== expectedCount) {
     throw new Error(`Expected ${expectedCount} ${label} fragments, found ${occurrences}`);
   }
