@@ -7,7 +7,10 @@ import {
   SUPABASE_READ_PROXY_TARGET_HEADER,
 } from "@/lib/supabase-read-proxy";
 
-const SUPABASE_DIRECT_TIMEOUT_MS = 4_000;
+// Map RPCs legitimately need a few seconds for very wide viewports. A four
+// second deadline made a healthy (but still running) direct request lose a
+// race against the same query repeated through the Worker proxy.
+const SUPABASE_DIRECT_TIMEOUT_MS = 8_000;
 const SUPABASE_DIRECT_CIRCUIT_MS = 60_000;
 const PROXY_FORWARDED_HEADERS = [
   "accept",
@@ -106,7 +109,17 @@ export function createSupabaseFetch(
       return await fetcher(new Request(request.clone(), { signal: directController.signal }));
     } catch (error) {
       if (request.signal.aborted) throw error;
-      directUnavailableUntil = now() + Math.max(0, circuitMs);
+      const directTimedOut =
+        directController.signal.aborted &&
+        directController.signal.reason instanceof DOMException &&
+        directController.signal.reason.name === "TimeoutError";
+      // A browser DNS/network failure is a useful signal for the circuit
+      // breaker. A local deadline is not: opening the circuit in that case
+      // redirected every other read on the page through the proxy for a full
+      // minute and amplified a single slow map query into a request storm.
+      if (!directTimedOut) {
+        directUnavailableUntil = now() + Math.max(0, circuitMs);
+      }
       return fetcher(await createProxyRequest(request, proxyOrigin!));
     } finally {
       clearTimeout(timeout);

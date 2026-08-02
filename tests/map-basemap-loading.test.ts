@@ -34,6 +34,14 @@ test("raster fallback remains bounded and reacts to repeated style errors", () =
   assert.match(mapSource, /map\.off\("error", handleMapError\)/);
 });
 
+test("the vector basemap is accepted only after its tiles become idle", () => {
+  assert.match(mapSource, /let primaryTilesReady = false/);
+  assert.match(mapSource, /map\.on\("idle", handleMapIdle\)/);
+  assert.match(mapSource, /if \(primaryTilesReady \|\| rasterFallbackApplied\) return/);
+  assert.doesNotMatch(mapSource, /if \(primaryStyleLoaded\) window\.clearTimeout\(fallbackTimer\)/);
+  assert.match(mapSource, /map\.off\("idle", handleMapIdle\)/);
+});
+
 test("the safety reveal does not keep a working canvas covered", () => {
   assert.match(mapSource, /MAP_REVEAL_TIMEOUT_MS = 2_000/);
   assert.match(mapSource, /map\.once\("render", markMapReady\)/);

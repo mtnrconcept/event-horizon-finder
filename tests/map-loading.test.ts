@@ -148,6 +148,46 @@ test("Supabase reads fall back to the application origin after a browser network
   assert.equal(await requests[1]?.text(), JSON.stringify({ _zoom: 14 }));
 });
 
+test("a slow direct read falls back once without poisoning later direct reads", async () => {
+  const requests: Request[] = [];
+  let directCalls = 0;
+  const resilientFetch = createSupabaseFetch("sb_publishable_test", {
+    proxyOrigin: "https://global-party.example",
+    directTimeoutMs: 10,
+    circuitMs: 60_000,
+    now: () => 1_000,
+    fetcher: async (request) => {
+      const normalized = request instanceof Request ? request : new Request(request);
+      requests.push(normalized.clone());
+      if (normalized.url.startsWith("https://global-party.example")) {
+        return Response.json({ pins: [] });
+      }
+      directCalls += 1;
+      if (directCalls === 1) {
+        return await new Promise<Response>((_resolve, reject) => {
+          normalized.signal.addEventListener("abort", () => reject(normalized.signal.reason), {
+            once: true,
+          });
+        });
+      }
+      return Response.json({ pins: [] });
+    },
+  });
+
+  const target =
+    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v6";
+  assert.equal((await resilientFetch(target, { method: "POST", body: "{}" })).status, 200);
+  assert.equal((await resilientFetch(target, { method: "POST", body: "{}" })).status, 200);
+  assert.deepEqual(
+    requests.map((request) => new URL(request.url).origin),
+    [
+      "https://xtwxmdbobehovnghfkes.supabase.co",
+      "https://global-party.example",
+      "https://xtwxmdbobehovnghfkes.supabase.co",
+    ],
+  );
+});
+
 test("the Supabase relay never returns a truncated successful body after an abort", async () => {
   let cancelled = false;
   const stream = new ReadableStream<Uint8Array>({
@@ -228,6 +268,14 @@ test("map RPC retries are bounded, jittered, and limited to transient failures",
   assert.equal(isTransientMapRequestError({ code: "57P01" }), true);
   assert.equal(isTransientMapRequestError({ code: "08006" }), true);
   assert.equal(isTransientMapRequestError({ code: "PGRST001" }), true);
+  assert.equal(
+    isTransientMapRequestError({
+      status: 504,
+      code: "SUPABASE_PROXY_TIMEOUT",
+      message: "Supabase proxy timed out",
+    }),
+    false,
+  );
 });
 
 test("map RPC retries never repeat aborted or permanent requests", async () => {
