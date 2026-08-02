@@ -132,7 +132,8 @@ function syncAdaptiveMapRendering(
     `    try {
       map = new maplibregl.Map({
         container: activeMapContainer,
-        style: PRIMARY_MAP_STYLE,
+        style: mapAssetProxyUrl(PRIMARY_MAP_STYLE) ?? PRIMARY_MAP_STYLE,
+        transformRequest: transformMapAssetRequest,
         center: initialCamera.center,
         zoom: initialCamera.zoom,
         clickTolerance: 8,
@@ -144,7 +145,8 @@ function syncAdaptiveMapRendering(
     try {
       map = new maplibregl.Map({
         container: activeMapContainer,
-        style: PRIMARY_MAP_STYLE,
+        style: mapAssetProxyUrl(PRIMARY_MAP_STYLE) ?? PRIMARY_MAP_STYLE,
+        transformRequest: transformMapAssetRequest,
         center: initialCamera.center,
         zoom: initialCamera.zoom,
         pitch: allow3DBuildings && initialCamera.zoom >= MAP_3D_BUILDING_MIN_ZOOM ? 45 : 0,
@@ -277,6 +279,11 @@ test("slow devices avoid antialiasing, pitch and decorative map effects", () => 
   assert.match(map, /hardwareConcurrency/);
   assert.match(map, /deviceMemory/);
   assert.match(map, /canvasContextAttributes: \\{ antialias: allow3DBuildings \\}/);
+});
+
+test("adaptive rendering preserves proxied style and asset request routing", () => {
+  assert.match(map, /style: mapAssetProxyUrl\\(PRIMARY_MAP_STYLE\\) \\?\\? PRIMARY_MAP_STYLE/);
+  assert.match(map, /transformRequest: transformMapAssetRequest/);
 });
 
 test("point sources cap worker tile generation and reduce buffer work", () => {
