@@ -21,15 +21,25 @@ export function normalizeMapAssetTarget(value: string): string | null {
   }
 }
 
+function shouldLoadMapAssetDirect(target: URL): boolean {
+  if (DIRECT_MAP_ASSET_HOSTS.has(target.hostname)) return true;
+
+  // The primary style, sprites and vector tiles are on the critical render
+  // path. Load them directly so a Worker-to-provider DNS or timeout failure
+  // cannot leave the map blank. Font glyphs may still use the same-origin
+  // cache because missing labels do not block the basemap itself.
+  return target.hostname === "tiles.openfreemap.org" && !target.pathname.startsWith("/fonts/");
+}
+
 /**
- * Keeps vector styles, sprites, glyphs and vector tiles on the application
- * origin. Raster OpenStreetMap tiles remain direct so the emergency fallback
- * cannot be blocked by a saturated Worker proxy.
+ * Validates known public map hosts and only proxies non-critical font glyphs.
+ * OpenFreeMap styles, sprites and vector tiles, plus the OSM raster fallback,
+ * load directly in the browser.
  */
 export function mapAssetProxyUrl(value: string): string | null {
   const target = normalizeMapAssetTarget(value);
   if (!target) return null;
-  if (DIRECT_MAP_ASSET_HOSTS.has(new URL(target).hostname)) return null;
+  if (shouldLoadMapAssetDirect(new URL(target))) return null;
   return `${MAP_ASSET_PROXY_ROUTE}?url=${encodeURIComponent(target)}`;
 }
 

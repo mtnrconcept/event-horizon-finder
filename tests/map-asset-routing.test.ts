@@ -3,10 +3,21 @@ import test from "node:test";
 
 import { mapAssetProxyUrl, normalizeMapAssetTarget } from "../src/lib/map-asset-proxy.ts";
 
-test("OpenFreeMap assets continue through the same-origin cache", () => {
+test("OpenFreeMap font glyphs may continue through the same-origin cache", () => {
   const glyph = "https://tiles.openfreemap.org/fonts/Open%20Sans%20Regular/0-255.pbf";
   assert.equal(normalizeMapAssetTarget(glyph), glyph);
   assert.equal(mapAssetProxyUrl(glyph), `/api/map-assets?url=${encodeURIComponent(glyph)}`);
+});
+
+test("OpenFreeMap style and vector render assets bypass the Worker proxy", () => {
+  for (const asset of [
+    "https://tiles.openfreemap.org/styles/positron",
+    "https://tiles.openfreemap.org/styles/positron/sprite.json",
+    "https://tiles.openfreemap.org/planet/7/65/43.pbf",
+  ]) {
+    assert.equal(normalizeMapAssetTarget(asset), asset);
+    assert.equal(mapAssetProxyUrl(asset), null);
+  }
 });
 
 test("OpenStreetMap raster fallback bypasses the Worker proxy", () => {
