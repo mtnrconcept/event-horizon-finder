@@ -17,9 +17,11 @@ test("production deploy applies and verifies the POI runtime", () => {
   assert.match(workflow, /tests\/poi-map-layer\.test\.ts/);
 });
 
-test("the POI applicator is safe after the rendered JSX shape changes", () => {
+test("the POI applicator tolerates already-transformed runtime shapes", () => {
   assert.match(applicator, /committedPoiRuntimeMarkers/);
+  assert.match(applicator, /countCompactOccurrences/);
+  assert.match(applicator, /combined visible total/);
+  assert.match(applicator, /combined loaded count/);
   assert.match(applicator, /place result list integration/);
   assert.match(applicator, /Skipping obsolete/);
-  assert.match(applicator, /countCompactOccurrences/);
 });
