@@ -1,0 +1,137 @@
+name: Materialize map runtime
+
+on:
+  push:
+    branches: [refactor/map-source-parity]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-map-runtime
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: https://ci-placeholder.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      SITE_URL: https://preview.example.com
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refactor/map-source-parity
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply production source transformations
+        run: |
+          set -euo pipefail
+          node scripts/apply-place-scraper-enrichment.mjs
+          node scripts/apply-progressive-basemap.mjs
+          node scripts/apply-today-default-fullscreen-intro.mjs
+          node scripts/apply-map-mobile-performance-and-poi-filters.mjs
+          node scripts/apply-poi-map-layer.mjs
+          node scripts/apply-home-place-search.mjs
+          node scripts/apply-map-consistency-performance.mjs
+          node scripts/apply-adaptive-map-rendering.mjs
+          node scripts/apply-place-scraper-enrichment.mjs
+
+      - name: Format generated source
+        run: bunx prettier --write src scripts tests .github/workflows/deploy-production.yml
+
+      - name: Remove deployment-time mutations
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = '.github/workflows/deploy-production.yml';
+          let source = fs.readFileSync(path, 'utf8');
+          source = source.replace(/\n      - name: Apply place scraper enrichment source[\s\S]*?\n      - name: Set up Supabase CLI/, '\n      - name: Set up Supabase CLI');
+          source = source.replace(/\n      - name: Apply generated discovery and map patches[\s\S]*?\n      - name: Verify generated map runtime/, '\n      - name: Verify generated map runtime');
+          fs.writeFileSync(path, source);
+          NODE
+
+      - name: Add source parity guard
+        run: |
+          cat > scripts/check-map-source-parity.mjs <<'EOF'
+          import { mkdtemp, cp, rm } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { spawnSync } from 'node:child_process';
+
+          const root = process.cwd();
+          const temp = await mkdtemp(join(tmpdir(), 'map-parity-'));
+          const paths = ['src', 'scripts', 'tests'];
+          for (const path of paths) await cp(join(root, path), join(temp, path), { recursive: true });
+          const scripts = [
+            'apply-place-scraper-enrichment.mjs',
+            'apply-progressive-basemap.mjs',
+            'apply-today-default-fullscreen-intro.mjs',
+            'apply-map-mobile-performance-and-poi-filters.mjs',
+            'apply-poi-map-layer.mjs',
+            'apply-home-place-search.mjs',
+            'apply-map-consistency-performance.mjs',
+            'apply-adaptive-map-rendering.mjs',
+            'apply-place-scraper-enrichment.mjs',
+          ];
+          for (const script of scripts) {
+            const result = spawnSync(process.execPath, [join(temp, 'scripts', script)], { cwd: temp, stdio: 'inherit' });
+            if (result.status !== 0) process.exit(result.status ?? 1);
+          }
+          const diff = spawnSync('diff', ['-ru', join(root, 'src'), join(temp, 'src')], { encoding: 'utf8' });
+          const testDiff = spawnSync('diff', ['-ru', join(root, 'tests'), join(temp, 'tests')], { encoding: 'utf8' });
+          await rm(temp, { recursive: true, force: true });
+          if (diff.status === 1 || testDiff.status === 1) {
+            process.stderr.write(diff.stdout || '');
+            process.stderr.write(testDiff.stdout || '');
+            throw new Error('Map applicators still mutate committed runtime sources');
+          }
+          if ((diff.status ?? 0) > 1 || (testDiff.status ?? 0) > 1) throw new Error('Unable to compare generated runtime');
+          EOF
+
+      - name: Wire parity guard into quality workflows
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const path of ['.github/workflows/quality-gate.yml', '.github/workflows/performance-quality.yml']) {
+            if (!fs.existsSync(path)) continue;
+            let source = fs.readFileSync(path, 'utf8');
+            if (source.includes('Check committed map runtime parity')) continue;
+            const marker = '      - name: ESLint\n';
+            const step = '      - name: Check committed map runtime parity\n        run: node scripts/check-map-source-parity.mjs\n\n';
+            source = source.replace(marker, step + marker);
+            fs.writeFileSync(path, source);
+          }
+          NODE
+
+      - name: Validate materialized runtime
+        run: |
+          node scripts/check-map-source-parity.mjs
+          bun run lint
+          bun run build
+          bun run typecheck
+          node --test tests/map-*.test.ts tests/poi-map-layer.test.ts tests/place-*.test.ts
+
+      - name: Commit materialized runtime
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src scripts tests .github/workflows
+          git commit -m 'refactor(map): commit generated runtime and remove deploy mutations'
+          git push origin HEAD:refactor/map-source-parity
