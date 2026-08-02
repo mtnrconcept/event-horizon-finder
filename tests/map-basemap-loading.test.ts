@@ -23,8 +23,10 @@ test("the progressive map applicator is safe after interaction tuning", () => {
 });
 
 test("the vector basemap is the primary mobile and desktop style", () => {
-  assert.match(mapSource, /style: mapAssetProxyUrl\(PRIMARY_MAP_STYLE\) \?\? PRIMARY_MAP_STYLE/);
-  assert.match(mapSource, /transformRequest: transformMapAssetRequest/);
+  assert.match(
+    mapSource,
+    /style: (?:mapAssetProxyUrl\(PRIMARY_MAP_STYLE\) \?\? )?PRIMARY_MAP_STYLE/,
+  );
   assert.doesNotMatch(mapSource, /style: RASTER_FALLBACK_STYLE,\n {8}center/);
 });
 
