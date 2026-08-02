@@ -42,7 +42,11 @@ function replaceAllExact(before, after, expectedCount, label) {
   const afterOccurrences = countCompactOccurrences(source, after);
   if (afterOccurrences === expectedCount) return;
   const occurrences = source.split(before).length - 1;
-  if (occurrences === 0 && ["combined visible total", "combined loaded count"].includes(label)) {
+  if (occurrences === 0 && [
+      "combined visible total",
+      "combined loaded count",
+      "place result list integration",
+    ].includes(label)) {
     console.log(`Skipping obsolete ${label} rewrite; the rendered counter shape has already changed.`);
     return;
   }
