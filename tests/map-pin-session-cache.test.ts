@@ -255,3 +255,54 @@ test("deduplicates abortable requests while consumers remain active", async () =
   );
   assert.equal(getSessionMapPinCacheStats().inFlight, 0);
 });
+
+test("a viewport that drops no pin reuses the cached batch object", async () => {
+  clearSessionMapPinCache();
+  const cachedBatch: CompactMapPinBatch = {
+    // Both pins sit well inside the region, so narrowing the viewport a little
+    // cannot drop either of them.
+    pins: [
+      ["event", "00000000-0000-4000-8000-00000000000a", 6.14, 46.2, "concert", 0, 0, "a", 1, 0],
+      ["event", "00000000-0000-4000-8000-00000000000b", 6.15, 46.21, "concert", 0, 0, "b", 1, 0],
+    ],
+    totalCount: 2,
+    freeCount: 0,
+    clustered: true,
+    clusterMode: "location",
+    truncated: false,
+  };
+  let calls = 0;
+  const fetchPins = async () => {
+    calls += 1;
+    return cachedBatch;
+  };
+
+  const first = await loadSessionMapPins({
+    cacheKey: "identity",
+    viewport: geneva,
+    zoom: 15,
+    fetchPins,
+  });
+  const narrowed = await loadSessionMapPins({
+    cacheKey: "identity",
+    viewport: { west: 6.1, south: 46.15, east: 6.2, north: 46.25 },
+    zoom: 15,
+    fetchPins,
+  });
+
+  assert.equal(calls, 1);
+  // Identity, not just equality: a fresh object would invalidate the memoised
+  // point collection and force a redundant MapLibre source update.
+  assert.equal(narrowed, first);
+
+  const clipped = await loadSessionMapPins({
+    cacheKey: "identity",
+    viewport: { west: 6.1, south: 46.15, east: 6.145, north: 46.205 },
+    zoom: 15,
+    fetchPins,
+  });
+  assert.equal(calls, 1);
+  assert.notEqual(clipped, first);
+  assert.equal(clipped.pins.length, 1);
+  assert.equal(clipped.totalCount, 1);
+});

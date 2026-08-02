@@ -105,6 +105,11 @@ function filterMapPinBatchToViewport(
   bounds: MapViewportBounds,
 ): CompactMapPinBatch {
   const pins = filterMapPinsToViewport(batch.pins, bounds);
+  // Panning inside a cached region usually drops nothing. Handing back the
+  // very same batch keeps its identity stable, so the memoised point
+  // collection, the batch signature and the MapLibre source update are all
+  // skipped instead of being recomputed for data that did not change.
+  if (pins.length === batch.pins.length) return batch;
   return {
     ...batch,
     pins,
