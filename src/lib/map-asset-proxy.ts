@@ -1,6 +1,7 @@
 const MAP_ASSET_PROXY_ROUTE = "/api/map-assets";
 
 const MAP_ASSET_HOSTS = new Set(["tiles.openfreemap.org", "tile.openstreetmap.org"]);
+const DIRECT_MAP_ASSET_HOSTS = new Set(["tile.openstreetmap.org"]);
 
 export function normalizeMapAssetTarget(value: string): string | null {
   try {
@@ -21,14 +22,14 @@ export function normalizeMapAssetTarget(value: string): string | null {
 }
 
 /**
- * Keeps all map style, sprite, glyph and tile traffic on the application
- * origin. It prevents a visitor's DNS resolver from having to establish a
- * separate connection to every third-party map host while still retaining a
- * strict upstream allowlist.
+ * Keeps vector styles, sprites, glyphs and vector tiles on the application
+ * origin. Raster OpenStreetMap tiles remain direct so the emergency fallback
+ * cannot be blocked by a saturated Worker proxy.
  */
 export function mapAssetProxyUrl(value: string): string | null {
   const target = normalizeMapAssetTarget(value);
   if (!target) return null;
+  if (DIRECT_MAP_ASSET_HOSTS.has(new URL(target).hostname)) return null;
   return `${MAP_ASSET_PROXY_ROUTE}?url=${encodeURIComponent(target)}`;
 }
 
