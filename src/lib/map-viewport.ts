@@ -54,6 +54,38 @@ export function mapViewportBoundsKey(bounds: MapViewportBounds): string {
     .join(":");
 }
 
+/**
+ * Server clusters do not need sub-pixel camera precision. At low zoom, snap
+ * the request outwards to a world-aligned cell so neighbouring pan/zoom end
+ * events reuse the same result instead of issuing a new RPC for every pixel.
+ */
+export function stabilizeMapClusterViewport(
+  bounds: MapViewportBounds,
+  zoom: number,
+): MapViewportBounds {
+  const normalized = normalizeMapViewportBounds(bounds);
+  if (!normalized || normalized.west > normalized.east || zoom >= 14) {
+    return normalized ?? bounds;
+  }
+
+  const cellCount = 2 ** Math.min(12, Math.max(0, Math.floor(zoom)));
+  const longitudeCell = 360 / cellCount;
+  const latitudeCell = 180 / cellCount;
+  const west = -180 + Math.floor((normalized.west + 180) / longitudeCell) * longitudeCell;
+  const east = -180 + Math.ceil((normalized.east + 180) / longitudeCell) * longitudeCell;
+  const south = -90 + Math.floor((normalized.south + 90) / latitudeCell) * latitudeCell;
+  const north = -90 + Math.ceil((normalized.north + 90) / latitudeCell) * latitudeCell;
+
+  return (
+    normalizeMapViewportBounds({
+      west,
+      south,
+      east,
+      north,
+    }) ?? normalized
+  );
+}
+
 export function isCoordinateInMapViewport(
   bounds: MapViewportBounds,
   longitude: number,

@@ -34,6 +34,7 @@ import { Route as OrganizerBillingRouteImport } from './routes/organizer/billing
 import { Route as OrganizerAdsRouteImport } from './routes/organizer/ads'
 import { Route as EventSlugRouteImport } from './routes/event.$slug'
 import { Route as ApiSupabaseReadProxyRouteImport } from './routes/api.supabase-read-proxy'
+import { Route as ApiMapAssetsRouteImport } from './routes/api.map-assets'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -160,6 +161,11 @@ const ApiSupabaseReadProxyRoute = ApiSupabaseReadProxyRouteImport.update({
   path: '/api/supabase-read-proxy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMapAssetsRoute = ApiMapAssetsRouteImport.update({
+  id: '/api/map-assets',
+  path: '/api/map-assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -178,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/terms': typeof TermsRoute
+  '/api/map-assets': typeof ApiMapAssetsRoute
   '/api/supabase-read-proxy': typeof ApiSupabaseReadProxyRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/ads': typeof OrganizerAdsRoute
@@ -205,6 +212,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/terms': typeof TermsRoute
+  '/api/map-assets': typeof ApiMapAssetsRoute
   '/api/supabase-read-proxy': typeof ApiSupabaseReadProxyRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/ads': typeof OrganizerAdsRoute
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/social': typeof SocialRoute
   '/terms': typeof TermsRoute
+  '/api/map-assets': typeof ApiMapAssetsRoute
   '/api/supabase-read-proxy': typeof ApiSupabaseReadProxyRoute
   '/event/$slug': typeof EventSlugRoute
   '/organizer/ads': typeof OrganizerAdsRoute
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/terms'
+    | '/api/map-assets'
     | '/api/supabase-read-proxy'
     | '/event/$slug'
     | '/organizer/ads'
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/terms'
+    | '/api/map-assets'
     | '/api/supabase-read-proxy'
     | '/event/$slug'
     | '/organizer/ads'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/social'
     | '/terms'
+    | '/api/map-assets'
     | '/api/supabase-read-proxy'
     | '/event/$slug'
     | '/organizer/ads'
@@ -344,6 +356,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SocialRoute: typeof SocialRoute
   TermsRoute: typeof TermsRoute
+  ApiMapAssetsRoute: typeof ApiMapAssetsRoute
   ApiSupabaseReadProxyRoute: typeof ApiSupabaseReadProxyRoute
   EventSlugRoute: typeof EventSlugRoute
   OrganizerAdsRoute: typeof OrganizerAdsRoute
@@ -532,6 +545,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSupabaseReadProxyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/map-assets': {
+      id: '/api/map-assets'
+      path: '/api/map-assets'
+      fullPath: '/api/map-assets'
+      preLoaderRoute: typeof ApiMapAssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -552,6 +572,7 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SocialRoute: SocialRoute,
   TermsRoute: TermsRoute,
+  ApiMapAssetsRoute: ApiMapAssetsRoute,
   ApiSupabaseReadProxyRoute: ApiSupabaseReadProxyRoute,
   EventSlugRoute: EventSlugRoute,
   OrganizerAdsRoute: OrganizerAdsRoute,
