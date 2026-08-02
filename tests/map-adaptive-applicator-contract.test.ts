@@ -20,3 +20,8 @@ test("adaptive projection reads tolerate transient missing projection state", ()
   assert.match(applicator, /currentProjection && currentProjection\.type !== targetProjection/);
   assert.doesNotMatch(applicator, /map\.getProjection\(\)\.type/);
 });
+
+test("adaptive rendering preserves the basemap tile-readiness cleanup", () => {
+  assert.match(applicator, /map\.off\("idle", handleMapIdle\)/);
+  assert.match(applicator, /map\.off\("zoomend", scheduleAdaptiveRendering\)/);
+});

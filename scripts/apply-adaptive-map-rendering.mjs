@@ -202,9 +202,11 @@ function syncAdaptiveMapRendering(
   mapSource = replaceOnce(
     mapSource,
     `      map.off("error", handleMapError);
+      map.off("idle", handleMapIdle);
       window.clearTimeout(fallbackTimer);
 `,
     `      map.off("error", handleMapError);
+      map.off("idle", handleMapIdle);
       map.off("zoomend", scheduleAdaptiveRendering);
       window.cancelAnimationFrame(adaptiveRenderingFrame);
       window.clearTimeout(fallbackTimer);

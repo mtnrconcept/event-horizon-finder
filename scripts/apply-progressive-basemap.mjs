@@ -53,21 +53,27 @@ const originalLoadingBlock = `    let primaryStyleLoaded = false;
       primaryStyleLoaded = true;
 `;
 const resilientLoadingBlock = `    let primaryStyleLoaded = false;
+    let primaryTilesReady = false;
     let rasterFallbackApplied = false;
     let primaryStyleErrorCount = 0;
     const markMapReady = () => {
       setReadyMap(map);
     };
     const applyRasterFallback = () => {
-      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      if (primaryTilesReady || rasterFallbackApplied) return;
       rasterFallbackApplied = true;
       map.setStyle(RASTER_FALLBACK_STYLE);
     };
     const fallbackTimer = window.setTimeout(applyRasterFallback, MAP_PRIMARY_STYLE_TIMEOUT_MS);
     const handleMapError = () => {
-      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      if (primaryTilesReady || rasterFallbackApplied) return;
       primaryStyleErrorCount += 1;
       if (primaryStyleErrorCount >= 3) applyRasterFallback();
+    };
+    const handleMapIdle = () => {
+      if (!primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryTilesReady = true;
+      window.clearTimeout(fallbackTimer);
     };
     // Prefer the vector style on every device. The former mobile-only public
     // raster path could leave a fully interactive but blank grey canvas when
@@ -79,9 +85,9 @@ const resilientLoadingBlock = `    let primaryStyleLoaded = false;
     map.once("render", markMapReady);
     map.on("load", markMapReady);
     map.on("error", handleMapError);
+    map.on("idle", handleMapIdle);
     map.on("style.load", () => {
       if (!rasterFallbackApplied) primaryStyleLoaded = true;
-      if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
 `;
 if (!source.includes("const applyRasterFallback = () =>")) {
   source = replaceOnce(
@@ -89,6 +95,64 @@ if (!source.includes("const applyRasterFallback = () =>")) {
     originalLoadingBlock,
     resilientLoadingBlock,
     "progressive basemap loading",
+  );
+}
+if (!source.includes("let primaryTilesReady = false;")) {
+  source = replaceOnce(
+    source,
+    `    let primaryStyleLoaded = false;
+    let rasterFallbackApplied = false;
+`,
+    `    let primaryStyleLoaded = false;
+    let primaryTilesReady = false;
+    let rasterFallbackApplied = false;
+`,
+    "primary basemap tile readiness",
+  );
+  source = replaceOnce(
+    source,
+    `      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      rasterFallbackApplied = true;
+`,
+    `      if (primaryTilesReady || rasterFallbackApplied) return;
+      rasterFallbackApplied = true;
+`,
+    "tile-aware basemap fallback",
+  );
+  source = replaceOnce(
+    source,
+    `      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryStyleErrorCount += 1;
+`,
+    `      if (primaryTilesReady || rasterFallbackApplied) return;
+      primaryStyleErrorCount += 1;
+`,
+    "tile-aware basemap error handling",
+  );
+  source = replaceOnce(
+    source,
+    `    map.on("load", markMapReady);
+    map.on("error", handleMapError);
+`,
+    `    const handleMapIdle = () => {
+      if (!primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryTilesReady = true;
+      window.clearTimeout(fallbackTimer);
+    };
+    map.on("load", markMapReady);
+    map.on("error", handleMapError);
+    map.on("idle", handleMapIdle);
+`,
+    "basemap idle readiness",
+  );
+  source = replaceOnce(
+    source,
+    `      if (!rasterFallbackApplied) primaryStyleLoaded = true;
+      if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
+`,
+    `      if (!rasterFallbackApplied) primaryStyleLoaded = true;
+`,
+    "premature basemap readiness",
   );
 }
 if (!source.includes('map.off("error", handleMapError);')) {
@@ -102,6 +166,17 @@ if (!source.includes('map.off("error", handleMapError);')) {
       window.clearTimeout(revealTimer);
 `,
     "basemap cleanup",
+  );
+}
+if (!source.includes('map.off("idle", handleMapIdle);')) {
+  source = replaceOnce(
+    source,
+    `      map.off("error", handleMapError);
+`,
+    `      map.off("error", handleMapError);
+      map.off("idle", handleMapIdle);
+`,
+    "basemap idle cleanup",
   );
 }
 await writeFile(mapPath, source);
@@ -191,6 +266,14 @@ test("raster fallback remains bounded and reacts to repeated style errors", () =
   assert.match(mapSource, /primaryStyleErrorCount >= 3/);
   assert.match(mapSource, /map\\.setStyle\\(RASTER_FALLBACK_STYLE\\)/);
   assert.match(mapSource, /map\\.off\\("error", handleMapError\\)/);
+});
+
+test("the vector basemap is accepted only after its tiles become idle", () => {
+  assert.match(mapSource, /let primaryTilesReady = false/);
+  assert.match(mapSource, /map\\.on\\("idle", handleMapIdle\\)/);
+  assert.match(mapSource, /if \\(primaryTilesReady \\|\\| rasterFallbackApplied\\) return/);
+  assert.doesNotMatch(mapSource, /if \\(primaryStyleLoaded\\) window\\.clearTimeout\\(fallbackTimer\\)/);
+  assert.match(mapSource, /map\\.off\\("idle", handleMapIdle\\)/);
 });
 
 test("the safety reveal does not keep a working canvas covered", () => {

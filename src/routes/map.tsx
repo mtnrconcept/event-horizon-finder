@@ -2213,21 +2213,27 @@ function MapPage() {
       return;
     }
     let primaryStyleLoaded = false;
+    let primaryTilesReady = false;
     let rasterFallbackApplied = false;
     let primaryStyleErrorCount = 0;
     const markMapReady = () => {
       setReadyMap(map);
     };
     const applyRasterFallback = () => {
-      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      if (primaryTilesReady || rasterFallbackApplied) return;
       rasterFallbackApplied = true;
       map.setStyle(RASTER_FALLBACK_STYLE);
     };
     const fallbackTimer = window.setTimeout(applyRasterFallback, MAP_PRIMARY_STYLE_TIMEOUT_MS);
     const handleMapError = () => {
-      if (primaryStyleLoaded || rasterFallbackApplied) return;
+      if (primaryTilesReady || rasterFallbackApplied) return;
       primaryStyleErrorCount += 1;
       if (primaryStyleErrorCount >= 3) applyRasterFallback();
+    };
+    const handleMapIdle = () => {
+      if (!primaryStyleLoaded || rasterFallbackApplied) return;
+      primaryTilesReady = true;
+      window.clearTimeout(fallbackTimer);
     };
     // Prefer the vector style on every device. The former mobile-only public
     // raster path could leave a fully interactive but blank grey canvas when
@@ -2239,9 +2245,9 @@ function MapPage() {
     map.once("render", markMapReady);
     map.on("load", markMapReady);
     map.on("error", handleMapError);
+    map.on("idle", handleMapIdle);
     map.on("style.load", () => {
       if (!rasterFallbackApplied) primaryStyleLoaded = true;
-      if (primaryStyleLoaded) window.clearTimeout(fallbackTimer);
       setReadyStyle((current) => ({
         map,
         revision: current?.map === map ? current.revision + 1 : 1,
@@ -2297,6 +2303,7 @@ function MapPage() {
       const center = map.getCenter();
       lastMapCameraRef.current = { center: [center.lng, center.lat], zoom: map.getZoom() };
       map.off("error", handleMapError);
+      map.off("idle", handleMapIdle);
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(revealTimer);
       window.cancelAnimationFrame(firstResizeFrame);

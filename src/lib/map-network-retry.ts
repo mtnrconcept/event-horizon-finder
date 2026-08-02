@@ -60,6 +60,7 @@ export function isTransientMapRequestError(error: unknown, signal?: AbortSignal)
   // Repeating it only multiplies load and delays the visible recovery path.
   if (
     code === "57014" ||
+    code.startsWith("SUPABASE_PROXY_") ||
     /statement timeout|canceling statement due to statement timeout/i.test(message)
   ) {
     return false;
