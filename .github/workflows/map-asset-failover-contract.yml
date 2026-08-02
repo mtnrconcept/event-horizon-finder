@@ -1,0 +1,27 @@
+name: Map asset failover contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/map-asset-failover-contract.yml"
+      - "src/lib/map-asset-proxy.ts"
+      - "src/lib/map-asset-proxy.server.ts"
+      - "tests/map-asset-proxy-failover.test.ts"
+      - "tests/map-asset-routing.test.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Verify map asset failover
+        run: node --test tests/map-asset-proxy-failover.test.ts tests/map-asset-routing.test.ts
