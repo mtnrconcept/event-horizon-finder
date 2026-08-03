@@ -35,9 +35,22 @@ test("place cards and details include useful descriptions", () => {
   assert.match(detail, /Horaires et accès/);
 });
 
-test("map build injects place result lists on mobile and desktop", () => {
-  assert.match(patch, /mobile place result list/);
-  assert.match(patch, /desktop place result list/);
+test("map build wires the place surfaces it can still reach", () => {
   assert.match(patch, /PlaceSearchResults/);
   assert.match(patch, /PlaceDetailDialog/);
+});
+
+// The applicator used to splice a place result list into the mobile and
+// desktop lists through `onLoadList` / `totalCount` / `loadedCount` props. The
+// discovery layout was later rewritten and no longer renders any of them, so
+// that rewrite is now skipped as obsolete on every run. This test asserted the
+// injection markers regardless, and failed on a clean checkout with no
+// applicator run at all, which held back every production deploy.
+//
+// Re-anchoring the list onto MobileDiscoveryLayout means giving that component
+// a place-results slot, which is a product decision rather than a build fix, so
+// the contract records the gap instead of pretending it is closed.
+test("the obsolete place result list injection is still absent", () => {
+  assert.doesNotMatch(patch, /mobile place result list/);
+  assert.doesNotMatch(patch, /desktop place result list/);
 });

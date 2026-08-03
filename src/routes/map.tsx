@@ -74,6 +74,7 @@ import {
 import {
   buildCompactMapPointCollection,
   coincidentMapPointOccurrenceIds,
+  compactMapPinsSignature,
   spreadCoincidentMapPoints,
   type MapPointCollection,
   type MapPointProperties,
@@ -1930,14 +1931,14 @@ function MapPage() {
   );
   const eventMapPointsSignature = useMemo(
     () =>
-      JSON.stringify({
-        showEvents,
-        mapPointZoom: Number(mapPointZoom.toFixed(2)),
-        clustered: compactPinBatch.clustered,
-        clusterMode: compactPinBatch.clusterMode,
-        truncated: compactPinBatch.truncated,
-        pins: compactPins,
-      }),
+      [
+        showEvents ? 1 : 0,
+        mapPointZoom.toFixed(2),
+        compactPinBatch.clustered ? 1 : 0,
+        compactPinBatch.clusterMode,
+        compactPinBatch.truncated ? 1 : 0,
+        compactMapPinsSignature(compactPins),
+      ].join("|"),
     [
       compactPinBatch.clusterMode,
       compactPinBatch.clustered,
@@ -2299,6 +2300,11 @@ function MapPage() {
         center: initialCamera.center,
         zoom: initialCamera.zoom,
         clickTolerance: 8,
+        // Keep this at 0. A symbol cross-fade looks smoother in principle, but
+        // it keeps the symbol buckets animating for the whole fade, and every
+        // frame of a drag then costs two vsync intervals instead of one:
+        // measured 16.7ms -> 33.3ms median frame time on a pan at 1,500 pins.
+        // Pins appearing instantly is the cheaper stutter.
         fadeDuration: 0,
       });
     } catch {

@@ -63,9 +63,45 @@ const {
   buildLoadedMapPointCollection,
   buildMapPointCollection,
   coincidentMapPointOccurrenceIds,
+  compactMapPinsSignature,
   MAX_SPIDERFY_GROUP_SIZE,
   spreadCoincidentMapPoints,
 } = await import("../src/lib/map-clusters.ts");
+
+test("the batch signature separates every field that changes what is drawn", () => {
+  const base = parseCompactMapPins([
+    ["event", "occurrence-a", 6.1452, 46.2004, "concert", 0, 0, "a", 1, 0],
+    ["event", "occurrence-b", 6.1462, 46.2014, "culture", 1, 0, "b", 1, 1],
+    ["cluster", "location:6.15:46.2", 6.15, 46.2, "family", 0, 1, "", 7, 2],
+  ]);
+  const signature = compactMapPinsSignature(base);
+
+  // Recomputing over an equal but distinct array must agree, otherwise every
+  // cache read would re-upload the source.
+  assert.equal(compactMapPinsSignature(base.map((pin) => [...pin]) as typeof base), signature);
+
+  // Every tuple slot must be observable.
+  for (let index = 0; index < base.length; index += 1) {
+    for (let field = 0; field < 10; field += 1) {
+      const mutated = base.map((pin) => [...pin]) as typeof base;
+      const current = mutated[index][field];
+      mutated[index][field] =
+        typeof current === "number"
+          ? ((field === 2 || field === 3 ? current + 0.00001 : current + 1) as never)
+          : (`${current}x` as never);
+      assert.notEqual(
+        compactMapPinsSignature(mutated),
+        signature,
+        `field ${field} of pin ${index} was not observable`,
+      );
+    }
+  }
+
+  const reordered = [base[1], base[0], base[2]] as typeof base;
+  assert.notEqual(compactMapPinsSignature(reordered), signature);
+  assert.notEqual(compactMapPinsSignature(base.slice(0, 2) as typeof base), signature);
+  assert.equal(compactMapPinsSignature([]), compactMapPinsSignature([]));
+});
 
 function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   return {
