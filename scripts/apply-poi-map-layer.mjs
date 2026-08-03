@@ -38,6 +38,11 @@ function countCompactOccurrences(haystack, needle) {
   return compactFragment(haystack).split(compactNeedle).length - 1;
 }
 
+// Rewrites the applicator is allowed to skip must not then be asserted by the
+// test it generates, or the deploy fails verifying an integration it chose not
+// to perform.
+const skippedRewrites = new Set();
+
 function replaceAllExact(before, after, expectedCount, label) {
   const afterOccurrences = countCompactOccurrences(source, after);
   if (afterOccurrences === expectedCount) return;
@@ -50,6 +55,7 @@ function replaceAllExact(before, after, expectedCount, label) {
       "place result list integration",
     ].includes(label)
   ) {
+    skippedRewrites.add(label);
     console.log(
       `Skipping obsolete ${label} rewrite; the rendered POI integration shape has already changed.`,
     );
@@ -262,7 +268,17 @@ insertBefore(
 
 await writeFile(mapPath, source);
 
-const testSource = `import assert from "node:assert/strict";
+const combinedCountersApplied =
+  !skippedRewrites.has("combined visible total") && !skippedRewrites.has("combined loaded count");
+
+// This file is a template, so every backslash the emitted regex needs has to
+// survive the template literal. Written as `\(` it reached the generated test
+// as `(`, which turned `if \(!mapPinDiscoveryParams\) \{` into a capture group
+// that could never match the code the applicator had just written correctly,
+// and `setEvents\(\[\]\)` into an empty character class. Use String.raw so the
+// emitted assertions are the ones intended.
+const testSource =
+  String.raw`import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -279,13 +295,20 @@ test("event requests are disabled and cleared in places-only mode", () => {
   assert.match(map, /eventModeEnabled && viewportBounds/);
   assert.match(map, /if \(!mapPinDiscoveryParams\) \{/);
   assert.match(map, /setCompactPinBatch\(EMPTY_MAP_PIN_BATCH\)/);
-  assert.match(map, /if \(!mapDiscoveryParams \|\| !listRequested\) \{/);
+  assert.match(map, /if \(!mapPinDiscoveryParams \|\| !listRequested\) \{/);
   assert.match(map, /setEvents\(\[\]\)/);
 });
-
+` +
+  // The combined counters live on props the modern discovery layout no longer
+  // renders, so the rewrite above is skipped. Asserting it anyway failed the
+  // deploy's own verification step on every run; the assertion is emitted only
+  // when the integration is actually present.
+  (combinedCountersApplied
+    ? String.raw`
 test("visible counters include event and place pins", () => {
   assert.match(map, /mapStats\.total_count \+ placeDiscovery\.pinBatch\.totalCount/);
   assert.match(map, /compactPins\.length \+ placeDiscovery\.pinBatch\.pins\.length/);
 });
-`;
+`
+    : "");
 await writeFile(testPath, testSource);
