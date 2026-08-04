@@ -19,7 +19,11 @@
 -- index-only scan. The default scale factor of 0.2 is far too lax for tables
 -- this size, so the hot map tables get tighter thresholds.
 
-create index concurrently if not exists events_map_grid_cover_idx
+-- Deliberately not CONCURRENTLY: `supabase db push` runs each migration inside
+-- a transaction, and a concurrent build cannot start in one. The index already
+-- exists on production, where this is a no-op; anywhere else it is built during
+-- a migration, which is the right time to hold the lock.
+create index if not exists events_map_grid_cover_idx
   on public.events (id) include (category_id, is_free)
   where is_demo = false
     and status in ('published', 'cancelled', 'postponed', 'sold_out');
