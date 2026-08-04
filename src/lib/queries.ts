@@ -368,9 +368,20 @@ export async function discoverMapEventsInBounds(
   });
   return runMapRequestWithRetry(
     async () => {
+      // v2 chooses the page before joining the venue, city, accessibility and
+      // ticket-offer columns that only the page needs. v1 joined them for the
+      // whole viewport first, which took 12s over a continent against a 3s
+      // anon statement timeout, and is what failed the list when zooming out.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_map_events_in_bounds_v1", args).retry(false);
-      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      const request = (supabase as any).rpc("discover_map_events_in_bounds_v2", args).retry(false);
+      let { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error && MAP_PIN_RPC_MISSING_CODES.includes(error.code ?? "")) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fallback = (supabase as any)
+          .rpc("discover_map_events_in_bounds_v1", args)
+          .retry(false);
+        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
+      }
       if (error) throw error;
       return (data ?? []) as DiscoveredEvent[];
     },

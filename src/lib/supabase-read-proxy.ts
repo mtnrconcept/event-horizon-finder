@@ -3,6 +3,7 @@ export const SUPABASE_READ_PROXY_TARGET_HEADER = "x-eventa-supabase-path";
 
 const MAP_READ_RPC_NAMES = new Set([
   "discover_map_events_in_bounds_v1",
+  "discover_map_events_in_bounds_v2",
   "discover_map_pins_in_bounds_v2",
   "discover_map_pins_in_bounds_v3",
   "discover_map_pins_in_bounds_v4",

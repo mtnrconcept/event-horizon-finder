@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, {
   type GeoJSONSource,
   type MapGeoJSONFeature,
@@ -330,6 +330,12 @@ export function usePlaceMapLayer({
   const clusterClickLockedRef = useRef(false);
   onSelectRef.current = onSelect;
   const collection = useMemo(() => buildPlaceFeatureCollection(pinBatch), [pinBatch]);
+  // The layers are created inside an animation frame, so they do not exist yet
+  // when the interaction effect below first runs. Without a signal that they
+  // have appeared, that effect bailed out on its `activeInteractiveLayers`
+  // check and never bound its handlers, which left every place pin inert:
+  // clusters would not expand and selecting a pin opened nothing.
+  const [layersRevision, setLayersRevision] = useState(0);
 
   useEffect(() => {
     if (!map || !ready || !map.isStyleLoaded()) return;
@@ -340,6 +346,7 @@ export function usePlaceMapLayer({
       frame = window.requestAnimationFrame(() => {
         if (!map.getCanvas().isConnected || !map.isStyleLoaded()) return;
         ensurePlaceSourceAndLayers(map, nextData, pinBatch.clustered);
+        setLayersRevision((revision) => revision + 1);
       });
     };
 
@@ -470,7 +477,7 @@ export function usePlaceMapLayer({
       unlockClusterClick();
       resetPointer();
     };
-  }, [enabled, map, ready, styleRevision]);
+  }, [enabled, layersRevision, map, ready, styleRevision]);
 }
 
 export function formatPlaceClusterCount(properties: Record<string, unknown>): string {
