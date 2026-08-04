@@ -54,3 +54,17 @@ test("the obsolete place result list injection is still absent", () => {
   assert.doesNotMatch(patch, /mobile place result list/);
   assert.doesNotMatch(patch, /desktop place result list/);
 });
+
+test("place interactions are bound to the map, not to layers resolved once", () => {
+  // The place layers are created inside an animation frame. An effect that
+  // resolved them up front and returned early when none existed bound nothing
+  // on first render, leaving every place pin inert: clusters did not expand
+  // and selecting a pin opened no card. Re-running as layers appear is not
+  // enough either - a later run that returns early would unbind the click
+  // handler and never restore it - so the handler is bound for the life of the
+  // map and resolves the enabled flag and the rendered layers at click time.
+  assert.match(layer, /if \(!map \|\| !ready\) return;/);
+  assert.match(layer, /if \(!enabledRef\.current\) return;/);
+  assert.match(layer, /const renderedLayers = interactiveLayers\.filter\(/);
+  assert.doesNotMatch(layer, /if \(!activeInteractiveLayers\.length\) return;/);
+});

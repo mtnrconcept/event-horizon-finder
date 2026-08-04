@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, {
   type GeoJSONSource,
   type MapGeoJSONFeature,
@@ -328,8 +328,16 @@ export function usePlaceMapLayer({
 }: UsePlaceMapLayerInput) {
   const onSelectRef = useRef(onSelect);
   const clusterClickLockedRef = useRef(false);
+  const enabledRef = useRef(enabled);
   onSelectRef.current = onSelect;
+  enabledRef.current = enabled;
   const collection = useMemo(() => buildPlaceFeatureCollection(pinBatch), [pinBatch]);
+  // The layers are created inside an animation frame, so they do not exist yet
+  // when the interaction effect below first runs. Without a signal that they
+  // have appeared, that effect bailed out on its `activeInteractiveLayers`
+  // check and never bound its handlers, which left every place pin inert:
+  // clusters would not expand and selecting a pin opened nothing.
+  const [layersRevision, setLayersRevision] = useState(0);
 
   useEffect(() => {
     if (!map || !ready || !map.isStyleLoaded()) return;
@@ -340,6 +348,7 @@ export function usePlaceMapLayer({
       frame = window.requestAnimationFrame(() => {
         if (!map.getCanvas().isConnected || !map.isStyleLoaded()) return;
         ensurePlaceSourceAndLayers(map, nextData, pinBatch.clustered);
+        setLayersRevision((revision) => revision + 1);
       });
     };
 
@@ -355,8 +364,18 @@ export function usePlaceMapLayer({
     };
   }, [collection, enabled, map, pinBatch.clustered, ready, styleRevision]);
 
+  // Bound to the map itself, not to a set of layers resolved once. The layers
+  // are created inside an animation frame, so an effect that resolved them up
+  // front and returned early when none existed never bound anything on first
+  // render, and every place pin stayed inert: clusters would not expand and
+  // selecting a pin opened no card. Re-running the effect as layers appear is
+  // not enough either, because any later run that returns early - a source
+  // update while the style is briefly not loaded - would unbind the handler
+  // and never restore it. Binding once for the life of the map and resolving
+  // both the enabled flag and the rendered layers at click time removes that
+  // whole class of failure.
   useEffect(() => {
-    if (!map || !ready || !enabled || !map.isStyleLoaded()) return;
+    if (!map || !ready) return;
 
     const interactiveLayers = [
       MAP_PLACE_CLIENT_CLUSTER_ID,
@@ -364,8 +383,6 @@ export function usePlaceMapLayer({
       MAP_PLACE_POINT_ID,
       MAP_PLACE_LABEL_ID,
     ] as const;
-    const activeInteractiveLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
-    if (!activeInteractiveLayers.length) return;
 
     let unlockTimer: number | null = null;
     const unlockClusterClick = () => {
@@ -397,7 +414,8 @@ export function usePlaceMapLayer({
     };
 
     const handleMapClick = async (event: MapMouseEvent) => {
-      const renderedLayers = activeInteractiveLayers.filter((layerId) => map.getLayer(layerId));
+      if (!enabledRef.current) return;
+      const renderedLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
       if (!renderedLayers.length) return;
       const features = map.queryRenderedFeatures(event.point, { layers: renderedLayers });
       if (!features.length) return;
@@ -460,17 +478,20 @@ export function usePlaceMapLayer({
     };
 
     map.on("click", handleMapClick);
-    activeInteractiveLayers.forEach((layerId) => map.on("mouseenter", layerId, setPointer));
-    activeInteractiveLayers.forEach((layerId) => map.on("mouseleave", layerId, resetPointer));
+    // Hover is layer scoped, so it can only be attached to layers that exist.
+    // It is cosmetic, and layersRevision re-runs this effect once they do.
+    const hoverLayers = interactiveLayers.filter((layerId) => map.getLayer(layerId));
+    hoverLayers.forEach((layerId) => map.on("mouseenter", layerId, setPointer));
+    hoverLayers.forEach((layerId) => map.on("mouseleave", layerId, resetPointer));
 
     return () => {
       map.off("click", handleMapClick);
-      activeInteractiveLayers.forEach((layerId) => map.off("mouseenter", layerId, setPointer));
-      activeInteractiveLayers.forEach((layerId) => map.off("mouseleave", layerId, resetPointer));
+      hoverLayers.forEach((layerId) => map.off("mouseenter", layerId, setPointer));
+      hoverLayers.forEach((layerId) => map.off("mouseleave", layerId, resetPointer));
       unlockClusterClick();
       resetPointer();
     };
-  }, [enabled, map, ready, styleRevision]);
+  }, [layersRevision, map, ready, styleRevision]);
 }
 
 export function formatPlaceClusterCount(properties: Record<string, unknown>): string {
