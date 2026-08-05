@@ -139,10 +139,19 @@ export function eventClusterTextSize(count: number): number {
   return steppedValue(count, CLUSTER_TEXT_STOPS);
 }
 
+function eventClusterNumericCountExpression(): ExpressionSpecification {
+  return [
+    "coalesce",
+    ["to-number", ["get", "event_count"]],
+    ["to-number", ["get", "point_count"]],
+    1,
+  ] as ExpressionSpecification;
+}
+
 export function eventClusterCircleRadiusExpression(): ExpressionSpecification {
   return [
     "step",
-    ["get", "event_count"],
+    eventClusterNumericCountExpression(),
     CLUSTER_RADIUS_STOPS[0][1],
     ...CLUSTER_RADIUS_STOPS.slice(1).flat(),
   ] as ExpressionSpecification;
@@ -151,14 +160,14 @@ export function eventClusterCircleRadiusExpression(): ExpressionSpecification {
 export function eventClusterTextSizeExpression(): ExpressionSpecification {
   return [
     "step",
-    ["get", "event_count"],
+    eventClusterNumericCountExpression(),
     CLUSTER_TEXT_STOPS[0][1],
     ...CLUSTER_TEXT_STOPS.slice(1).flat(),
   ] as ExpressionSpecification;
 }
 
 export function eventClusterCountExpression(): ExpressionSpecification {
-  return ["get", "event_count"] as ExpressionSpecification;
+  return eventClusterNumericCountExpression();
 }
 
 export function clusterExpansionTargetZoom(currentZoom: number, expansionZoom: number): number {

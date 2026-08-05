@@ -106,7 +106,12 @@ function ensurePlaceSourceAndLayers(
         "circle-radius": [
           "interpolate",
           ["linear"],
-          ["get", "place_total"],
+          [
+            "coalesce",
+            ["to-number", ["get", "place_total"]],
+            ["to-number", ["get", "point_count"]],
+            1,
+          ],
           2,
           24,
           50,
@@ -130,7 +135,12 @@ function ensurePlaceSourceAndLayers(
         "circle-radius": [
           "interpolate",
           ["linear"],
-          ["get", "place_total"],
+          [
+            "coalesce",
+            ["to-number", ["get", "place_total"]],
+            ["to-number", ["get", "point_count"]],
+            1,
+          ],
           2,
           18,
           50,
@@ -176,7 +186,7 @@ function ensurePlaceSourceAndLayers(
         "circle-radius": [
           "interpolate",
           ["linear"],
-          ["get", "place_count"],
+          ["coalesce", ["to-number", ["get", "place_count"]], 1],
           2,
           25,
           100,
@@ -200,7 +210,7 @@ function ensurePlaceSourceAndLayers(
         "circle-radius": [
           "interpolate",
           ["linear"],
-          ["get", "place_count"],
+          ["coalesce", ["to-number", ["get", "place_count"]], 1],
           2,
           19,
           100,

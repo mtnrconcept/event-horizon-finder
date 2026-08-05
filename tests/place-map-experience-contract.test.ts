@@ -21,6 +21,12 @@ test("places use server or client clustering, never both at once", () => {
   assert.match(layer, /getClusterExpansionZoom/);
 });
 
+test("place cluster radii tolerate missing aggregate counts", () => {
+  assert.match(layer, /\["to-number", \["get", "place_total"\]\]/);
+  assert.match(layer, /\["to-number", \["get", "point_count"\]\]/);
+  assert.match(layer, /\["to-number", \["get", "place_count"\]\]/);
+});
+
 test("one deterministic click handles clusters, pins and overlapping labels", () => {
   assert.match(layer, /queryRenderedFeatures/);
   assert.match(layer, /firstFeatureForLayer/);
