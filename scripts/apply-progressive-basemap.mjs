@@ -209,54 +209,17 @@ const originalQueryChain = `      // Keep the cast at the additive RPC rollout b
       }
 `;
 const upgradedQueryChain = `      // Keep the cast at the additive RPC rollout boundary until generated
-      // database types include v7.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const request = (supabase as any).rpc("discover_map_pins_in_bounds_v7", args).retry(false);
-      let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      for (const fallbackVersion of ["v6", "v5", "v4", "v3", "v2"] as const) {
-        if (!error || !["42883", "PGRST202"].includes(error.code ?? "")) break;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fallback = (supabase as any)
-          .rpc(\`discover_map_pins_in_bounds_\${fallbackVersion}\`, args)
-          .retry(false);
-        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
-      }
-`;
-if (!queries.includes('rpc("discover_map_pins_in_bounds_v7"')) {
-  queries = replaceOnce(
-    queries,
-    originalQueryChain,
-    upgradedQueryChain,
-    "complete v7 map pin fallback chain",
-  );
-}
-
-// Walking every historical version turned a deploy that lands before its
-// migration into six serial round trips on every pin request. Sources that
-// still carry the v7 walk are upgraded to request v8 with one fallback, so the
-// generated runtime ends up on the same contract as the checked-in source
-// instead of contradicting it.
-const boundedQueryChain = `      // Keep the cast at the additive RPC rollout boundary until generated
       // database types include v8.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const request = (supabase as any).rpc("discover_map_pins_in_bounds_v8", args).retry(false);
-      let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      // One fallback covers the only window that matters: a client deploy that
-      // reaches users before its migration reaches the database.
-      if (error && ["42883", "PGRST202"].includes(error.code ?? "")) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fallback = (supabase as any)
-          .rpc("discover_map_pins_in_bounds_v7", args)
-          .retry(false);
-        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
-      }
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
 `;
 if (!queries.includes('rpc("discover_map_pins_in_bounds_v8"')) {
   queries = replaceOnce(
     queries,
+    originalQueryChain,
     upgradedQueryChain,
-    boundedQueryChain,
-    "bounded v8 map pin fallback chain",
+    "single v8 map pin transport",
   );
 }
 await writeFile(queriesPath, queries);

@@ -18,7 +18,7 @@ test("the progressive map applicator is safe after interaction tuning", () => {
   );
   assert.match(
     applicatorSource,
-    /if \(!queries\.includes\('rpc\("discover_map_pins_in_bounds_v7"'\)\)/,
+    /if \(!queries\.includes\('rpc\("discover_map_pins_in_bounds_v8"'\)\)/,
   );
 });
 
@@ -78,8 +78,7 @@ test("no pin request is spent on the warmup camera", () => {
   assert.match(mapSource, /userCameraAppliedRef\.current = Boolean\(/);
 });
 
-test("the deployed map keeps a single rollout RPC fallback", () => {
+test("the deployed map keeps a single pin RPC transport", () => {
   assert.match(queriesSource, /discover_map_pins_in_bounds_v8/);
-  assert.match(queriesSource, /discover_map_pins_in_bounds_v7/);
-  assert.doesNotMatch(queriesSource, /\["v6", "v5", "v4", "v3", "v2"\]/);
+  assert.doesNotMatch(queriesSource, /discover_map_pins_in_bounds_v[2-7]/);
 });
