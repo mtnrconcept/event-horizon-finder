@@ -178,7 +178,7 @@ const MAP_WARMUP_CAMERA = { center: [6.14, 46.2] as [number, number], zoom: 2 };
 // Trailing debounce after the gesture has already ended, so the user is
 // waiting on it with a still camera. 560ms sat on top of the request itself;
 // 200ms still collapses the burst of moveend events a pinch produces.
-const MAP_VIEWPORT_REFRESH_DELAY_MS = 200;
+const MAP_VIEWPORT_REFRESH_DELAY_MS = 450;
 const MAP_PRIMARY_STYLE_TIMEOUT_MS = 3_500;
 const MAP_REVEAL_TIMEOUT_MS = 2_000;
 
@@ -1919,15 +1919,14 @@ function MapPage() {
   const mapReady = mapInstance !== null && readyMap === mapInstance;
   const { from, to } = useMemo(() => computeRange(range), [range]);
   const advancedCount = countAdvancedFilters(advancedFilters);
-  const mapPointZoom = compactPinBatch.clustered ? 0 : viewportZoom;
+  const mapPointZoom = compactPinBatch.clustered || loading ? 0 : viewportZoom;
+  const baseEventMapPoints = useMemo(
+    () => buildCompactMapPointCollection({ pins: compactPins, showEvents }),
+    [compactPins, showEvents],
+  );
   const eventMapPoints = useMemo(
-    () =>
-      spreadCoincidentMapPoints(
-        buildCompactMapPointCollection({ pins: compactPins, showEvents }),
-        mapPointZoom,
-        EVENT_CLUSTER_TERMINAL_ZOOM,
-      ),
-    [compactPins, mapPointZoom, showEvents],
+    () => spreadCoincidentMapPoints(baseEventMapPoints, mapPointZoom, EVENT_CLUSTER_TERMINAL_ZOOM),
+    [baseEventMapPoints, mapPointZoom],
   );
   const eventMapPointsSignature = useMemo(
     () =>
