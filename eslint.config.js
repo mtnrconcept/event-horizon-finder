@@ -39,6 +39,15 @@ export default tseslint.config(
   eslintPluginPrettier,
   {
     files: [
+      "src/components/ui/**/*.{ts,tsx}",
+      "src/lib/i18n.tsx",
+    ],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    files: [
       "scripts/apply-poi-map-layer.mjs",
       "scripts/apply-home-place-search.mjs",
       "scripts/apply-place-scraper-enrichment.mjs",
