@@ -38,10 +38,7 @@ export default tseslint.config(
   },
   eslintPluginPrettier,
   {
-    files: [
-      "src/components/ui/**/*.{ts,tsx}",
-      "src/lib/i18n.tsx",
-    ],
+    files: ["src/components/ui/**/*.{ts,tsx}", "src/lib/i18n.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
