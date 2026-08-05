@@ -37,10 +37,8 @@ function shouldLoadMapAssetDirect(target: URL): boolean {
  * load directly in the browser.
  */
 export function mapAssetProxyUrl(value: string): string | null {
-  const target = normalizeMapAssetTarget(value);
-  if (!target) return null;
-  if (shouldLoadMapAssetDirect(new URL(target))) return null;
-  return `${MAP_ASSET_PROXY_ROUTE}?url=${encodeURIComponent(target)}`;
+  // Retourne null pour forcer le chargement direct depuis openfreemap/osm
+  return null; 
 }
 
 export function isMapAssetRequestUrl(value: string): boolean {
