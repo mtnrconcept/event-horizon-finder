@@ -73,8 +73,7 @@ test("map pins stay compact and event content is loaded only on demand", () => {
   const route = readFileSync(new URL("../src/routes/map.tsx", import.meta.url), "utf8");
 
   assert.match(queries, /rpc\("discover_map_pins_in_bounds_v8"/);
-  assert.match(queries, /rpc\("discover_map_pins_in_bounds_v7"/);
-  assert.doesNotMatch(queries, /\["v6", "v5", "v4", "v3", "v2"\]/);
+  assert.doesNotMatch(queries, /discover_map_pins_in_bounds_v[2-7]/);
   assert.match(queries, /rpc\("get_map_occurrence_detail_v1"/);
   assert.match(route, /clusterLeafPageRequest/);
   assert.doesNotMatch(route, /loadAllClusterLeaves/);
@@ -102,12 +101,12 @@ test("the same-origin Supabase fallback is strictly read-only", () => {
   }
   assert.equal(isAllowedSupabaseReadProxyRequest("GET", "/rest/v1/private_secrets"), false);
   assert.equal(
-    isAllowedSupabaseReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v7"),
+    isAllowedSupabaseReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v8"),
     true,
   );
   assert.equal(
-    isAllowedSupabaseReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v5"),
-    true,
+    isAllowedSupabaseReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v7"),
+    false,
   );
   assert.equal(
     isAllowedSupabaseReadProxyRequest("POST", "/rest/v1/rpc/get_map_occurrence_detail_v1"),
@@ -206,7 +205,7 @@ test("map RPCs use one bounded same-origin transport instead of direct DNS then 
   });
 
   const response = await resilientFetch(
-    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v8",
     { method: "POST", body: JSON.stringify({ _zoom: 14 }) },
   );
 
@@ -219,9 +218,9 @@ test("map RPCs use one bounded same-origin transport instead of direct DNS then 
   assert.equal(requests[0]?.url, `https://global-party.example${SUPABASE_READ_PROXY_ROUTE}`);
   assert.equal(
     requests[0]?.headers.get(SUPABASE_READ_PROXY_TARGET_HEADER),
-    "/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+    "/rest/v1/rpc/discover_map_pins_in_bounds_v8",
   );
-  assert.equal(isMapReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v7"), true);
+  assert.equal(isMapReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v8"), true);
 });
 
 test("map assets are strictly allowlisted and rewritten to the application origin", () => {
