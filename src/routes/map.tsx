@@ -1925,12 +1925,7 @@ function MapPage() {
     [compactPins, showEvents],
   );
   const eventMapPoints = useMemo(
-    () =>
-      spreadCoincidentMapPoints(
-        baseEventMapPoints,
-        mapPointZoom,
-        EVENT_CLUSTER_TERMINAL_ZOOM,
-      ),
+    () => spreadCoincidentMapPoints(baseEventMapPoints, mapPointZoom, EVENT_CLUSTER_TERMINAL_ZOOM),
     [baseEventMapPoints, mapPointZoom],
   );
   const eventMapPointsSignature = useMemo(
