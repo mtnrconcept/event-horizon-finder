@@ -325,7 +325,7 @@ export async function discoverMapEvents(p: DiscoverParams): Promise<DiscoveredEv
 }
 
 /** PostgREST codes meaning the RPC overload itself is not published yet. */
-const MAP_PIN_RPC_MISSING_CODES = ["42883", "PGRST202"];
+const MAP_EVENT_RPC_MISSING_CODES = ["42883", "PGRST202"];
 
 /** Returns zoom-aware aggregate markers or individual pins for the current viewport. */
 export async function discoverMapPinsInBounds(
@@ -340,18 +340,9 @@ export async function discoverMapPinsInBounds(
       // database types include v8.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const request = (supabase as any).rpc("discover_map_pins_in_bounds_v8", args).retry(false);
-      let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      // A single fallback covers the only window that matters: a deploy that
-      // reaches the client before its migration reaches the database. Walking
-      // every historical version instead turned that window into six serial
-      // round trips on every pin request.
-      if (error && MAP_PIN_RPC_MISSING_CODES.includes(error.code ?? "")) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fallback = (supabase as any).rpc("discover_map_pins_in_bounds_v7", args).retry(false);
-        ({ data, error } = await (signal ? fallback.abortSignal(signal) : fallback));
-      }
-      if (!error) return parseCompactMapPinBatch(data);
-      throw error;
+      const { data, error } = await (signal ? request.abortSignal(signal) : request);
+      if (error) throw error;
+      return parseCompactMapPinBatch(data);
     },
     { signal },
   );
@@ -375,7 +366,7 @@ export async function discoverMapEventsInBounds(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const request = (supabase as any).rpc("discover_map_events_in_bounds_v2", args).retry(false);
       let { data, error } = await (signal ? request.abortSignal(signal) : request);
-      if (error && MAP_PIN_RPC_MISSING_CODES.includes(error.code ?? "")) {
+      if (error && MAP_EVENT_RPC_MISSING_CODES.includes(error.code ?? "")) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fallback = (supabase as any)
           .rpc("discover_map_events_in_bounds_v1", args)
