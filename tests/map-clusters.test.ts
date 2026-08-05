@@ -139,23 +139,23 @@ function event(overrides: Partial<DiscoveredEvent> = {}): DiscoveredEvent {
   };
 }
 
+test("event cluster style expressions tolerate missing aggregate counts", () => {
+  const expectedCount = [
+    "coalesce",
+    ["to-number", ["get", "event_count"]],
+    ["to-number", ["get", "point_count"]],
+    1,
+  ];
+
+  assert.deepEqual(eventClusterCountExpression(), expectedCount);
+  assert.deepEqual(eventClusterCircleRadiusExpression().slice(0, 2), ["step", expectedCount]);
+  assert.deepEqual(eventClusterTextSizeExpression().slice(0, 2), ["step", expectedCount]);
+});
+
 test("builds a lightweight event-only GeoJSON feature with its category visual", () => {
   const points = buildMapPointCollection({
     events: [event()],
     showEvents: true,
-  });
-
-  test("event cluster style expressions tolerate missing aggregate counts", () => {
-    const expectedCount = [
-      "coalesce",
-      ["to-number", ["get", "event_count"]],
-      ["to-number", ["get", "point_count"]],
-      1,
-    ];
-
-    assert.deepEqual(eventClusterCountExpression(), expectedCount);
-    assert.deepEqual(eventClusterCircleRadiusExpression().slice(0, 2), ["step", expectedCount]);
-    assert.deepEqual(eventClusterTextSizeExpression().slice(0, 2), ["step", expectedCount]);
   });
 
   assert.equal(points.type, "FeatureCollection");
