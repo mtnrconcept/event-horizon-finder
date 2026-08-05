@@ -205,7 +205,7 @@ test("map RPCs use one bounded same-origin transport instead of direct DNS then 
   });
 
   const response = await resilientFetch(
-    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+    "https://xtwxmdbobehovnghfkes.supabase.co/rest/v1/rpc/discover_map_pins_in_bounds_v8",
     { method: "POST", body: JSON.stringify({ _zoom: 14 }) },
   );
 
@@ -218,9 +218,9 @@ test("map RPCs use one bounded same-origin transport instead of direct DNS then 
   assert.equal(requests[0]?.url, `https://global-party.example${SUPABASE_READ_PROXY_ROUTE}`);
   assert.equal(
     requests[0]?.headers.get(SUPABASE_READ_PROXY_TARGET_HEADER),
-    "/rest/v1/rpc/discover_map_pins_in_bounds_v7",
+    "/rest/v1/rpc/discover_map_pins_in_bounds_v8",
   );
-  assert.equal(isMapReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v7"), true);
+  assert.equal(isMapReadProxyRequest("POST", "/rest/v1/rpc/discover_map_pins_in_bounds_v8"), true);
 });
 
 test("map assets are strictly allowlisted and rewritten to the application origin", () => {
